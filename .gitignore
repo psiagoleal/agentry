@@ -1,0 +1,13 @@
+# Caminho relativo: .gitignore
+
+# Artefatos de build
+/target
+**/*.rs.bk
+
+# Configuração local/pessoal do Claude Code (caminhos absolutos da máquina) — não versionar
+.claude/settings.local.json
+
+# Segredos — nunca versionar (ver AGENTS.md §7); .env também consta no .claudeignore
+.env
+.env.*
+!.env.example

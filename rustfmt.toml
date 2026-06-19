@@ -1,0 +1,3 @@
+# Caminho relativo: rustfmt.toml
+edition = "2021"
+newline_style = "Unix"

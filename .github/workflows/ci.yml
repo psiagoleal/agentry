@@ -1,0 +1,26 @@
+# Caminho relativo: .github/workflows/ci.yml
+name: CI
+
+on:
+  push:
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-lint-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Formatação (rustfmt)
+        run: cargo fmt --all -- --check
+      - name: Lint (clippy)
+        run: cargo clippy --all-targets --all-features -- -D warnings
+      - name: Testes
+        run: cargo test --all --verbose
+      - name: Build release
+        run: cargo build --all --release

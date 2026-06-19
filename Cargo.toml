@@ -1,0 +1,16 @@
+# Caminho relativo: Cargo.toml
+[workspace]
+resolver = "2"
+members = ["crates/cli", "crates/core"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+authors = ["Iago Leal"]
+repository = "https://github.com/psiagoleal/agentry"
+rust-version = "1.79"
+
+# Lints compartilhados do workspace (qualidade desde o bootstrap).
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }

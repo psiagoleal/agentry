@@ -1,0 +1,25 @@
+# .claudeignore — perfil PESSOAL (open-source)
+# Mesmo em repositório público, segredos locais nunca entram no contexto.
+
+# --- Segredos ---
+.env
+.env.*
+*.pem
+*.key
+secrets.json
+
+# --- Padrões específicos do projeto ---
+# USER:BEGIN id=projeto-ignore
+# (adicione aqui ignores próprios do projeto; preservado em atualizações)
+# USER:END
+
+# --- Volumosos / gerados ---
+.venv/
+node_modules/
+__pycache__/
+target/
+build/
+dist/
+*.log
+coverage/
+.svelte-kit/
