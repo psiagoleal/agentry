@@ -1,9 +1,11 @@
 // Caminho relativo: crates/core/src/lib.rs
 //! Núcleo do `agentry` — o motor de execução do CLI agêntico.
 //!
-//! Nesta fase de bootstrap (MT-01) o crate expõe apenas um banner de versão. Os
-//! módulos de domínio — providers, transporte/egresso, router, tools, context
+//! Módulos implementados até aqui: [`model`] (tipos de domínio de mensagens/LLM,
+//! MT-02). Os demais — providers, transporte/egresso, router, tools, context
 //! manager — entram nos micro-tickets seguintes do roadmap (`docs/roadmap-v0.1.md`).
+
+pub mod model;
 
 /// Nome do produto.
 pub const NAME: &str = "agentry";

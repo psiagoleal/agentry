@@ -11,6 +11,11 @@ authors = ["Iago Leal"]
 repository = "https://github.com/psiagoleal/agentry"
 rust-version = "1.79"
 
+# Dependências compartilhadas (versões únicas por workspace).
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
 # Lints compartilhados do workspace (qualidade desde o bootstrap).
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
