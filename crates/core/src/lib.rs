@@ -2,10 +2,12 @@
 //! Núcleo do `agentry` — o motor de execução do CLI agêntico.
 //!
 //! Módulos implementados até aqui: [`model`] (tipos de domínio de mensagens/LLM,
-//! MT-02). Os demais — providers, transporte/egresso, router, tools, context
-//! manager — entram nos micro-tickets seguintes do roadmap (`docs/roadmap-v0.1.md`).
+//! MT-02) e [`provider`] (`trait LlmProvider` + mock, MT-03). Os demais —
+//! transporte/egresso, router, tools, context manager — entram nos micro-tickets
+//! seguintes do roadmap (`docs/roadmap-v0.1.md`).
 
 pub mod model;
+pub mod provider;
 
 /// Nome do produto.
 pub const NAME: &str = "agentry";
