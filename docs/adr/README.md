@@ -11,3 +11,4 @@ Registros de decisões estruturais (ver skill `adr-writer`). Use
 | [0002](0002-modelo-privacidade-egresso.md) | Modelo de privacidade/egresso e taxonomia de classes | Accepted |
 | [0003](0003-consumo-artefatos-profiles.md) | Consumo dos artefatos de política do `ai-coding-agent-profiles` | Proposed |
 | [0004](0004-postura-sinergia-open-source.md) | Postura de sinergia com projetos open-source | Proposed |
+| [0005](0005-portabilidade-cross-platform.md) | Portabilidade cross-platform (Linux, Windows, macOS) | Accepted |

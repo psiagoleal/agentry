@@ -9,7 +9,8 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build-lint-test:
+  # fmt e clippy são independentes de plataforma — um único SO basta (ADR-0005).
+  lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,6 +21,17 @@ jobs:
         run: cargo fmt --all -- --check
       - name: Lint (clippy)
         run: cargo clippy --all-targets --all-features -- -D warnings
+
+  # Testes e build rodam nos três SOs tier-1 (ADR-0005).
+  build-test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
       - name: Testes
         run: cargo test --all --verbose
       - name: Build release

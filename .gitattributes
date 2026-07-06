@@ -1,0 +1,14 @@
+# Caminho relativo: .gitattributes
+# Normaliza fins de linha (LF no repositório) — evita que CRLF no Windows quebre
+# `cargo fmt --check`. Ver ADR-0005 (portabilidade cross-platform).
+* text=auto eol=lf
+
+*.rs   text eol=lf
+*.toml text eol=lf
+*.md   text eol=lf
+*.yml  text eol=lf
+*.lock text eol=lf
+
+*.png binary
+*.jpg binary
+*.ico binary
