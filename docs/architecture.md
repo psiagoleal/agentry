@@ -20,7 +20,7 @@ flowchart TB
     Router --> Providers[Provider Layer<br/>trait LlmProvider]
     Providers --> Transport[[Transporte único auditável<br/>allowlist + audit log + redação]]
     Transport --> Anthropic[Anthropic]
-    Transport --> OpenAICompat[OpenAI-compatible<br/>vLLM, OpenRouter]
+    Transport --> OpenAICompat[OpenAI-compatible<br/>vLLM, OpenRouter, LiteLLM]
     Transport --> Ollama[Ollama local]
     Session --> Tools[Tool Registry<br/>fs, shell, search, edit]
     Session --> Skills[Skills Loader<br/>SKILL.md progressivo]
@@ -35,7 +35,7 @@ flowchart TB
 
 | Módulo | Responsabilidade | Referência |
 |---|---|---|
-| **Provider Layer** | `trait LlmProvider` (chat, stream, tool-calling, embeddings); adaptadores Anthropic / OpenAI-compatible / Ollama | ADR-0001 |
+| **Provider Layer** | `trait LlmProvider` (chat, stream, tool-calling, embeddings); adaptadores Anthropic / OpenAI-compatible (inclui gateways LiteLLM, sob classe declarada) / Ollama | ADR-0001, ADR-0006 |
 | **Transporte** | Único ponto de saída de rede: allowlist por perfil, *fail-closed*, redação de segredos, audit log, **zero telemetria** | ADR-0002 |
 | **Router / Policy** | Mapeia `task-class → (provider, modelo, classe de egresso)`; fallback por custo/latência/disponibilidade | ADR-0002, ADR-0003 |
 | **Agent Loop** | Laço ReAct (mensagem → tool-call → observação), streaming, orçamento de tokens | ADR-0001 |

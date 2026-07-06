@@ -139,12 +139,12 @@ contexto (ver skill `micro-ticket-planner`). Ordem pensada para que o **transpor
 
 ## Fase 5 — Demais providers
 
-### MT-15: Adapter OpenAI-compatible (vLLM/OpenRouter)
-- **Objetivo:** adapter para a API OpenAI-compatible sobre o Transporte (cobre vLLM e OpenRouter).
+### MT-15: Adapter OpenAI-compatible (vLLM/OpenRouter/LiteLLM)
+- **Objetivo:** adapter para a API OpenAI-compatible sobre o Transporte (cobre vLLM, OpenRouter e gateways LiteLLM).
 - **Arquivos no escopo:** `crates/core/src/provider/openai_compat.rs`.
-- **Critério de aceite:** teste com mock — chat/stream/tool-calling; classe de egresso respeitada (`cloud-opt-out`/allowlist).
+- **Critério de aceite:** teste com mock — chat/stream/tool-calling; classe de egresso respeitada (`cloud-opt-out`/allowlist); caso LiteLLM — endpoint de proxy com classe declarada funciona e **sem** classe declarada é bloqueado em perfil restritivo (fail-closed do ADR-0006).
 - **Fora de escopo:** Anthropic; UI.
-- **Depende de:** MT-07, MT-08 (mesmo padrão) · ADR-0001, ADR-0002.
+- **Depende de:** MT-07, MT-08 (mesmo padrão) · ADR-0001, ADR-0002, ADR-0006.
 
 ### MT-16: Adapter Anthropic (Messages API)
 - **Objetivo:** adapter Anthropic (Messages API, *tool use*, streaming SSE) sobre o Transporte.

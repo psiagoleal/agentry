@@ -12,3 +12,4 @@ Registros de decisões estruturais (ver skill `adr-writer`). Use
 | [0003](0003-consumo-artefatos-profiles.md) | Consumo dos artefatos de política do `ai-coding-agent-profiles` | Proposed |
 | [0004](0004-postura-sinergia-open-source.md) | Postura de sinergia com projetos open-source | Proposed |
 | [0005](0005-portabilidade-cross-platform.md) | Portabilidade cross-platform (Linux, Windows, macOS) | Accepted |
+| [0006](0006-litellm-fonte-de-modelos.md) | LiteLLM como fonte de modelos via adapter OpenAI-compatible | Accepted |
