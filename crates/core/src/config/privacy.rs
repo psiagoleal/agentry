@@ -69,6 +69,29 @@ impl EgressClass {
             .and_then(Profile::parse)
             .map_or(Self::LocalOnly, Profile::egress_class)
     }
+
+    /// Posição desta classe na ordem de **permissividade** crescente
+    /// (`local-only` < `cloud-opt-out` < `cloud-ok`).
+    ///
+    /// Esta ordenação é uma interpretação interna do `agentry` sobre a
+    /// taxonomia do SPEC §2.1 (não é, em si, parte do contrato de interop) e
+    /// serve só para decidir, em memória, se a classe ativa de uma sessão
+    /// cobre a classe mínima exigida por um destino (ver [`Self::permits`]).
+    #[must_use]
+    pub fn rank(self) -> u8 {
+        match self {
+            Self::LocalOnly => 0,
+            Self::CloudOptOut => 1,
+            Self::CloudOk => 2,
+        }
+    }
+
+    /// Indica se esta classe (a classe ativa de uma sessão) é permissiva o
+    /// bastante para alcançar um destino que exige, no mínimo, `required`.
+    #[must_use]
+    pub fn permits(self, required: Self) -> bool {
+        self.rank() >= required.rank()
+    }
 }
 
 #[cfg(test)]
@@ -116,6 +139,21 @@ mod tests {
     fn parse_tolera_apenas_espacos_nas_bordas() {
         assert_eq!(Profile::parse("  pessoal "), Some(Profile::Pessoal));
         assert_eq!(Profile::parse("pes soal"), None);
+    }
+
+    #[test]
+    fn permits_reflete_a_ordem_de_permissividade() {
+        assert!(EgressClass::LocalOnly.permits(EgressClass::LocalOnly));
+        assert!(!EgressClass::LocalOnly.permits(EgressClass::CloudOptOut));
+        assert!(!EgressClass::LocalOnly.permits(EgressClass::CloudOk));
+
+        assert!(EgressClass::CloudOptOut.permits(EgressClass::LocalOnly));
+        assert!(EgressClass::CloudOptOut.permits(EgressClass::CloudOptOut));
+        assert!(!EgressClass::CloudOptOut.permits(EgressClass::CloudOk));
+
+        assert!(EgressClass::CloudOk.permits(EgressClass::LocalOnly));
+        assert!(EgressClass::CloudOk.permits(EgressClass::CloudOptOut));
+        assert!(EgressClass::CloudOk.permits(EgressClass::CloudOk));
     }
 
     #[test]
