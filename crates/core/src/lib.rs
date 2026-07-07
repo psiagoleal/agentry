@@ -5,16 +5,17 @@
 //! MT-02), [`provider`] (`trait LlmProvider` + mock + adapter Ollama, MT-03/08),
 //! [`config`] (configuração em camadas + classe de privacidade, MT-04),
 //! [`egress`] (allowlist, audit log e redação de segredos, MT-05/06),
-//! [`transport`] (transporte HTTP único sobre `reqwest`, MT-07) e [`router`]
-//! (Router / Policy Engine — fecha a Fase 3, MT-09). Os demais — tools,
-//! context manager — entram nos micro-tickets seguintes do roadmap
-//! (`docs/roadmap-v0.1.md`).
+//! [`transport`] (transporte HTTP único sobre `reqwest`, MT-07), [`router`]
+//! (Router / Policy Engine, MT-09) e [`session`] (agent loop ReAct mínimo,
+//! MT-10 — abre a Fase 4). Os demais — tools reais, context manager — entram
+//! nos micro-tickets seguintes do roadmap (`docs/roadmap-v0.1.md`).
 
 pub mod config;
 pub mod egress;
 pub mod model;
 pub mod provider;
 pub mod router;
+pub mod session;
 pub mod transport;
 
 /// Nome do produto.
