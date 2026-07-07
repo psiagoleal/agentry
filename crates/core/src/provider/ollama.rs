@@ -1,0 +1,517 @@
+// Caminho relativo: crates/core/src/provider/ollama.rs
+//! Adapter Ollama (MT-08): primeiro provider real, local, sobre o Transporte
+//! único (MT-07).
+//!
+//! Fala com a API REST do Ollama (`POST {base_url}/api/chat`) exclusivamente
+//! através de [`Transport`] — este módulo nunca importa `reqwest` (ADR-0002);
+//! toda chamada passa pela allowlist e pelo audit log já existentes, então
+//! respeita a classe de egresso ativa (tipicamente `local-only`) sem lógica
+//! adicional aqui.
+//!
+//! O formato de fio do Ollama (`OllamaMessage`, `OllamaToolCall` etc.) é
+//! interno a este módulo — os tipos de domínio (`crate::model`) nunca vazam
+//! o formato de um provider específico (MT-02).
+
+use std::sync::Arc;
+
+use serde::{Deserialize, Serialize};
+
+use crate::model::{ContentBlock, Message, Role, StreamEvent, ToolCall, Usage};
+use crate::provider::{
+    BoxFuture, ChatRequest, ChatResponse, ChatStream, EmbeddingsRequest, EmbeddingsResponse,
+    LlmProvider, ProviderError, ToolSpec,
+};
+use crate::transport::{Transport, TransportError};
+
+/// Adapter para a API de chat do Ollama.
+pub struct OllamaProvider {
+    transport: Arc<Transport>,
+    base_url: String,
+}
+
+impl OllamaProvider {
+    /// Cria um adapter apontando para `base_url` (ex.: `http://localhost:11434`).
+    #[must_use]
+    pub fn new(transport: Arc<Transport>, base_url: impl Into<String>) -> Self {
+        Self {
+            transport,
+            base_url: base_url.into(),
+        }
+    }
+
+    fn chat_url(&self) -> String {
+        format!("{}/api/chat", self.base_url.trim_end_matches('/'))
+    }
+}
+
+// ---- Formato de fio da API Ollama (interno; não confundir com `crate::model`) ----
+
+#[derive(Serialize)]
+struct OllamaRequest<'a> {
+    model: &'a str,
+    messages: Vec<OllamaMessage>,
+    stream: bool,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    tools: Vec<OllamaTool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    options: Option<OllamaOptions>,
+}
+
+#[derive(Serialize)]
+struct OllamaOptions {
+    num_predict: u32,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+struct OllamaMessage {
+    role: String,
+    #[serde(default)]
+    content: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    tool_calls: Vec<OllamaToolCall>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct OllamaToolCall {
+    function: OllamaFunctionCall,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct OllamaFunctionCall {
+    name: String,
+    arguments: serde_json::Value,
+}
+
+#[derive(Serialize)]
+struct OllamaTool {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    function: OllamaToolFunction,
+}
+
+#[derive(Serialize)]
+struct OllamaToolFunction {
+    name: String,
+    description: String,
+    parameters: serde_json::Value,
+}
+
+/// Um "chunk" de `/api/chat`: idêntico em formato para resposta completa
+/// (`done: true` já na primeira e única mensagem) ou para cada linha NDJSON
+/// de uma resposta em streaming.
+#[derive(Deserialize, Debug, Default)]
+struct OllamaChatChunk {
+    #[serde(default)]
+    message: OllamaMessage,
+    #[serde(default)]
+    done: bool,
+    #[serde(default)]
+    prompt_eval_count: u64,
+    #[serde(default)]
+    eval_count: u64,
+}
+
+// ---- Conversões de/para os tipos de domínio (`crate::model`) ----
+
+fn role_to_ollama(role: Role) -> &'static str {
+    match role {
+        Role::System => "system",
+        Role::User => "user",
+        Role::Assistant => "assistant",
+        Role::Tool => "tool",
+    }
+}
+
+/// Achata os blocos de uma [`Message`] no formato de mensagem única do
+/// Ollama: texto e resultado de tool viram `content` (concatenados por
+/// `\n`); chamadas de tool viram `tool_calls`.
+fn message_to_ollama(message: &Message) -> OllamaMessage {
+    let mut content = String::new();
+    let mut tool_calls = Vec::new();
+    for block in &message.content {
+        match block {
+            ContentBlock::Text { text } => {
+                if !content.is_empty() {
+                    content.push('\n');
+                }
+                content.push_str(text);
+            }
+            ContentBlock::ToolCall(chamada) => tool_calls.push(OllamaToolCall {
+                function: OllamaFunctionCall {
+                    name: chamada.name.clone(),
+                    arguments: chamada.arguments.clone(),
+                },
+            }),
+            ContentBlock::ToolResult(resultado) => {
+                if !content.is_empty() {
+                    content.push('\n');
+                }
+                content.push_str(&resultado.content);
+            }
+        }
+    }
+    OllamaMessage {
+        role: role_to_ollama(message.role).to_string(),
+        content,
+        tool_calls,
+    }
+}
+
+fn tool_spec_to_ollama(spec: &ToolSpec) -> OllamaTool {
+    OllamaTool {
+        kind: "function",
+        function: OllamaToolFunction {
+            name: spec.name.clone(),
+            description: spec.description.clone(),
+            parameters: spec.input_schema.clone(),
+        },
+    }
+}
+
+/// Converte a mensagem final do Ollama em [`Message`] de domínio,
+/// sintetizando um `id` sequencial para cada `tool_call` — o Ollama não
+/// devolve identificador próprio para chamadas de tool.
+fn ollama_message_to_domain(msg: &OllamaMessage) -> Message {
+    let mut blocks = Vec::new();
+    if !msg.content.is_empty() {
+        blocks.push(ContentBlock::Text {
+            text: msg.content.clone(),
+        });
+    }
+    for (indice, chamada) in msg.tool_calls.iter().enumerate() {
+        blocks.push(ContentBlock::ToolCall(ToolCall {
+            id: format!("ollama-call-{indice}"),
+            name: chamada.function.name.clone(),
+            arguments: chamada.function.arguments.clone(),
+        }));
+    }
+    Message {
+        role: Role::Assistant,
+        content: blocks,
+    }
+}
+
+fn build_request<'a>(request: &'a ChatRequest, stream: bool) -> OllamaRequest<'a> {
+    OllamaRequest {
+        model: &request.model,
+        messages: request.messages.iter().map(message_to_ollama).collect(),
+        stream,
+        tools: request.tools.iter().map(tool_spec_to_ollama).collect(),
+        options: request.max_tokens.map(|n| OllamaOptions { num_predict: n }),
+    }
+}
+
+fn map_transport_error(err: TransportError) -> ProviderError {
+    match err {
+        TransportError::InvalidUrl(msg) => ProviderError::InvalidResponse(msg),
+        TransportError::Blocked(egress_err) => {
+            ProviderError::Network(format!("egresso bloqueado: {egress_err}"))
+        }
+        TransportError::Http(msg) => ProviderError::Network(msg),
+    }
+}
+
+impl LlmProvider for OllamaProvider {
+    fn name(&self) -> &str {
+        "ollama"
+    }
+
+    fn chat(&self, request: ChatRequest) -> BoxFuture<'_, Result<ChatResponse, ProviderError>> {
+        Box::pin(async move {
+            let body = serde_json::to_value(build_request(&request, false))
+                .expect("OllamaRequest sempre serializável");
+            let resposta = self
+                .transport
+                .post_json(&self.chat_url(), "chat", &body)
+                .await
+                .map_err(map_transport_error)?;
+
+            let chunk: OllamaChatChunk = serde_json::from_value(resposta)
+                .map_err(|e| ProviderError::InvalidResponse(e.to_string()))?;
+
+            Ok(ChatResponse {
+                message: ollama_message_to_domain(&chunk.message),
+                usage: Usage {
+                    input_tokens: chunk.prompt_eval_count,
+                    output_tokens: chunk.eval_count,
+                },
+            })
+        })
+    }
+
+    fn chat_stream(
+        &self,
+        request: ChatRequest,
+    ) -> BoxFuture<'_, Result<ChatStream, ProviderError>> {
+        Box::pin(async move {
+            let body = serde_json::to_value(build_request(&request, true))
+                .expect("OllamaRequest sempre serializável");
+            let mut linhas = self
+                .transport
+                .post_json_lines(&self.chat_url(), "chat_stream", &body)
+                .await
+                .map_err(map_transport_error)?;
+
+            let (tx, rx) = tokio::sync::mpsc::channel(16);
+            tokio::spawn(async move {
+                if tx.send(Ok(StreamEvent::MessageStart)).await.is_err() {
+                    return;
+                }
+
+                let mut proximo_id = 0usize;
+                while let Some(linha) = linhas.recv().await {
+                    let linha = match linha {
+                        Ok(l) => l,
+                        Err(e) => {
+                            let _ = tx.send(Err(map_transport_error(e))).await;
+                            return;
+                        }
+                    };
+                    let chunk: OllamaChatChunk = match serde_json::from_str(&linha) {
+                        Ok(c) => c,
+                        Err(e) => {
+                            let _ = tx
+                                .send(Err(ProviderError::InvalidResponse(e.to_string())))
+                                .await;
+                            return;
+                        }
+                    };
+
+                    if !chunk.message.content.is_empty() {
+                        let evento = StreamEvent::TextDelta {
+                            text: chunk.message.content.clone(),
+                        };
+                        if tx.send(Ok(evento)).await.is_err() {
+                            return;
+                        }
+                    }
+
+                    for chamada in &chunk.message.tool_calls {
+                        let id = format!("ollama-call-{proximo_id}");
+                        proximo_id += 1;
+                        let inicio = StreamEvent::ToolCallStart {
+                            id: id.clone(),
+                            name: chamada.function.name.clone(),
+                        };
+                        if tx.send(Ok(inicio)).await.is_err() {
+                            return;
+                        }
+                        let delta = StreamEvent::ToolCallDelta {
+                            id,
+                            delta: chamada.function.arguments.to_string(),
+                        };
+                        if tx.send(Ok(delta)).await.is_err() {
+                            return;
+                        }
+                    }
+
+                    if chunk.done {
+                        let fim = StreamEvent::MessageEnd {
+                            usage: Usage {
+                                input_tokens: chunk.prompt_eval_count,
+                                output_tokens: chunk.eval_count,
+                            },
+                        };
+                        let _ = tx.send(Ok(fim)).await;
+                        return;
+                    }
+                }
+            });
+
+            Ok(rx)
+        })
+    }
+
+    fn embeddings(
+        &self,
+        _request: EmbeddingsRequest,
+    ) -> BoxFuture<'_, Result<EmbeddingsResponse, ProviderError>> {
+        Box::pin(async move {
+            Err(ProviderError::Unsupported(
+                "OllamaProvider ainda não implementa /api/embed (fora do escopo do MT-08)".into(),
+            ))
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use super::*;
+    use crate::config::privacy::EgressClass;
+    use crate::egress::allowlist::{Allowlist, AllowlistEntry};
+    use crate::egress::audit::AuditEntry;
+    use crate::transport::AuditSink;
+
+    /// Sink de teste que descarta as entradas — os testes deste módulo já
+    /// são cobertos quanto a auditoria em `transport::tests`.
+    struct NoopSink;
+    impl AuditSink for NoopSink {
+        fn record(&self, _entry: AuditEntry) {}
+    }
+
+    /// Mesma técnica de mock HTTP mínimo do MT-07 (só `tokio::net`, sem lib
+    /// de mock nova): sobe um servidor que sempre devolve o corpo fixo dado.
+    async fn start_mock_server(
+        response_body: &'static str,
+    ) -> (std::net::SocketAddr, Arc<AtomicUsize>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind em porta efêmera deve funcionar");
+        let addr = listener
+            .local_addr()
+            .expect("socket deve ter endereço local");
+        let conexoes = Arc::new(AtomicUsize::new(0));
+        let contador = Arc::clone(&conexoes);
+
+        tokio::spawn(async move {
+            loop {
+                let Ok((mut socket, _)) = listener.accept().await else {
+                    break;
+                };
+                contador.fetch_add(1, Ordering::SeqCst);
+                tokio::spawn(async move {
+                    let mut buf = [0u8; 1024];
+                    let _ = socket.read(&mut buf).await;
+                    let resposta = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\
+                         Content-Length: {}\r\nConnection: close\r\n\r\n{}",
+                        response_body.len(),
+                        response_body
+                    );
+                    let _ = socket.write_all(resposta.as_bytes()).await;
+                    let _ = socket.shutdown().await;
+                });
+            }
+        });
+
+        (addr, conexoes)
+    }
+
+    fn transport_local_only(addr: std::net::SocketAddr) -> Arc<Transport> {
+        let allowlist = Allowlist::new(vec![AllowlistEntry::new(
+            addr.ip().to_string(),
+            EgressClass::LocalOnly,
+        )]);
+        Arc::new(Transport::new(
+            allowlist,
+            EgressClass::LocalOnly,
+            Some("empresa".into()),
+            Arc::new(NoopSink),
+        ))
+    }
+
+    #[tokio::test]
+    async fn chat_via_transporte_retorna_mensagem_e_uso() {
+        let (addr, _conexoes) = start_mock_server(
+            r#"{"message":{"role":"assistant","content":"Olá!"},"done":true,"prompt_eval_count":5,"eval_count":7}"#,
+        )
+        .await;
+        let provider = OllamaProvider::new(transport_local_only(addr), format!("http://{addr}"));
+
+        let resposta = provider
+            .chat(ChatRequest::new("llama3.1:8b", vec![Message::user("oi")]))
+            .await
+            .expect("chat deve funcionar via Transporte");
+
+        assert_eq!(resposta.message, Message::assistant("Olá!"));
+        assert_eq!(resposta.usage.input_tokens, 5);
+        assert_eq!(resposta.usage.output_tokens, 7);
+    }
+
+    #[tokio::test]
+    async fn chat_com_tool_call_sintetiza_id() {
+        let (addr, _conexoes) = start_mock_server(
+            r#"{"message":{"role":"assistant","content":"","tool_calls":[{"function":{"name":"fs_read","arguments":{"path":"Cargo.toml"}}}]},"done":true}"#,
+        )
+        .await;
+        let provider = OllamaProvider::new(transport_local_only(addr), format!("http://{addr}"));
+
+        let resposta = provider
+            .chat(ChatRequest::new(
+                "llama3.1:8b",
+                vec![Message::user("leia o manifesto")],
+            ))
+            .await
+            .expect("chat deve funcionar via Transporte");
+
+        assert_eq!(
+            resposta.message.content,
+            vec![ContentBlock::ToolCall(ToolCall {
+                id: "ollama-call-0".into(),
+                name: "fs_read".into(),
+                arguments: serde_json::json!({"path": "Cargo.toml"}),
+            })]
+        );
+    }
+
+    #[tokio::test]
+    async fn chat_stream_via_transporte_entrega_eventos_em_ordem() {
+        let corpo = "\
+            {\"message\":{\"role\":\"assistant\",\"content\":\"ola\"},\"done\":false}\n\
+            {\"message\":{\"role\":\"assistant\",\"content\":\" mundo\"},\"done\":false}\n\
+            {\"message\":{\"role\":\"assistant\",\"content\":\"\"},\"done\":true,\"prompt_eval_count\":3,\"eval_count\":4}\n";
+        let (addr, _conexoes) = start_mock_server(corpo).await;
+        let provider = OllamaProvider::new(transport_local_only(addr), format!("http://{addr}"));
+
+        let mut stream = provider
+            .chat_stream(ChatRequest::new("llama3.1:8b", vec![Message::user("oi")]))
+            .await
+            .expect("stream deve funcionar via Transporte");
+
+        let mut eventos = Vec::new();
+        while let Some(evento) = stream.recv().await {
+            eventos.push(evento.expect("mock não produz erro"));
+        }
+
+        assert_eq!(
+            eventos,
+            vec![
+                StreamEvent::MessageStart,
+                StreamEvent::TextDelta { text: "ola".into() },
+                StreamEvent::TextDelta {
+                    text: " mundo".into()
+                },
+                StreamEvent::MessageEnd {
+                    usage: Usage {
+                        input_tokens: 3,
+                        output_tokens: 4
+                    }
+                },
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn chat_respeita_local_only_e_bloqueia_sem_tocar_a_rede() {
+        let (addr, conexoes) = start_mock_server(r#"{"done":true}"#).await;
+        // Allowlist cadastra o host, mas exigindo uma classe de nuvem — a
+        // sessão local-only não deve conseguir alcançá-lo.
+        let allowlist = Allowlist::new(vec![AllowlistEntry::new(
+            addr.ip().to_string(),
+            EgressClass::CloudOk,
+        )]);
+        let transport = Arc::new(Transport::new(
+            allowlist,
+            EgressClass::LocalOnly,
+            Some("empresa".into()),
+            Arc::new(NoopSink),
+        ));
+        let provider = OllamaProvider::new(transport, format!("http://{addr}"));
+
+        let erro = provider
+            .chat(ChatRequest::new("llama3.1:8b", vec![Message::user("oi")]))
+            .await
+            .expect_err("sessão local-only não deve alcançar host cloud-ok");
+
+        assert!(matches!(erro, ProviderError::Network(_)));
+        assert_eq!(
+            conexoes.load(Ordering::SeqCst),
+            0,
+            "nenhuma conexão deveria ter sido aberta"
+        );
+    }
+}

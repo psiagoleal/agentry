@@ -15,7 +15,9 @@ name = "agentry_core"
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
-tokio = { workspace = true, features = ["sync"] }
+# "rt": Transport::post_json_lines (MT-08) faz tokio::spawn para bombear o
+# fluxo de linhas — passa a ser runtime, não só dev-dependency.
+tokio = { workspace = true, features = ["sync", "rt"] }
 reqwest = { workspace = true }
 
 [dev-dependencies]

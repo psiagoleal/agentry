@@ -3,15 +3,17 @@
 //!
 //! Define a [`LlmProvider`], a fronteira única pela qual o `agentry` conversa com
 //! modelos (ADR-0001): chat, chat com streaming, *tool-calling* (via
-//! [`ChatRequest::tools`] + blocos `ToolCall` na resposta) e embeddings. Os
-//! adapters reais (Ollama, OpenAI-compatible, Anthropic) entram nos MT-08/15/16,
-//! sempre por cima do transporte único auditável (ADR-0002); aqui só existem o
-//! contrato e o [`mock::MockProvider`] de teste.
+//! [`ChatRequest::tools`] + blocos `ToolCall` na resposta) e embeddings.
+//! [`mock::MockProvider`] é o provider de teste (MT-03); [`ollama::OllamaProvider`]
+//! é o primeiro provider real, local, sobre o transporte único (MT-08). Os
+//! demais adapters (OpenAI-compatible, Anthropic) entram nos MT-15/16, sempre
+//! por cima do mesmo transporte auditável (ADR-0002).
 //!
 //! A trait é *dyn-compatible* (o router do MT-09 precisa de despacho dinâmico):
 //! os métodos devolvem [`BoxFuture`] em vez de usar `async fn` nativo.
 
 pub mod mock;
+pub mod ollama;
 
 use std::future::Future;
 use std::pin::Pin;

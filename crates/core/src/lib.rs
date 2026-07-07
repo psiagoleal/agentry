@@ -2,12 +2,12 @@
 //! Núcleo do `agentry` — o motor de execução do CLI agêntico.
 //!
 //! Módulos implementados até aqui: [`model`] (tipos de domínio de mensagens/LLM,
-//! MT-02), [`provider`] (`trait LlmProvider` + mock, MT-03), [`config`]
-//! (configuração em camadas + classe de privacidade, MT-04), [`egress`]
-//! (allowlist, audit log e redação de segredos, MT-05/06) e [`transport`]
-//! (transporte HTTP único sobre `reqwest`, MT-07 — fecha a Fase 2). Os
-//! demais — router, tools, context manager — entram nos micro-tickets
-//! seguintes do roadmap (`docs/roadmap-v0.1.md`).
+//! MT-02), [`provider`] (`trait LlmProvider` + mock + adapter Ollama, MT-03/08),
+//! [`config`] (configuração em camadas + classe de privacidade, MT-04),
+//! [`egress`] (allowlist, audit log e redação de segredos, MT-05/06) e
+//! [`transport`] (transporte HTTP único sobre `reqwest`, MT-07). Os demais —
+//! router, tools, context manager — entram nos micro-tickets seguintes do
+//! roadmap (`docs/roadmap-v0.1.md`).
 
 pub mod config;
 pub mod egress;

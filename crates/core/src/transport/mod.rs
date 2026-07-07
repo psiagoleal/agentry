@@ -15,8 +15,17 @@
 //! TCP é aberta. Nenhum outro módulo deste crate deve importar `reqwest`
 //! diretamente — o teste `reqwest_e_usado_somente_no_modulo_de_transporte`,
 //! abaixo, garante isso lendo o próprio código-fonte do crate.
+//!
+//! Além do POST não-streaming ([`Transport::post_json`]), o transporte expõe
+//! [`Transport::post_json_lines`] para adapters com streaming (ex.: Ollama,
+//! MT-08): devolve o corpo da resposta como um fluxo de **linhas de texto
+//! bruto**, sem conhecer o formato de nenhum provider — a interpretação de
+//! cada linha (NDJSON, SSE etc.) é responsabilidade do adapter, mantendo o
+//! transporte agnóstico de provider (fora de escopo do MT-07).
 
 use std::sync::Arc;
+
+use tokio::sync::mpsc;
 
 use crate::config::privacy::EgressClass;
 use crate::egress::allowlist::{Allowlist, EgressError};
@@ -66,18 +75,22 @@ pub struct Transport {
 }
 
 impl Transport {
-    /// Cria um transporte com a política de egresso e o coletor de
-    /// auditoria dados.
+    /// Cria um transporte com a política de egresso e o coletor de auditoria
+    /// dados, construindo seu próprio `reqwest::Client` internamente.
+    ///
+    /// O tipo `reqwest::Client` deliberadamente **não** aparece na assinatura
+    /// pública: se aparecesse, qualquer módulo que construísse um
+    /// [`Transport`] (adapters, testes) precisaria importar `reqwest`
+    /// também, furando o invariante que este módulo existe para garantir.
     #[must_use]
     pub fn new(
-        client: reqwest::Client,
         allowlist: Allowlist,
         egress_class: EgressClass,
         profile: Option<String>,
         sink: Arc<dyn AuditSink>,
     ) -> Self {
         Self {
-            client,
+            client: reqwest::Client::new(),
             allowlist,
             egress_class,
             profile,
@@ -85,25 +98,10 @@ impl Transport {
         }
     }
 
-    /// Envia um POST com corpo JSON para `url`, sob a política de egresso ativa.
-    ///
-    /// Decide primeiro se o host de `url` é alcançável (allowlist); se não
-    /// for, devolve [`TransportError::Blocked`] **sem abrir conexão alguma**.
-    /// Toda tentativa — permitida ou bloqueada — gera uma [`AuditEntry`]
-    /// através do `sink` configurado.
-    ///
-    /// # Errors
-    ///
-    /// Devolve [`TransportError::InvalidUrl`] se `url` não puder ser
-    /// interpretada ou não tiver host; [`TransportError::Blocked`] se a
-    /// allowlist recusar o destino; [`TransportError::Http`] se a chamada de
-    /// rede falhar ou devolver status de erro.
-    pub async fn post_json(
-        &self,
-        url: &str,
-        task: &str,
-        body: &serde_json::Value,
-    ) -> Result<serde_json::Value, TransportError> {
+    /// Verifica a allowlist para `url` e emite o [`AuditEntry`] correspondente
+    /// (permitido ou bloqueado). Se permitido, devolve a URL já interpretada,
+    /// pronta para a chamada real — nenhuma conexão é aberta antes disto.
+    fn authorize(&self, url: &str, task: &str) -> Result<reqwest::Url, TransportError> {
         let parsed =
             reqwest::Url::parse(url).map_err(|e| TransportError::InvalidUrl(e.to_string()))?;
         let host = parsed
@@ -129,6 +127,30 @@ impl Transport {
             task,
         ));
 
+        Ok(parsed)
+    }
+
+    /// Envia um POST com corpo JSON para `url`, sob a política de egresso ativa.
+    ///
+    /// Decide primeiro se o host de `url` é alcançável (allowlist); se não
+    /// for, devolve [`TransportError::Blocked`] **sem abrir conexão alguma**.
+    /// Toda tentativa — permitida ou bloqueada — gera uma [`AuditEntry`]
+    /// através do `sink` configurado.
+    ///
+    /// # Errors
+    ///
+    /// Devolve [`TransportError::InvalidUrl`] se `url` não puder ser
+    /// interpretada ou não tiver host; [`TransportError::Blocked`] se a
+    /// allowlist recusar o destino; [`TransportError::Http`] se a chamada de
+    /// rede falhar ou devolver status de erro.
+    pub async fn post_json(
+        &self,
+        url: &str,
+        task: &str,
+        body: &serde_json::Value,
+    ) -> Result<serde_json::Value, TransportError> {
+        let parsed = self.authorize(url, task)?;
+
         let resposta = self
             .client
             .post(parsed)
@@ -148,6 +170,76 @@ impl Transport {
             .json::<serde_json::Value>()
             .await
             .map_err(|e| TransportError::Http(e.to_string()))
+    }
+
+    /// Envia um POST com corpo JSON para `url` e devolve o corpo da resposta
+    /// como um fluxo de linhas de texto não vazias, sob a mesma política de
+    /// egresso de [`Self::post_json`].
+    ///
+    /// Cada linha do canal é um trecho do corpo bruto da resposta (ex.: uma
+    /// linha NDJSON); o transporte não interpreta o conteúdo — isso é
+    /// responsabilidade do adapter que consome o fluxo. Uma tentativa
+    /// bloqueada aborta antes de abrir conexão, como em [`Self::post_json`].
+    ///
+    /// # Errors
+    ///
+    /// Mesmos casos de [`Self::post_json`]; erros que ocorrem depois de a
+    /// conexão ser aberta chegam como um item `Err` no canal devolvido, em
+    /// vez de no `Result` externo.
+    pub async fn post_json_lines(
+        &self,
+        url: &str,
+        task: &str,
+        body: &serde_json::Value,
+    ) -> Result<mpsc::Receiver<Result<String, TransportError>>, TransportError> {
+        let parsed = self.authorize(url, task)?;
+
+        let mut resposta = self
+            .client
+            .post(parsed)
+            .json(body)
+            .send()
+            .await
+            .map_err(|e| TransportError::Http(e.to_string()))?;
+
+        if !resposta.status().is_success() {
+            return Err(TransportError::Http(format!(
+                "status HTTP {}",
+                resposta.status()
+            )));
+        }
+
+        let (tx, rx) = mpsc::channel(16);
+        tokio::spawn(async move {
+            let mut buffer = String::new();
+            loop {
+                match resposta.chunk().await {
+                    Ok(Some(bytes)) => {
+                        buffer.push_str(&String::from_utf8_lossy(&bytes));
+                        while let Some(pos) = buffer.find('\n') {
+                            let linha = buffer[..pos].trim().to_string();
+                            buffer.drain(..=pos);
+                            if !linha.is_empty() && tx.send(Ok(linha)).await.is_err() {
+                                return;
+                            }
+                        }
+                    }
+                    Ok(None) => {
+                        let restante = buffer.trim().to_string();
+                        if !restante.is_empty() {
+                            let _ = tx.send(Ok(restante)).await;
+                        }
+                        return;
+                    }
+                    Err(e) => {
+                        let _ = tx.send(Err(TransportError::Http(e.to_string()))).await;
+                        return;
+                    }
+                }
+            }
+        });
+
+        Ok(rx)
     }
 }
 
@@ -235,7 +327,6 @@ mod tests {
         )]);
         let sink = Arc::new(AuditCollector::default());
         let transport = Transport::new(
-            reqwest::Client::new(),
             allowlist,
             EgressClass::CloudOk,
             Some("pessoal".into()),
@@ -271,7 +362,6 @@ mod tests {
         )]);
         let sink = Arc::new(AuditCollector::default());
         let transport = Transport::new(
-            reqwest::Client::new(),
             allowlist,
             EgressClass::LocalOnly,
             Some("empresa".into()),
@@ -300,13 +390,7 @@ mod tests {
     async fn host_fora_da_allowlist_tambem_aborta_sem_tocar_a_rede() {
         let allowlist = Allowlist::new(vec![]);
         let sink = Arc::new(AuditCollector::default());
-        let transport = Transport::new(
-            reqwest::Client::new(),
-            allowlist,
-            EgressClass::CloudOk,
-            None,
-            sink,
-        );
+        let transport = Transport::new(allowlist, EgressClass::CloudOk, None, sink);
 
         let erro = transport
             .post_json("http://127.0.0.1:9/chat", "tarefa", &serde_json::json!({}))
@@ -316,6 +400,31 @@ mod tests {
             erro,
             TransportError::Blocked(EgressError::NotAllowlisted { .. })
         ));
+    }
+
+    #[tokio::test]
+    async fn post_json_lines_entrega_linhas_nao_vazias_em_ordem() {
+        let corpo = "{\"a\":1}\n{\"a\":2}\n{\"a\":3}\n";
+        let (addr, _conexoes) = start_mock_server(corpo).await;
+        let host = addr.ip().to_string();
+        let allowlist = Allowlist::new(vec![AllowlistEntry::new(
+            host.as_str(),
+            EgressClass::CloudOk,
+        )]);
+        let sink = Arc::new(AuditCollector::default());
+        let transport = Transport::new(allowlist, EgressClass::CloudOk, None, sink);
+
+        let url = format!("http://{addr}/chat");
+        let mut linhas = transport
+            .post_json_lines(&url, "stream de teste", &serde_json::json!({}))
+            .await
+            .expect("stream permitido deve abrir");
+
+        let mut recebidas = Vec::new();
+        while let Some(linha) = linhas.recv().await {
+            recebidas.push(linha.expect("mock não produz erro de transporte"));
+        }
+        assert_eq!(recebidas, vec!["{\"a\":1}", "{\"a\":2}", "{\"a\":3}"]);
     }
 
     #[test]
