@@ -16,9 +16,11 @@ name = "agentry_core"
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["sync"] }
+reqwest = { workspace = true }
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["macros", "rt"] }
+# "net"/"io-util": servidor HTTP mínimo de teste do MT-07 (sem lib de mock nova).
+tokio = { workspace = true, features = ["macros", "rt", "net", "io-util"] }
 
 [lints]
 workspace = true

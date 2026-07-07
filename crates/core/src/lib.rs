@@ -3,15 +3,17 @@
 //!
 //! Módulos implementados até aqui: [`model`] (tipos de domínio de mensagens/LLM,
 //! MT-02), [`provider`] (`trait LlmProvider` + mock, MT-03), [`config`]
-//! (configuração em camadas + classe de privacidade, MT-04) e [`egress`]
-//! (allowlist de endpoints, MT-05). Os demais — audit log, transporte, router,
-//! tools, context manager — entram nos micro-tickets seguintes do roadmap
-//! (`docs/roadmap-v0.1.md`).
+//! (configuração em camadas + classe de privacidade, MT-04), [`egress`]
+//! (allowlist, audit log e redação de segredos, MT-05/06) e [`transport`]
+//! (transporte HTTP único sobre `reqwest`, MT-07 — fecha a Fase 2). Os
+//! demais — router, tools, context manager — entram nos micro-tickets
+//! seguintes do roadmap (`docs/roadmap-v0.1.md`).
 
 pub mod config;
 pub mod egress;
 pub mod model;
 pub mod provider;
+pub mod transport;
 
 /// Nome do produto.
 pub const NAME: &str = "agentry";
