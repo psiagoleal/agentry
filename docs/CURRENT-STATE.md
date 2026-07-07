@@ -9,8 +9,8 @@
 
 - **Data:** 2026-07-07
 - **Branch:** `main`
-- **Commit:** `a2120b7`
-- **Fase:** Fase 2 do roadmap iniciada (egresso) — MT-05 concluído.
+- **Commit:** `9a89679`
+- **Fase:** Fase 2 do roadmap (egresso) — MT-05 e MT-06 concluídos.
 
 ## Metas cumpridas / Em andamento / Próximo passo
 
@@ -27,10 +27,11 @@
 - [x] **MT-03** — `trait LlmProvider` (chat, chat_stream, tool-calling, embeddings) + `MockProvider` roteirizado em `crates/core/src/provider/`. Trait dyn-compatible via `BoxFuture` (sem `async-trait`); streaming por canal `tokio::sync::mpsc` (tokio só com feature `sync`); 6 testes novos, 14 no total, validação verde (`26b370e`).
 - [x] **MT-04** — `crates/core/src/config/`: `Settings` (mínimo do `settings-schema:1`, ADR-0003) com merge perfil→projeto→env (permissões são união; `deny` nunca encolhe) e `privacy.rs` com perfil→classe de egresso (`privacy-taxonomy:1`). Fail-closed: perfil ausente/desconhecido ⇒ `local-only`; schema divergente ⇒ erro. 32 testes no total, validação verde (`b63fe6b`).
 - [x] **MT-05** — `crates/core/src/egress/allowlist.rs`: decisão em memória (sem I/O) se um host é alcançável sob a classe de egresso ativa. Host fora da allowlist ou classe insuficiente ⇒ erro; entradas conflitantes para o mesmo host resolvem para a mais restritiva (fail-closed); suporta host exato e wildcard `*.sufixo` (sem casar domínio nu). `EgressClass` ganhou `rank()`/`permits()` em `config/privacy.rs`. 40 testes no total, validação verde (`a2120b7`).
+- [x] **MT-06** — `crates/core/src/egress/redact.rs` (redação sem regex, via tokenizador próprio que isola segredos colados em `chave=`/`?token=` etc.) e `audit.rs` (`AuditEntry` estruturada com destino/perfil/classe/tarefa/outcome, redigindo automaticamente todo campo textual). 54 testes no total, validação verde (`9a89679`).
 
 **Em andamento:** nada pendente no turno.
 
-**Próximo passo:** **MT-06** — audit log de egresso + redação de segredos (lógica pura) em `crates/core/src/egress/{audit.rs, redact.rs}` (depende de MT-05, feito; ADR-0002).
+**Próximo passo:** **MT-07** — transporte HTTP único sobre `reqwest` (`crates/core/src/transport/mod.rs`), integrando allowlist + audit + redação; nenhuma outra parte do código chama `reqwest` diretamente (depende de MT-05/06, feitos; ADR-0002). Fecha a Fase 2.
 
 ## Impedimentos abertos
 
@@ -44,6 +45,7 @@
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-07 | `9a89679` | MT-06: audit log de egresso + redação de segredos (sem regex) + testes | MT-06 |
 | 2026-07-07 | `a2120b7` | MT-05: allowlist de endpoints + `rank`/`permits` de `EgressClass` + testes | MT-05 |
 | 2026-07-07 | `b63fe6b` | MT-04: config em camadas + classe de privacidade fail-closed + testes | MT-04 |
 | 2026-07-06 | `26b370e` | MT-03: `trait LlmProvider` + `MockProvider` roteirizado + testes | MT-03 |
