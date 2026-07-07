@@ -9,8 +9,8 @@
 
 - **Data:** 2026-07-07
 - **Branch:** `main`
-- **Commit:** `ef69785`
-- **Fase:** Fase 4 do roadmap (loop, tools, permissão, CLI) — MT-10 concluído; ADR-0009 registrado (direção, aguardando implementação em MT-17).
+- **Commit:** `cf21f6f`
+- **Fase:** Fase 4 do roadmap (loop, tools, permissão, CLI) — MT-11 concluído.
 
 ## Metas cumpridas / Em andamento / Próximo passo
 
@@ -35,10 +35,11 @@
 - [x] **MT-09** — `crates/core/src/router/mod.rs`: mapeia `task-class → (provider, modelo, classe de egresso)` com fallback por disponibilidade e resolve os presets de chamada do ADR-0008. `resolve()` descarta candidato que exige mais do que a classe ativa **antes** de checar disponibilidade — tarefa sensível nunca alcança provider de nuvem mesmo que ele esteja registrado; provider indisponível cai no próximo candidato. Esta é a peça que cobre a ideia de "orquestrador multi-modelo" discutida com o usuário (ver [[no-separate-orchestrator-project]]). 6 testes novos, 69 no total, `cargo build --release` verde (`e23390b`). **Fecha a Fase 3.**
 - [x] **MT-10** — `crates/core/src/session/mod.rs`: `Session` com `run()` (chat agregado) e `run_streaming()` (chat_stream + `StreamAggregator` reconstruindo a mensagem final a partir dos eventos), ambos partilhando `after_response()` (soma uso, decide orçamento, executa tool-calls). Execução real de tools ainda não existe — o loop consome só o contrato `ToolExecutor` (dyn-compatible via `BoxFuture`, mesmo padrão do `LlmProvider`); implementações reais (fs/shell) chegam no MT-11+. Orçamento checado logo após cada resposta, **antes** de executar qualquer tool-call pendente. 5 testes novos, 74 no total, `cargo build --release` verde (`cdd4fc6`). **Abre a Fase 4.**
 - [x] **ADR-0009** (Proposed) — timeout adaptativo + `keep_alive` configurável para troca de modelo em provider local: Router sinaliza `is_model_switch` em `ResolvedRoute` (rastreando o último modelo por provider); Transporte ganha timeout por chamada; `OllamaProvider` usa o sinal para timeout frio/quente e envia `keep_alive`. Motivado por uma lacuna real auditada: `Transport::new` hoje constrói `reqwest::Client::new()` sem nenhum timeout configurado. Muda a fronteira do `settings-schema` — registrado em `docs/interop/exchange-log.md`; micro-ticket **MT-17** adicionado à Fase 3 do roadmap (`ef69785`).
+- [x] **MT-11** — `crates/core/src/tools/{mod.rs,permission.rs}`: `trait Tool` dyn-compatible via `BoxFuture` (mesmo padrão de `LlmProvider`/`ToolExecutor`) + `ToolRegistry` + `PermissionGate` reaproveitando `config::Permissions` (deny/ask do MT-04) em vez de inventar novo formato de política. `deny` (explícito ou tool não registrada) bloqueia sem executar; `ask` **sinaliza** devolvendo a `ToolCall` pendente (`ExecutionOutcome::NeedsConfirmation`) — nunca bloqueia esperando confirmação humana, isso fica para a CLI (MT-14); `allow` executa. Precedência fail-closed: `deny` checado antes de `ask` no mesmo nome. 10 testes novos, 84 no total, `cargo build --release` verde (`cf21f6f`).
 
 **Em andamento:** nada pendente no turno.
 
-**Próximo passo:** **MT-11** — Tool Registry + gate de permissão `allow|ask|deny` (`crates/core/src/tools/{mod.rs,permission.rs}`): `trait Tool`, registro e portão de permissão sobre uma tool dummy (depende de MT-10, feito; ADR-0002). **Notas:** (1) o roadmap já aponta para o ADR-0007 (Guardrail Gate de conteúdo) como mecanismo **distinto** deste gate — não confundir permissão de ação com guardrail de conteúdo; (2) **MT-17** (ADR-0009, timeout/keep_alive) está pendente de implementação — pode ser feito antes ou depois do MT-11, são independentes.
+**Próximo passo:** **MT-12** — Tools de filesystem (read, write/edit, search) em `crates/core/src/tools/fs.rs`, respeitando `.claudeignore` e o gate de permissão do MT-11 (depende de MT-11, feito). **Pendências independentes ainda abertas:** MT-17 (ADR-0009, timeout/keep_alive) pode ser feito a qualquer momento, sem bloquear a Fase 4.
 
 ## Impedimentos abertos
 
@@ -52,6 +53,7 @@
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-07 | `cf21f6f` | MT-11: Tool Registry + gate de permissão allow\|ask\|deny + testes | MT-11 |
 | 2026-07-07 | `ef69785` | ADR-0009: timeout adaptativo + keep_alive para troca de modelo local; MT-17 adicionado | — |
 | 2026-07-07 | `cdd4fc6` | MT-10: agent loop ReAct mínimo (run + run_streaming); abre a Fase 4 | MT-10 |
 | 2026-07-07 | `e23390b` | MT-09: Router/Policy Engine (task-class → provider/modelo/classe); fecha a Fase 3 | MT-09 |
