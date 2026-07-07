@@ -4,15 +4,17 @@
 //! Módulos implementados até aqui: [`model`] (tipos de domínio de mensagens/LLM,
 //! MT-02), [`provider`] (`trait LlmProvider` + mock + adapter Ollama, MT-03/08),
 //! [`config`] (configuração em camadas + classe de privacidade, MT-04),
-//! [`egress`] (allowlist, audit log e redação de segredos, MT-05/06) e
-//! [`transport`] (transporte HTTP único sobre `reqwest`, MT-07). Os demais —
-//! router, tools, context manager — entram nos micro-tickets seguintes do
-//! roadmap (`docs/roadmap-v0.1.md`).
+//! [`egress`] (allowlist, audit log e redação de segredos, MT-05/06),
+//! [`transport`] (transporte HTTP único sobre `reqwest`, MT-07) e [`router`]
+//! (Router / Policy Engine — fecha a Fase 3, MT-09). Os demais — tools,
+//! context manager — entram nos micro-tickets seguintes do roadmap
+//! (`docs/roadmap-v0.1.md`).
 
 pub mod config;
 pub mod egress;
 pub mod model;
 pub mod provider;
+pub mod router;
 pub mod transport;
 
 /// Nome do produto.
