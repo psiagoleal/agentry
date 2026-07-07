@@ -9,8 +9,8 @@
 
 - **Data:** 2026-07-07
 - **Branch:** `main`
-- **Commit:** `1723c31`
-- **Fase:** Fase 2 do roadmap (egresso) **concluída** (MT-05..MT-07); próxima é a Fase 3 (primeiro provider real + router).
+- **Commit:** `4d961eb`
+- **Fase:** Fase 3 do roadmap (primeiro provider + router) iniciada — MT-08 concluído.
 
 ## Metas cumpridas / Em andamento / Próximo passo
 
@@ -29,10 +29,11 @@
 - [x] **MT-05** — `crates/core/src/egress/allowlist.rs`: decisão em memória (sem I/O) se um host é alcançável sob a classe de egresso ativa. Host fora da allowlist ou classe insuficiente ⇒ erro; entradas conflitantes para o mesmo host resolvem para a mais restritiva (fail-closed); suporta host exato e wildcard `*.sufixo` (sem casar domínio nu). `EgressClass` ganhou `rank()`/`permits()` em `config/privacy.rs`. 40 testes no total, validação verde (`a2120b7`).
 - [x] **MT-06** — `crates/core/src/egress/redact.rs` (redação sem regex, via tokenizador próprio que isola segredos colados em `chave=`/`?token=` etc.) e `audit.rs` (`AuditEntry` estruturada com destino/perfil/classe/tarefa/outcome, redigindo automaticamente todo campo textual). 54 testes no total, validação verde (`9a89679`).
 - [x] **MT-07** — `crates/core/src/transport/mod.rs`: único ponto do crate autorizado a fazer rede (via `reqwest`, com `rustls-tls` em vez de `native-tls`). Integra allowlist (MT-05) + audit log (MT-06): chamada bloqueada aborta **antes** de abrir conexão TCP; toda tentativa emite `AuditEntry`. Teste com servidor HTTP mock feito só com `tokio::net` (sem lib de mock nova) + teste-guarda que varre o código-fonte do crate confirmando que `reqwest::` só aparece em `transport/mod.rs`. 58 testes no total, `cargo build --release` verde (`1723c31`). **Fecha a Fase 2 (egresso).**
+- [x] **MT-08** — `crates/core/src/provider/ollama.rs`: primeiro provider real (local), implementando `LlmProvider::chat`/`chat_stream` exclusivamente via `Transport` (nunca importa `reqwest`), herdando allowlist+audit automaticamente. `Transport` ganhou `post_json_lines` (streaming genérico por linhas, agnóstico de formato de provider) e `tokio` ganhou a feature `rt` em `[dependencies]` (não só dev). Durante o desenvolvimento, o teste-guarda do MT-07 pegou uma falha de design própria: `Transport::new` recebia `reqwest::Client` por parâmetro, obrigando quem construísse um `Transport` a importar `reqwest` também — corrigido fazendo `Transport::new` construir o client internamente, sem expor o tipo na API pública. 63 testes no total, `cargo build --release` verde (`4d961eb`).
 
 **Em andamento:** nada pendente no turno.
 
-**Próximo passo:** **MT-08** — adapter Ollama (chat + stream) sobre o Transporte (`crates/core/src/provider/ollama.rs`), o primeiro provider real, local, respeitando `local-only` (depende de MT-03/MT-07, feitos; ADR-0001/0002). Abre a Fase 3 (primeiro provider + router).
+**Próximo passo:** **MT-09** — Router / Policy Engine (`crates/core/src/router/mod.rs`): mapeia `task-class → (provider, modelo, classe de egresso)` com fallback por disponibilidade; tarefa sensível nunca roteia para provider de nuvem (depende de MT-04/MT-08, feitos; ADR-0002/0003). **Nota:** por decisão já registrada em memória, esta é a peça que cobre a ideia de "orquestrador multi-modelo" cogitada pelo usuário — não criar repositório separado para isso.
 
 ## Impedimentos abertos
 
@@ -46,6 +47,7 @@
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-07 | `4d961eb` | MT-08: adapter Ollama (chat+stream) sobre o Transporte; abre a Fase 3 | MT-08 |
 | 2026-07-07 | `1723c31` | MT-07: transporte HTTP único sobre reqwest; fecha a Fase 2 (egresso) | MT-07 |
 | 2026-07-07 | `9a89679` | MT-06: audit log de egresso + redação de segredos (sem regex) + testes | MT-06 |
 | 2026-07-07 | `a2120b7` | MT-05: allowlist de endpoints + `rank`/`permits` de `EgressClass` + testes | MT-05 |
