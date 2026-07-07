@@ -9,8 +9,8 @@
 
 - **Data:** 2026-07-07
 - **Branch:** `main`
-- **Commit:** `3ae5054`
-- **Fase:** Fase 3 do roadmap (primeiro provider + router) — MT-08 concluído; ADR-0007/0008 registrados (direção, aguardando implementação).
+- **Commit:** `e23390b`
+- **Fase:** Fase 3 do roadmap **concluída** (MT-08/MT-09); próxima é a Fase 4 (agent loop, tools, permissão, CLI).
 
 ## Metas cumpridas / Em andamento / Próximo passo
 
@@ -32,10 +32,11 @@
 - [x] **MT-08** — `crates/core/src/provider/ollama.rs`: primeiro provider real (local), implementando `LlmProvider::chat`/`chat_stream` exclusivamente via `Transport` (nunca importa `reqwest`), herdando allowlist+audit automaticamente. `Transport` ganhou `post_json_lines` (streaming genérico por linhas, agnóstico de formato de provider) e `tokio` ganhou a feature `rt` em `[dependencies]` (não só dev). Durante o desenvolvimento, o teste-guarda do MT-07 pegou uma falha de design própria: `Transport::new` recebia `reqwest::Client` por parâmetro, obrigando quem construísse um `Transport` a importar `reqwest` também — corrigido fazendo `Transport::new` construir o client internamente, sem expor o tipo na API pública. 63 testes no total, `cargo build --release` verde (`4d961eb`).
 - [x] **ADR-0007** (Proposed) — Guardrail Gate de conteúdo (entrada/saída de LLM), distinto do gate de tools (MT-11) e da allowlist de egresso (MT-05); regras via extensão do `settings-schema`, camada mais específica só reforça, nunca afrouxa.
 - [x] **ADR-0008** (Proposed) — parâmetros de chamada de LLM (`temperature`/`top_p`) e presets de modelo por `task-class`, resolvidos pelo Router (MT-09); rejeita o Modelfile do Ollama como mecanismo de configuração (acopla a um provider). Ambos mudam a fronteira do `settings-schema` (posse do `profiles`) — pedido registrado em `docs/interop/exchange-log.md`; roadmap (MT-09/MT-11) aponta para os ADRs (`3ae5054`).
+- [x] **MT-09** — `crates/core/src/router/mod.rs`: mapeia `task-class → (provider, modelo, classe de egresso)` com fallback por disponibilidade e resolve os presets de chamada do ADR-0008. `resolve()` descarta candidato que exige mais do que a classe ativa **antes** de checar disponibilidade — tarefa sensível nunca alcança provider de nuvem mesmo que ele esteja registrado; provider indisponível cai no próximo candidato. Esta é a peça que cobre a ideia de "orquestrador multi-modelo" discutida com o usuário (ver [[no-separate-orchestrator-project]]). 6 testes novos, 69 no total, `cargo build --release` verde (`e23390b`). **Fecha a Fase 3.**
 
 **Em andamento:** nada pendente no turno.
 
-**Próximo passo:** **MT-09** — Router / Policy Engine (`crates/core/src/router/mod.rs`): mapeia `task-class → (provider, modelo, classe de egresso)` com fallback por disponibilidade **e** resolve os presets de parâmetros de chamada do ADR-0008; tarefa sensível nunca roteia para provider de nuvem (depende de MT-04/MT-08, feitos; ADR-0002/0003/0008). **Nota:** por decisão já registrada em memória, esta é a peça que cobre a ideia de "orquestrador multi-modelo" cogitada pelo usuário — não criar repositório separado para isso.
+**Próximo passo:** **MT-10** — Agent loop ReAct mínimo (`crates/core/src/session/mod.rs`): laço mensagem→tool-call→observação, com streaming e orçamento de tokens, sobre `MockProvider`/Ollama (depende de MT-03/MT-09, feitos; ADR-0001). Abre a Fase 4 (loop, tools, permissão, CLI).
 
 ## Impedimentos abertos
 
@@ -49,6 +50,7 @@
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-07 | `e23390b` | MT-09: Router/Policy Engine (task-class → provider/modelo/classe); fecha a Fase 3 | MT-09 |
 | 2026-07-07 | `3ae5054` | ADR-0007/0008: guardrails de conteúdo + presets de chamada por task-class | — |
 | 2026-07-07 | `4d961eb` | MT-08: adapter Ollama (chat+stream) sobre o Transporte; abre a Fase 3 | MT-08 |
 | 2026-07-07 | `1723c31` | MT-07: transporte HTTP único sobre reqwest; fecha a Fase 2 (egresso) | MT-07 |
