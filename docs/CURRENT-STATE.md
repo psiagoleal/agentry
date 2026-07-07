@@ -9,8 +9,8 @@
 
 - **Data:** 2026-07-07
 - **Branch:** `main`
-- **Commit:** `cdd4fc6`
-- **Fase:** Fase 4 do roadmap (loop, tools, permissão, CLI) iniciada — MT-10 concluído.
+- **Commit:** `ef69785`
+- **Fase:** Fase 4 do roadmap (loop, tools, permissão, CLI) — MT-10 concluído; ADR-0009 registrado (direção, aguardando implementação em MT-17).
 
 ## Metas cumpridas / Em andamento / Próximo passo
 
@@ -34,10 +34,11 @@
 - [x] **ADR-0008** (Proposed) — parâmetros de chamada de LLM (`temperature`/`top_p`) e presets de modelo por `task-class`, resolvidos pelo Router (MT-09); rejeita o Modelfile do Ollama como mecanismo de configuração (acopla a um provider). Ambos mudam a fronteira do `settings-schema` (posse do `profiles`) — pedido registrado em `docs/interop/exchange-log.md`; roadmap (MT-09/MT-11) aponta para os ADRs (`3ae5054`).
 - [x] **MT-09** — `crates/core/src/router/mod.rs`: mapeia `task-class → (provider, modelo, classe de egresso)` com fallback por disponibilidade e resolve os presets de chamada do ADR-0008. `resolve()` descarta candidato que exige mais do que a classe ativa **antes** de checar disponibilidade — tarefa sensível nunca alcança provider de nuvem mesmo que ele esteja registrado; provider indisponível cai no próximo candidato. Esta é a peça que cobre a ideia de "orquestrador multi-modelo" discutida com o usuário (ver [[no-separate-orchestrator-project]]). 6 testes novos, 69 no total, `cargo build --release` verde (`e23390b`). **Fecha a Fase 3.**
 - [x] **MT-10** — `crates/core/src/session/mod.rs`: `Session` com `run()` (chat agregado) e `run_streaming()` (chat_stream + `StreamAggregator` reconstruindo a mensagem final a partir dos eventos), ambos partilhando `after_response()` (soma uso, decide orçamento, executa tool-calls). Execução real de tools ainda não existe — o loop consome só o contrato `ToolExecutor` (dyn-compatible via `BoxFuture`, mesmo padrão do `LlmProvider`); implementações reais (fs/shell) chegam no MT-11+. Orçamento checado logo após cada resposta, **antes** de executar qualquer tool-call pendente. 5 testes novos, 74 no total, `cargo build --release` verde (`cdd4fc6`). **Abre a Fase 4.**
+- [x] **ADR-0009** (Proposed) — timeout adaptativo + `keep_alive` configurável para troca de modelo em provider local: Router sinaliza `is_model_switch` em `ResolvedRoute` (rastreando o último modelo por provider); Transporte ganha timeout por chamada; `OllamaProvider` usa o sinal para timeout frio/quente e envia `keep_alive`. Motivado por uma lacuna real auditada: `Transport::new` hoje constrói `reqwest::Client::new()` sem nenhum timeout configurado. Muda a fronteira do `settings-schema` — registrado em `docs/interop/exchange-log.md`; micro-ticket **MT-17** adicionado à Fase 3 do roadmap (`ef69785`).
 
 **Em andamento:** nada pendente no turno.
 
-**Próximo passo:** **MT-11** — Tool Registry + gate de permissão `allow|ask|deny` (`crates/core/src/tools/{mod.rs,permission.rs}`): `trait Tool`, registro e portão de permissão sobre uma tool dummy (depende de MT-10, feito; ADR-0002). **Nota:** o roadmap já aponta para o ADR-0007 (Guardrail Gate de conteúdo) como mecanismo **distinto** deste gate — não confundir permissão de ação com guardrail de conteúdo ao implementar.
+**Próximo passo:** **MT-11** — Tool Registry + gate de permissão `allow|ask|deny` (`crates/core/src/tools/{mod.rs,permission.rs}`): `trait Tool`, registro e portão de permissão sobre uma tool dummy (depende de MT-10, feito; ADR-0002). **Notas:** (1) o roadmap já aponta para o ADR-0007 (Guardrail Gate de conteúdo) como mecanismo **distinto** deste gate — não confundir permissão de ação com guardrail de conteúdo; (2) **MT-17** (ADR-0009, timeout/keep_alive) está pendente de implementação — pode ser feito antes ou depois do MT-11, são independentes.
 
 ## Impedimentos abertos
 
@@ -51,6 +52,7 @@
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-07 | `ef69785` | ADR-0009: timeout adaptativo + keep_alive para troca de modelo local; MT-17 adicionado | — |
 | 2026-07-07 | `cdd4fc6` | MT-10: agent loop ReAct mínimo (run + run_streaming); abre a Fase 4 | MT-10 |
 | 2026-07-07 | `e23390b` | MT-09: Router/Policy Engine (task-class → provider/modelo/classe); fecha a Fase 3 | MT-09 |
 | 2026-07-07 | `3ae5054` | ADR-0007/0008: guardrails de conteúdo + presets de chamada por task-class | — |
