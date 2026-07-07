@@ -9,8 +9,8 @@
 
 - **Data:** 2026-07-07
 - **Branch:** `main`
-- **Commit:** `e23390b`
-- **Fase:** Fase 3 do roadmap **concluída** (MT-08/MT-09); próxima é a Fase 4 (agent loop, tools, permissão, CLI).
+- **Commit:** `cdd4fc6`
+- **Fase:** Fase 4 do roadmap (loop, tools, permissão, CLI) iniciada — MT-10 concluído.
 
 ## Metas cumpridas / Em andamento / Próximo passo
 
@@ -33,10 +33,11 @@
 - [x] **ADR-0007** (Proposed) — Guardrail Gate de conteúdo (entrada/saída de LLM), distinto do gate de tools (MT-11) e da allowlist de egresso (MT-05); regras via extensão do `settings-schema`, camada mais específica só reforça, nunca afrouxa.
 - [x] **ADR-0008** (Proposed) — parâmetros de chamada de LLM (`temperature`/`top_p`) e presets de modelo por `task-class`, resolvidos pelo Router (MT-09); rejeita o Modelfile do Ollama como mecanismo de configuração (acopla a um provider). Ambos mudam a fronteira do `settings-schema` (posse do `profiles`) — pedido registrado em `docs/interop/exchange-log.md`; roadmap (MT-09/MT-11) aponta para os ADRs (`3ae5054`).
 - [x] **MT-09** — `crates/core/src/router/mod.rs`: mapeia `task-class → (provider, modelo, classe de egresso)` com fallback por disponibilidade e resolve os presets de chamada do ADR-0008. `resolve()` descarta candidato que exige mais do que a classe ativa **antes** de checar disponibilidade — tarefa sensível nunca alcança provider de nuvem mesmo que ele esteja registrado; provider indisponível cai no próximo candidato. Esta é a peça que cobre a ideia de "orquestrador multi-modelo" discutida com o usuário (ver [[no-separate-orchestrator-project]]). 6 testes novos, 69 no total, `cargo build --release` verde (`e23390b`). **Fecha a Fase 3.**
+- [x] **MT-10** — `crates/core/src/session/mod.rs`: `Session` com `run()` (chat agregado) e `run_streaming()` (chat_stream + `StreamAggregator` reconstruindo a mensagem final a partir dos eventos), ambos partilhando `after_response()` (soma uso, decide orçamento, executa tool-calls). Execução real de tools ainda não existe — o loop consome só o contrato `ToolExecutor` (dyn-compatible via `BoxFuture`, mesmo padrão do `LlmProvider`); implementações reais (fs/shell) chegam no MT-11+. Orçamento checado logo após cada resposta, **antes** de executar qualquer tool-call pendente. 5 testes novos, 74 no total, `cargo build --release` verde (`cdd4fc6`). **Abre a Fase 4.**
 
 **Em andamento:** nada pendente no turno.
 
-**Próximo passo:** **MT-10** — Agent loop ReAct mínimo (`crates/core/src/session/mod.rs`): laço mensagem→tool-call→observação, com streaming e orçamento de tokens, sobre `MockProvider`/Ollama (depende de MT-03/MT-09, feitos; ADR-0001). Abre a Fase 4 (loop, tools, permissão, CLI).
+**Próximo passo:** **MT-11** — Tool Registry + gate de permissão `allow|ask|deny` (`crates/core/src/tools/{mod.rs,permission.rs}`): `trait Tool`, registro e portão de permissão sobre uma tool dummy (depende de MT-10, feito; ADR-0002). **Nota:** o roadmap já aponta para o ADR-0007 (Guardrail Gate de conteúdo) como mecanismo **distinto** deste gate — não confundir permissão de ação com guardrail de conteúdo ao implementar.
 
 ## Impedimentos abertos
 
@@ -50,6 +51,7 @@
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-07 | `cdd4fc6` | MT-10: agent loop ReAct mínimo (run + run_streaming); abre a Fase 4 | MT-10 |
 | 2026-07-07 | `e23390b` | MT-09: Router/Policy Engine (task-class → provider/modelo/classe); fecha a Fase 3 | MT-09 |
 | 2026-07-07 | `3ae5054` | ADR-0007/0008: guardrails de conteúdo + presets de chamada por task-class | — |
 | 2026-07-07 | `4d961eb` | MT-08: adapter Ollama (chat+stream) sobre o Transporte; abre a Fase 3 | MT-08 |
