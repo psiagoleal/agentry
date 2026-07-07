@@ -9,8 +9,8 @@
 
 - **Data:** 2026-07-07
 - **Branch:** `main`
-- **Commit:** `4d961eb`
-- **Fase:** Fase 3 do roadmap (primeiro provider + router) iniciada — MT-08 concluído.
+- **Commit:** `3ae5054`
+- **Fase:** Fase 3 do roadmap (primeiro provider + router) — MT-08 concluído; ADR-0007/0008 registrados (direção, aguardando implementação).
 
 ## Metas cumpridas / Em andamento / Próximo passo
 
@@ -30,10 +30,12 @@
 - [x] **MT-06** — `crates/core/src/egress/redact.rs` (redação sem regex, via tokenizador próprio que isola segredos colados em `chave=`/`?token=` etc.) e `audit.rs` (`AuditEntry` estruturada com destino/perfil/classe/tarefa/outcome, redigindo automaticamente todo campo textual). 54 testes no total, validação verde (`9a89679`).
 - [x] **MT-07** — `crates/core/src/transport/mod.rs`: único ponto do crate autorizado a fazer rede (via `reqwest`, com `rustls-tls` em vez de `native-tls`). Integra allowlist (MT-05) + audit log (MT-06): chamada bloqueada aborta **antes** de abrir conexão TCP; toda tentativa emite `AuditEntry`. Teste com servidor HTTP mock feito só com `tokio::net` (sem lib de mock nova) + teste-guarda que varre o código-fonte do crate confirmando que `reqwest::` só aparece em `transport/mod.rs`. 58 testes no total, `cargo build --release` verde (`1723c31`). **Fecha a Fase 2 (egresso).**
 - [x] **MT-08** — `crates/core/src/provider/ollama.rs`: primeiro provider real (local), implementando `LlmProvider::chat`/`chat_stream` exclusivamente via `Transport` (nunca importa `reqwest`), herdando allowlist+audit automaticamente. `Transport` ganhou `post_json_lines` (streaming genérico por linhas, agnóstico de formato de provider) e `tokio` ganhou a feature `rt` em `[dependencies]` (não só dev). Durante o desenvolvimento, o teste-guarda do MT-07 pegou uma falha de design própria: `Transport::new` recebia `reqwest::Client` por parâmetro, obrigando quem construísse um `Transport` a importar `reqwest` também — corrigido fazendo `Transport::new` construir o client internamente, sem expor o tipo na API pública. 63 testes no total, `cargo build --release` verde (`4d961eb`).
+- [x] **ADR-0007** (Proposed) — Guardrail Gate de conteúdo (entrada/saída de LLM), distinto do gate de tools (MT-11) e da allowlist de egresso (MT-05); regras via extensão do `settings-schema`, camada mais específica só reforça, nunca afrouxa.
+- [x] **ADR-0008** (Proposed) — parâmetros de chamada de LLM (`temperature`/`top_p`) e presets de modelo por `task-class`, resolvidos pelo Router (MT-09); rejeita o Modelfile do Ollama como mecanismo de configuração (acopla a um provider). Ambos mudam a fronteira do `settings-schema` (posse do `profiles`) — pedido registrado em `docs/interop/exchange-log.md`; roadmap (MT-09/MT-11) aponta para os ADRs (`3ae5054`).
 
 **Em andamento:** nada pendente no turno.
 
-**Próximo passo:** **MT-09** — Router / Policy Engine (`crates/core/src/router/mod.rs`): mapeia `task-class → (provider, modelo, classe de egresso)` com fallback por disponibilidade; tarefa sensível nunca roteia para provider de nuvem (depende de MT-04/MT-08, feitos; ADR-0002/0003). **Nota:** por decisão já registrada em memória, esta é a peça que cobre a ideia de "orquestrador multi-modelo" cogitada pelo usuário — não criar repositório separado para isso.
+**Próximo passo:** **MT-09** — Router / Policy Engine (`crates/core/src/router/mod.rs`): mapeia `task-class → (provider, modelo, classe de egresso)` com fallback por disponibilidade **e** resolve os presets de parâmetros de chamada do ADR-0008; tarefa sensível nunca roteia para provider de nuvem (depende de MT-04/MT-08, feitos; ADR-0002/0003/0008). **Nota:** por decisão já registrada em memória, esta é a peça que cobre a ideia de "orquestrador multi-modelo" cogitada pelo usuário — não criar repositório separado para isso.
 
 ## Impedimentos abertos
 
@@ -47,6 +49,7 @@
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-07 | `3ae5054` | ADR-0007/0008: guardrails de conteúdo + presets de chamada por task-class | — |
 | 2026-07-07 | `4d961eb` | MT-08: adapter Ollama (chat+stream) sobre o Transporte; abre a Fase 3 | MT-08 |
 | 2026-07-07 | `1723c31` | MT-07: transporte HTTP único sobre reqwest; fecha a Fase 2 (egresso) | MT-07 |
 | 2026-07-07 | `9a89679` | MT-06: audit log de egresso + redação de segredos (sem regex) + testes | MT-06 |
