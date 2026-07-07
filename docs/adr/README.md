@@ -15,3 +15,4 @@ Registros de decisões estruturais (ver skill `adr-writer`). Use
 | [0006](0006-litellm-fonte-de-modelos.md) | LiteLLM como fonte de modelos via adapter OpenAI-compatible | Accepted |
 | [0007](0007-guardrails-configuraveis-de-conteudo.md) | Guardrails configuráveis de conteúdo (gate distinto do Tool Registry) | Proposed |
 | [0008](0008-parametros-de-chamada-e-presets-por-task-class.md) | Parâmetros de chamada de LLM e presets de modelo por task-class | Proposed |
+| [0009](0009-timeout-adaptativo-e-keep-alive-para-troca-de-modelo.md) | Timeout adaptativo e `keep_alive` configurável para troca de modelo em provider local | Proposed |

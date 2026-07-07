@@ -96,6 +96,13 @@ contexto (ver skill `micro-ticket-planner`). Ordem pensada para que o **transpor
 - **Fora de escopo:** UI de configuração; providers de nuvem (ainda só Ollama/mock).
 - **Depende de:** MT-04, MT-08 · ADR-0002, ADR-0003, ADR-0008.
 
+### MT-17: Timeout adaptativo + `keep_alive` configurável (troca de modelo local)
+- **Objetivo:** Router rastreia o último modelo resolvido por provider e sinaliza troca de modelo (`is_model_switch`) em `ResolvedRoute`; Transporte aceita timeout por chamada; adapter Ollama usa o sinal para escolher timeout frio/quente e envia `keep_alive`. Tudo configurável via `settings-schema` (ADR-0009).
+- **Arquivos no escopo:** `crates/core/src/router/mod.rs`, `crates/core/src/transport/mod.rs`, `crates/core/src/provider/ollama.rs`.
+- **Critério de aceite:** testes — Router sinaliza `is_model_switch` corretamente entre resoluções consecutivas no mesmo/diferente modelo; Transporte aplica o timeout por chamada passado (mock lento confirma abort no timeout curto e sucesso no longo); `OllamaProvider` envia `keep_alive` na requisição.
+- **Fora de escopo:** UI de configuração; providers de nuvem (não sofrem esse problema).
+- **Depende de:** MT-04, MT-08, MT-09 · ADR-0009.
+
 ---
 
 ## Fase 4 — Loop, tools, permissão, CLI

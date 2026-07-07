@@ -70,3 +70,23 @@ reescrever entradas; decisões vinculantes viram ADR (referenciar o ADR aqui).
   quando os respectivos micro-tickets forem implementados — a confirmar com o `profiles`
   antes de congelar, já que `settings-schema` é artefato de sua posse.
 
+---
+
+## 2026-07-07 — Terceira extensão proposta ao `settings-schema:1`: timeout/keep_alive
+
+- **Origem:** `agentry`.
+- **Contexto:** discussão sobre confiabilidade do uso 100% local com Ollama — o
+  carregamento/descarregamento de modelos pode causar timeout espúrio numa troca de
+  `task-class` que implica troca de modelo no mesmo provider.
+- **ADR criado (`agentry`):**
+  - **ADR-0009** (Proposed) — Router passa a rastrear o último modelo por provider e
+    sinaliza troca de modelo (`is_model_switch`) em `ResolvedRoute`; Transporte ganha
+    timeout por chamada (API nativa do `reqwest`); adapter Ollama usa o sinal para
+    timeout frio/quente e envia `keep_alive`. Timeout frio/quente e `keep_alive`
+    configuráveis pelo usuário.
+- **Pendências (rascunho a ratificar por ADR de esquema específico, quando implementado):**
+  - Chaves de timeout frio/quente e `keep_alive` por provider no `settings-schema` (ADR-0009).
+- **Status:** ✅ ADR de direção criado no `agentry`; micro-ticket **MT-17** adicionado ao
+  roadmap (Fase 3). Formato definitivo do esquema fica para a implementação, a confirmar
+  com o `profiles` antes de congelar.
+
