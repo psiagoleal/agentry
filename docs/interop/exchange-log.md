@@ -47,3 +47,26 @@ reescrever entradas; decisões vinculantes viram ADR (referenciar o ADR aqui).
 - **Ressalvas:** colisão leve de marca com "SAP Agentry" (plataforma legada de mobilidade empresarial, domínio distinto) — sem conflito de crate. A **pasta local** continua `~/dev/ai-cli` até renomeação manual (afeta CWD da sessão e o caminho da auto-memória).
 - **Status:** ✅ documentação renomeada nos dois repos.
 
+---
+
+## 2026-07-07 — Duas extensões propostas ao `settings-schema:1`
+
+- **Origem:** `agentry`.
+- **Contexto:** discussão sobre (1) guardrails de conteúdo configuráveis, distintos do gate
+  de tools do MT-11 e da allowlist de egresso do MT-05; e (2) parâmetros de chamada de LLM
+  (`temperature`, `top_p`, *system prompt* padrão) configuráveis por tipo de tarefa, inspirado
+  no conceito de Modelfile do Ollama mas com formato próprio e portável entre providers.
+- **ADRs criados (`agentry`):**
+  - **ADR-0007** (Proposed) — Guardrail Gate de conteúdo; regras vêm de uma futura chave
+    `guardrails` no `settings-schema`; camada mais específica só pode reforçar, nunca
+    afrouxar regra herdada (mesma semântica de `Permissions::union` do MT-04).
+  - **ADR-0008** (Proposed) — Presets de modelo por `task-class` (`temperature`/`top_p`/
+    `system_prompt`/`max_tokens`); consumidos pelo Router (MT-09); `system_prompt` continua
+    sendo uma `Message::system(...)` comum, não um campo novo.
+- **Pendências (rascunho a ratificar por ADR de esquema específico, quando implementado):**
+  - Chave `guardrails` no `settings-schema` (ADR-0007).
+  - Chave de presets de modelo por `task-class` no `settings-schema` (ADR-0008).
+- **Status:** ✅ ADRs de direção criados no `agentry`. Formato definitivo do esquema fica para
+  quando os respectivos micro-tickets forem implementados — a confirmar com o `profiles`
+  antes de congelar, já que `settings-schema` é artefato de sua posse.
+

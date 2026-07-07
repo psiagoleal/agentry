@@ -90,11 +90,11 @@ contexto (ver skill `micro-ticket-planner`). Ordem pensada para que o **transpor
 - **Depende de:** MT-03, MT-07 · ADR-0001, ADR-0002.
 
 ### MT-09: Router / Policy Engine
-- **Objetivo:** mapear `task-class → (provider, modelo, classe)` com fallback por disponibilidade.
+- **Objetivo:** mapear `task-class → (provider, modelo, classe)` com fallback por disponibilidade; resolver também os presets de parâmetros de chamada por `task-class` do ADR-0008 (`temperature`/`top_p`/`system_prompt`/`max_tokens`).
 - **Arquivos no escopo:** `crates/core/src/router/mod.rs`.
-- **Critério de aceite:** testes — roteia por classe; tarefa sensível **nunca** roteia para provider de nuvem; fallback funciona.
+- **Critério de aceite:** testes — roteia por classe; tarefa sensível **nunca** roteia para provider de nuvem; fallback funciona; preset de `task-class` aplica os parâmetros de chamada esperados.
 - **Fora de escopo:** UI de configuração; providers de nuvem (ainda só Ollama/mock).
-- **Depende de:** MT-04, MT-08 · ADR-0002, ADR-0003.
+- **Depende de:** MT-04, MT-08 · ADR-0002, ADR-0003, ADR-0008.
 
 ---
 
@@ -111,7 +111,7 @@ contexto (ver skill `micro-ticket-planner`). Ordem pensada para que o **transpor
 - **Objetivo:** `trait Tool`, registro e portão de permissão.
 - **Arquivos no escopo:** `crates/core/src/tools/mod.rs`, `crates/core/src/tools/permission.rs`.
 - **Critério de aceite:** testes — `deny` bloqueia; `ask` sinaliza; `allow` executa (tool dummy).
-- **Fora de escopo:** implementações concretas de fs/shell.
+- **Fora de escopo:** implementações concretas de fs/shell; Guardrail Gate de conteúdo (ADR-0007 — mecanismo distinto, ver micro-ticket a criar).
 - **Depende de:** MT-10 · ADR-0002.
 
 ### MT-12: Tools de filesystem (read, write/edit, search)
