@@ -9,8 +9,8 @@
 
 - **Data:** 2026-07-08
 - **Branch:** `main`
-- **Commit:** `5b5ee37`
-- **Fase:** Fase 4 (MT-11, MT-31 concluídos) + ADR-0010..0015 registrados; Fase 6, MT-32/33, MT-34/35 pendentes no roadmap.
+- **Commit:** `814ba2f`
+- **Fase:** Fase 4 (MT-11, MT-31, MT-12 concluídos) + ADR-0010..0015 registrados; Fase 6, MT-32/33, MT-34/35 pendentes no roadmap.
 
 ## Metas cumpridas / Em andamento / Próximo passo
 
@@ -40,10 +40,11 @@
 - [x] **ADR-0014** (Proposed) — override runtime de parâmetros de chamada: `CallPreset` (ADR-0008/MT-09) ganha campo `reasoning`; novo tipo `RuntimeOverride` (model/provider/temperature/top_p/system_prompt/max_tokens/reasoning) com precedência chamada-única (flag de CLI) > sessão (comando REPL, estilo `/model` do Claude Code) > preset de `task-class` > `settings-schema` > default do provider. **Fronteira de segurança:** `RuntimeOverride` nunca contém classe de egresso/permissões (continuam fixas pela resolução de `Config` na inicialização); override de model/provider continua sujeito à checagem de allowlist/classe do Router — nunca contorna o fail-closed do ADR-0002; override só vem de comando explícito, nunca inferido de conteúdo de mensagem/tool-output. **Lacuna descoberta e registrada:** `CallPreset` já existe no código desde o MT-09 mas `Session` nunca o consumia — o MT-31 fecha isso independentemente do reasoning. Micro-tickets **MT-31/32/33** adicionados à Fase 4, antes do MT-14 (`4775f33`).
 - [x] **MT-31** — fecha a lacuna do ADR-0008/MT-09: `Session::new` passa a receber uma `ResolvedRoute` (em vez de provider/modelo soltos) e `build_request()` aplica o `CallPreset` resolvido — `temperature`/`top_p`/`max_tokens` no `ChatRequest` (`ChatRequest` ganhou os dois primeiros campos); `system_prompt` anteposto ao histórico via `ensure_system_prompt()`, sem duplicar entre chamadas a `run()`/`run_streaming()`. Escopo ampliado além do ticket original: também propaguei `temperature`/`top_p` até o `OllamaProvider` (`OllamaOptions`), já que deixar isso sem fio até o provider real tornaria o preset inútil na prática. 4 testes novos (2 em `session`, 2 em `ollama`), 88 no total, `cargo build --release` verde (`a31382a`).
 - [x] **ADR-0015** (Proposed) — Reviewer: auditoria semântica por tipo (`correctness`/`security`/`guardrail-compliance`/`task-completion`), cada uma uma `task-class` própria roteada pelo Router (MT-09) como qualquer outra — sem infraestrutura nova, reaproveita Router+`ChatRequest`+saída estruturada (ADR-0012) inteiramente. Fecha a lacuna que o próprio ADR-0007 tinha deixado em aberto ("moderação semântica... v0.2, se necessária"). Disparo pós-`Done`; modos `advisory`/`blocking` (retry limitado por teto, falha persistente sempre exposta). **Default desligado** (diferente do pacote ADR-0010..0013): é uma segunda chamada completa de modelo por tarefa. Micro-tickets **MT-34/35** adicionados à Fase 4 (`5b5ee37`).
+- [x] **MT-12** — `crates/core/src/tools/fs.rs`: `FsReadTool`, `FsWriteTool`, `FsEditTool` (substituição de ocorrência única) e `FsSearchTool` (substring literal, sem regex), todas implementando `Tool` (MT-11) sob o `ToolRegistry` existente, sem lógica de permissão própria. Caminho absoluto ou com `..` rejeitado antes de qualquer I/O; `.claudeignore` respeitado via a crate `ignore` (motor do `ripgrep` — maturidade verificada: 143M downloads, MIT, ativo) em vez de reimplementar semântica de glob na mão. 12 testes novos (diretório temporário com limpeza via `Drop`, sem dependência de teste nova), incluindo um teste de integração confirmando que `deny` impede a escrita de fato, não só sinaliza. 100 testes no total, `cargo build --release` verde (`814ba2f`).
 
 **Em andamento:** nada pendente no turno. **Nota:** um commit anterior nesta sessão (`31e4fef`) teve um erro de citação de shell (backtick de `` `format` `` expandido como comando) corrompendo um trecho da mensagem — corrigido via `--amend` no mesmo turno, antes de qualquer push.
 
-**Próximo passo:** **MT-12** — Tools de filesystem (read, write/edit, search) em `crates/core/src/tools/fs.rs`, respeitando `.claudeignore` e o gate de permissão do MT-11 (depende de MT-11, feito) — dá sequência à Fase 4 já em andamento. **Pendências independentes ainda abertas (sem bloquear a Fase 4):** MT-17 (ADR-0009, timeout/keep_alive); MT-18..MT-30 (Fase 6, ADR-0010..0013); MT-32/33 (ADR-0014, reasoning + `RuntimeOverride`); MT-34/35 (ADR-0015, Reviewer) — todas dependem de tickets já feitos (MT-09/31), nenhuma bloqueia a Fase 4.
+**Próximo passo:** **MT-13** — Tool de shell sob permissão (`crates/core/src/tools/shell.rs`): `deny` por padrão, execução só sob `allow`, ganchos de sandbox (depende de MT-11, feito; ADR-0002). **Pendências independentes ainda abertas (sem bloquear a Fase 4):** MT-17 (ADR-0009, timeout/keep_alive); MT-18..MT-30 (Fase 6, ADR-0010..0013); MT-32/33 (ADR-0014, reasoning + `RuntimeOverride`); MT-34/35 (ADR-0015, Reviewer) — todas dependem de tickets já feitos, nenhuma bloqueia a Fase 4.
 
 ## Impedimentos abertos
 
@@ -57,6 +58,7 @@
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-08 | `814ba2f` | MT-12: tools de filesystem read/write/edit/search (crate `ignore` p/ .claudeignore) | MT-12 |
 | 2026-07-08 | `5b5ee37` | ADR-0015: Reviewer (auditoria semântica por task-class); MT-34/35 adicionados | — |
 | 2026-07-08 | `a31382a` | MT-31: Session consome CallPreset via ResolvedRoute (fecha lacuna do ADR-0008) | MT-31 |
 | 2026-07-08 | `4775f33` | ADR-0014: override runtime de parâmetros (reasoning + model/temperature/etc.); MT-31..MT-33 | — |
