@@ -80,6 +80,52 @@ pub struct RouteEntry {
     pub preset: CallPreset,
 }
 
+/// Override de parâmetros de chamada em tempo real (MT-33, ADR-0014).
+///
+/// **Nunca** contém classe de egresso nem permissões — essas continuam
+/// fixas pela resolução de [`crate::config::Config`] (MT-04) feita na
+/// inicialização da sessão; nada aqui muda o que é *permitido*, só decide
+/// **como** a chamada é feita dentro do que já foi permitido. `model`/
+/// `provider`, em particular, só podem escolher entre os candidatos já
+/// declarados na [`RouteEntry`] da `task-class` (ver
+/// [`Router::resolve_with_override`]) — nunca um alvo novo, não vetado.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct RuntimeOverride {
+    /// Restringe a escolha aos candidatos deste provider, se definido.
+    pub provider: Option<String>,
+    /// Restringe a escolha aos candidatos deste modelo, se definido.
+    pub model: Option<String>,
+    /// Sobrescreve `temperature` do preset da `task-class`.
+    pub temperature: Option<f32>,
+    /// Sobrescreve `top_p` do preset da `task-class`.
+    pub top_p: Option<f32>,
+    /// Sobrescreve `system_prompt` do preset da `task-class`.
+    pub system_prompt: Option<String>,
+    /// Sobrescreve `max_tokens` do preset da `task-class`.
+    pub max_tokens: Option<u32>,
+    /// Sobrescreve `reasoning` do preset da `task-class`.
+    pub reasoning: Option<bool>,
+}
+
+impl RuntimeOverride {
+    /// Aplica este override por cima de `base`: campos definidos aqui
+    /// vencem; ausentes caem no valor de `base`. Mesma convenção de
+    /// precedência do MT-04 (`Settings::merged_over`) — use para combinar
+    /// override de sessão (`base`) com override de chamada única (`self`).
+    #[must_use]
+    pub fn merged_over(self, base: Self) -> Self {
+        Self {
+            provider: self.provider.or(base.provider),
+            model: self.model.or(base.model),
+            temperature: self.temperature.or(base.temperature),
+            top_p: self.top_p.or(base.top_p),
+            system_prompt: self.system_prompt.or(base.system_prompt),
+            max_tokens: self.max_tokens.or(base.max_tokens),
+            reasoning: self.reasoning.or(base.reasoning),
+        }
+    }
+}
+
 /// Erros de roteamento.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RouterError {
@@ -190,20 +236,67 @@ impl Router {
     /// candidato passar (todos exigem classe insuficiente ou não têm
     /// provider registrado).
     pub fn resolve(&self, task_class: &str) -> Result<ResolvedRoute, RouterError> {
+        self.resolve_with_override(task_class, &RuntimeOverride::default())
+    }
+
+    /// Resolve a `task-class` como [`Self::resolve`], mas aplicando um
+    /// [`RuntimeOverride`] (MT-33, ADR-0014) por cima do preset e, se
+    /// `provider`/`model` estiverem definidos no override, restringindo a
+    /// escolha **apenas** aos candidatos já declarados na [`RouteEntry`] que
+    /// casem com eles — nunca um alvo novo, não vetado.
+    ///
+    /// A checagem de classe de egresso continua idêntica à de
+    /// [`Self::resolve`] para o candidato escolhido: o override **nunca**
+    /// contorna o *fail-closed* do ADR-0002 — se o candidato pedido exigir
+    /// mais do que a classe ativa permite, a resolução falha como qualquer
+    /// outra, mesmo que o usuário tenha pedido aquele modelo explicitamente.
+    ///
+    /// # Errors
+    ///
+    /// Mesmos casos de [`Self::resolve`]; também
+    /// [`RouterError::NoAvailableRoute`] se o override pedir um
+    /// `provider`/`model` que não está entre os candidatos declarados para
+    /// a `task-class`.
+    pub fn resolve_with_override(
+        &self,
+        task_class: &str,
+        overrides: &RuntimeOverride,
+    ) -> Result<ResolvedRoute, RouterError> {
         let entry = self
             .routes
             .get(task_class)
             .ok_or_else(|| RouterError::UnknownTaskClass(task_class.to_string()))?;
 
-        for candidate in &entry.candidates {
+        let candidatos = entry.candidates.iter().filter(|candidato| {
+            overrides
+                .provider
+                .as_deref()
+                .map_or(true, |p| p == candidato.provider)
+                && overrides
+                    .model
+                    .as_deref()
+                    .map_or(true, |m| m == candidato.model)
+        });
+
+        for candidate in candidatos {
             if !self.egress_class.permits(candidate.egress_class) {
                 continue;
             }
             if let Some(provider) = self.providers.get(&candidate.provider) {
+                let preset = CallPreset {
+                    temperature: overrides.temperature.or(entry.preset.temperature),
+                    top_p: overrides.top_p.or(entry.preset.top_p),
+                    system_prompt: overrides
+                        .system_prompt
+                        .clone()
+                        .or_else(|| entry.preset.system_prompt.clone()),
+                    max_tokens: overrides.max_tokens.or(entry.preset.max_tokens),
+                    reasoning: overrides.reasoning.or(entry.preset.reasoning),
+                };
                 return Ok(ResolvedRoute {
                     provider: Arc::clone(provider),
                     model: candidate.model.clone(),
-                    preset: entry.preset.clone(),
+                    preset,
                 });
             }
         }
@@ -358,6 +451,175 @@ mod tests {
             RouterError::NoAvailableRoute {
                 task_class: "chat".into()
             }
+        );
+    }
+
+    #[test]
+    fn override_de_temperature_sobrescreve_o_preset_da_task_class() {
+        let mut router = router_com_providers(EgressClass::LocalOnly, &["ollama"]);
+        router.set_route(
+            "chat",
+            RouteEntry {
+                candidates: vec![RouteTarget::new(
+                    "ollama",
+                    "llama3.1:8b",
+                    EgressClass::LocalOnly,
+                )],
+                preset: CallPreset {
+                    temperature: Some(0.5),
+                    ..CallPreset::default()
+                },
+            },
+        );
+
+        let overrides = RuntimeOverride {
+            temperature: Some(0.9),
+            ..RuntimeOverride::default()
+        };
+        let rota = router
+            .resolve_with_override("chat", &overrides)
+            .expect("deve resolver");
+
+        assert_eq!(rota.preset.temperature, Some(0.9));
+    }
+
+    #[test]
+    fn campos_ausentes_no_override_caem_no_preset_da_task_class() {
+        let mut router = router_com_providers(EgressClass::LocalOnly, &["ollama"]);
+        let preset = CallPreset {
+            temperature: Some(0.2),
+            top_p: Some(0.9),
+            system_prompt: Some("padrão".into()),
+            max_tokens: Some(2048),
+            reasoning: Some(true),
+        };
+        router.set_route(
+            "chat",
+            RouteEntry {
+                candidates: vec![RouteTarget::new(
+                    "ollama",
+                    "llama3.1:8b",
+                    EgressClass::LocalOnly,
+                )],
+                preset: preset.clone(),
+            },
+        );
+
+        let rota = router
+            .resolve_with_override("chat", &RuntimeOverride::default())
+            .expect("deve resolver");
+
+        assert_eq!(rota.preset, preset);
+    }
+
+    #[test]
+    fn override_de_model_escolhe_candidato_especifico_ja_declarado() {
+        let mut router = router_com_providers(EgressClass::LocalOnly, &["ollama"]);
+        router.set_route(
+            "chat",
+            RouteEntry {
+                candidates: vec![
+                    RouteTarget::new("ollama", "llama3.1:8b", EgressClass::LocalOnly),
+                    RouteTarget::new("ollama", "qwen2.5-coder:14b", EgressClass::LocalOnly),
+                ],
+                preset: CallPreset::default(),
+            },
+        );
+
+        let overrides = RuntimeOverride {
+            model: Some("qwen2.5-coder:14b".into()),
+            ..RuntimeOverride::default()
+        };
+        let rota = router
+            .resolve_with_override("chat", &overrides)
+            .expect("deve resolver o candidato pedido");
+
+        assert_eq!(rota.model, "qwen2.5-coder:14b");
+    }
+
+    #[test]
+    fn override_de_model_que_viola_classe_de_egresso_e_bloqueado() {
+        // A sessão está em local-only; o override pede explicitamente o
+        // candidato de nuvem — mesmo pedido explicitamente, não pode passar.
+        let mut router = router_com_providers(EgressClass::LocalOnly, &["anthropic"]);
+        router.set_route(
+            "chat",
+            RouteEntry {
+                candidates: vec![RouteTarget::new(
+                    "anthropic",
+                    "claude-x",
+                    EgressClass::CloudOk,
+                )],
+                preset: CallPreset::default(),
+            },
+        );
+
+        let overrides = RuntimeOverride {
+            model: Some("claude-x".into()),
+            ..RuntimeOverride::default()
+        };
+        let erro = router
+            .resolve_with_override("chat", &overrides)
+            .expect_err("override nunca deve contornar o fail-closed do ADR-0002");
+
+        assert_eq!(
+            erro,
+            RouterError::NoAvailableRoute {
+                task_class: "chat".into()
+            }
+        );
+    }
+
+    #[test]
+    fn override_de_model_inexistente_entre_candidatos_e_erro() {
+        let mut router = router_com_providers(EgressClass::LocalOnly, &["ollama"]);
+        router.set_route(
+            "chat",
+            RouteEntry {
+                candidates: vec![RouteTarget::new(
+                    "ollama",
+                    "llama3.1:8b",
+                    EgressClass::LocalOnly,
+                )],
+                preset: CallPreset::default(),
+            },
+        );
+
+        let overrides = RuntimeOverride {
+            model: Some("modelo-nao-declarado".into()),
+            ..RuntimeOverride::default()
+        };
+        let erro = router
+            .resolve_with_override("chat", &overrides)
+            .expect_err("modelo não declarado como candidato deve falhar");
+
+        assert_eq!(
+            erro,
+            RouterError::NoAvailableRoute {
+                task_class: "chat".into()
+            }
+        );
+    }
+
+    #[test]
+    fn merged_over_da_precedencia_ao_override_mais_especifico() {
+        let sessao = RuntimeOverride {
+            temperature: Some(0.5),
+            model: Some("modelo-da-sessao".into()),
+            ..RuntimeOverride::default()
+        };
+        let chamada_unica = RuntimeOverride {
+            temperature: Some(0.1),
+            ..RuntimeOverride::default()
+        };
+
+        let efetivo = chamada_unica.merged_over(sessao);
+
+        assert_eq!(efetivo.temperature, Some(0.1), "chamada única vence");
+        assert_eq!(
+            efetivo.model,
+            Some("modelo-da-sessao".into()),
+            "ausente na chamada única cai na sessão"
         );
     }
 }
