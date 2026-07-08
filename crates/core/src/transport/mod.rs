@@ -72,7 +72,7 @@ pub struct Transport {
     egress_class: EgressClass,
     profile: Option<String>,
     sink: Arc<dyn AuditSink>,
-    api_key: Option<String>,
+    default_headers: Vec<(String, String)>,
 }
 
 impl Transport {
@@ -96,19 +96,22 @@ impl Transport {
             egress_class,
             profile,
             sink,
-            api_key: None,
+            default_headers: Vec::new(),
         }
     }
 
-    /// Anexa `Authorization: Bearer <api_key>` a toda requisição deste
-    /// transporte (MT-15) — necessário para gateways de nuvem
-    /// (OpenRouter/LiteLLM) que exigem chave de API; endpoints locais sem
-    /// autenticação (ex.: Ollama, vLLM local) simplesmente não chamam este
-    /// método. Builder em vez de parâmetro extra em [`Self::new`] para não
-    /// quebrar os chamadores existentes que não precisam de chave.
+    /// Anexa um header (`name`/`value`) a toda requisição deste transporte
+    /// (MT-15/16) — mecanismo genérico de autenticação por provider: o
+    /// padrão OpenAI-compatible usa `Authorization: Bearer <key>`
+    /// (OpenRouter/gateways LiteLLM em nuvem), a Anthropic usa `x-api-key` +
+    /// `anthropic-version`. O transporte não assume nenhum esquema
+    /// específico — quem monta o [`Transport`] para um provider decide quais
+    /// headers ele precisa. Builder encadeável em vez de parâmetro extra em
+    /// [`Self::new`], para não quebrar os chamadores existentes (ex.:
+    /// Ollama) que não precisam de nenhum header extra.
     #[must_use]
-    pub fn with_api_key(mut self, api_key: impl Into<String>) -> Self {
-        self.api_key = Some(api_key.into());
+    pub fn with_header(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
+        self.default_headers.push((name.into(), value.into()));
         self
     }
 
@@ -166,8 +169,8 @@ impl Transport {
         let parsed = self.authorize(url, task)?;
 
         let mut requisicao = self.client.post(parsed).json(body);
-        if let Some(api_key) = &self.api_key {
-            requisicao = requisicao.bearer_auth(api_key);
+        for (nome, valor) in &self.default_headers {
+            requisicao = requisicao.header(nome, valor);
         }
         let resposta = requisicao
             .send()
@@ -210,8 +213,8 @@ impl Transport {
         let parsed = self.authorize(url, task)?;
 
         let mut requisicao = self.client.post(parsed).json(body);
-        if let Some(api_key) = &self.api_key {
-            requisicao = requisicao.bearer_auth(api_key);
+        for (nome, valor) in &self.default_headers {
+            requisicao = requisicao.header(nome, valor);
         }
         let mut resposta = requisicao
             .send()
@@ -445,7 +448,7 @@ mod tests {
 
     /// Como [`start_mock_server`], mas também captura os bytes brutos da
     /// primeira requisição recebida — usado para provar que um header foi
-    /// realmente enviado (MT-15, `with_api_key`).
+    /// realmente enviado (MT-15/16, `with_header`).
     async fn start_mock_server_capturando(
         response_body: &'static str,
     ) -> (std::net::SocketAddr, Arc<Mutex<Vec<u8>>>) {
@@ -483,7 +486,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn with_api_key_anexa_o_header_authorization_bearer() {
+    async fn with_header_anexa_o_header_dado_a_toda_requisicao() {
         let (addr, capturado) = start_mock_server_capturando(r#"{"ok":true}"#).await;
         let host = addr.ip().to_string();
         let allowlist = Allowlist::new(vec![AllowlistEntry::new(
@@ -492,7 +495,9 @@ mod tests {
         )]);
         let sink = Arc::new(AuditCollector::default());
         let transport = Transport::new(allowlist, EgressClass::CloudOk, None, sink)
-            .with_api_key("chave-secreta");
+            .with_header("Authorization", "Bearer chave-secreta")
+            .with_header("x-api-key", "outra-chave")
+            .with_header("anthropic-version", "2023-06-01");
 
         let url = format!("http://{addr}/chat");
         transport
@@ -503,11 +508,18 @@ mod tests {
         let requisicao_bruta =
             String::from_utf8_lossy(&capturado.lock().expect("mutex não deve envenenar"))
                 .into_owned();
+        let em_minusculas = requisicao_bruta.to_lowercase();
         assert!(
-            requisicao_bruta
-                .to_lowercase()
-                .contains("authorization: bearer chave-secreta"),
+            em_minusculas.contains("authorization: bearer chave-secreta"),
             "esperava header Authorization: Bearer na requisição; recebido:\n{requisicao_bruta}"
+        );
+        assert!(
+            em_minusculas.contains("x-api-key: outra-chave"),
+            "esperava header x-api-key na requisição; recebido:\n{requisicao_bruta}"
+        );
+        assert!(
+            em_minusculas.contains("anthropic-version: 2023-06-01"),
+            "esperava header anthropic-version na requisição; recebido:\n{requisicao_bruta}"
         );
     }
 

@@ -8,7 +8,7 @@
 //!
 //! Autenticação via chave de API (`Authorization: Bearer`, necessária para
 //! OpenRouter/gateways LiteLLM em nuvem) é responsabilidade do
-//! [`crate::transport::Transport`] injetado (`Transport::with_api_key`) —
+//! [`crate::transport::Transport`] injetado (`Transport::with_header`) —
 //! este adapter não guarda nem manuseia a chave.
 //!
 //! **ADR-0006 (LiteLLM):** um endpoint de proxy/gateway só é alcançável se
