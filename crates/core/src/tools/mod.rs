@@ -123,21 +123,43 @@ impl ToolRegistry {
                 is_error: true,
             }),
             Permission::Ask => ExecutionOutcome::NeedsConfirmation(call.clone()),
-            Permission::Allow => match self.tools.get(&call.name) {
-                Some(tool) => {
-                    let output = tool.execute(call.arguments.clone()).await;
-                    ExecutionOutcome::Executed(ToolResult {
-                        call_id: call.id.clone(),
-                        content: output.content,
-                        is_error: output.is_error,
-                    })
-                }
-                None => ExecutionOutcome::Denied(ToolResult {
+            Permission::Allow => self.run_tool(call).await,
+        }
+    }
+
+    /// Executa `call` diretamente, **sem** consultar o gate de permissão.
+    ///
+    /// Uso previsto: depois que quem chama já obteve, por fora (ex.: prompt
+    /// interativo na CLI, MT-14), a confirmação humana que um
+    /// [`ExecutionOutcome::NeedsConfirmation`] pedia — reconsultar o gate
+    /// aqui devolveria `NeedsConfirmation` de novo, em loop. `deny` não se
+    /// aplica: se a tool não estava registrada nem sob `allow`, este método
+    /// só deve ser chamado em resposta a um `NeedsConfirmation` genuíno.
+    pub async fn execute_confirmed(&self, call: &ToolCall) -> ToolResult {
+        match self.run_tool(call).await {
+            ExecutionOutcome::Executed(result) | ExecutionOutcome::Denied(result) => result,
+            ExecutionOutcome::NeedsConfirmation(_) => unreachable!(
+                "run_tool nunca devolve NeedsConfirmation — só decide entre executar e negar"
+            ),
+        }
+    }
+
+    /// Executa a tool de `call` se registrada, sem checar o gate.
+    async fn run_tool(&self, call: &ToolCall) -> ExecutionOutcome {
+        match self.tools.get(&call.name) {
+            Some(tool) => {
+                let output = tool.execute(call.arguments.clone()).await;
+                ExecutionOutcome::Executed(ToolResult {
                     call_id: call.id.clone(),
-                    content: format!("tool '{}' não registrada", call.name),
-                    is_error: true,
-                }),
-            },
+                    content: output.content,
+                    is_error: output.is_error,
+                })
+            }
+            None => ExecutionOutcome::Denied(ToolResult {
+                call_id: call.id.clone(),
+                content: format!("tool '{}' não registrada", call.name),
+                is_error: true,
+            }),
         }
     }
 }
@@ -229,6 +251,25 @@ mod tests {
         let registry = ToolRegistry::new(gate(&[], &[]));
         let outcome = registry.execute(&call("call-1", "nao-existe")).await;
         assert!(matches!(outcome, ExecutionOutcome::Denied(_)));
+    }
+
+    #[tokio::test]
+    async fn execute_confirmed_roda_a_tool_mesmo_sob_ask() {
+        // ask nunca deveria rodar via execute(); execute_confirmed() é o
+        // caminho de quem já obteve a confirmação humana por fora (CLI, MT-14).
+        let registry = registry_with_dummy(&[], &["dummy"]);
+        let resultado = registry.execute_confirmed(&call("call-1", "dummy")).await;
+        assert!(!resultado.is_error);
+        assert!(resultado.content.contains("executado com"));
+    }
+
+    #[tokio::test]
+    async fn execute_confirmed_de_tool_nao_registrada_e_erro_sem_panico() {
+        let registry = ToolRegistry::new(gate(&[], &[]));
+        let resultado = registry
+            .execute_confirmed(&call("call-1", "nao-existe"))
+            .await;
+        assert!(resultado.is_error);
     }
 
     #[test]

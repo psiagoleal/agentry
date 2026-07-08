@@ -190,6 +190,22 @@ impl Session {
         self.messages.push(Message::user(text));
     }
 
+    /// Aplica uma nova rota (provider/modelo/preset) à sessão, **preservando**
+    /// o histórico de mensagens acumulado.
+    ///
+    /// Usado pelo REPL (MT-14) quando o usuário troca de modelo/parâmetro via
+    /// comando (`/model`, `/temperature` etc.) — a conversa continua, só a
+    /// rota resolvida muda a partir do próximo turno. Note que uma
+    /// `system_prompt` diferente na nova rota **não** substitui a mensagem de
+    /// sistema já inserida no histórico (`ensure_system_prompt` só age uma
+    /// vez); trocar o *system prompt* no meio de uma conversa começada é uma
+    /// interação fora do escopo do MT-14.
+    pub fn apply_route(&mut self, route: ResolvedRoute) {
+        self.provider = route.provider;
+        self.model = route.model;
+        self.preset = route.preset;
+    }
+
     /// Histórico de mensagens acumulado até aqui.
     #[must_use]
     pub fn messages(&self) -> &[Message] {
@@ -650,5 +666,39 @@ mod tests {
             "system_prompt não deve duplicar entre chamadas a run()"
         );
         assert_eq!(historico[0].role, Role::System);
+    }
+
+    #[tokio::test]
+    async fn apply_route_troca_modelo_e_preset_preservando_historico() {
+        let mock = Arc::new(MockProvider::new("mock"));
+        mock.enqueue_chat(Ok(resposta_final("primeira resposta", Usage::default())));
+        mock.enqueue_chat(Ok(resposta_final("segunda resposta", Usage::default())));
+        let executor = Arc::new(CountingExecutor::default());
+
+        let mut session = Session::new(
+            ResolvedRoute::new(mock.clone(), "modelo-antigo", CallPreset::default()),
+            executor,
+            TokenBudget::new(10_000),
+        );
+        session.push_user_message("primeira pergunta");
+        session.run().await.expect("primeiro turno deve completar");
+
+        let novo_preset = CallPreset {
+            temperature: Some(0.9),
+            ..CallPreset::default()
+        };
+        session.apply_route(ResolvedRoute::new(mock.clone(), "modelo-novo", novo_preset));
+        session.push_user_message("segunda pergunta");
+        session.run().await.expect("segundo turno deve completar");
+
+        // Histórico preservado através da troca de rota.
+        assert_eq!(session.messages().len(), 4);
+        assert_eq!(session.messages()[0], Message::user("primeira pergunta"));
+
+        let requisicoes = mock.chat_requests();
+        assert_eq!(requisicoes[0].model, "modelo-antigo");
+        assert_eq!(requisicoes[0].temperature, None);
+        assert_eq!(requisicoes[1].model, "modelo-novo");
+        assert_eq!(requisicoes[1].temperature, Some(0.9));
     }
 }
