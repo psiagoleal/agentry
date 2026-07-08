@@ -72,6 +72,7 @@ pub struct Transport {
     egress_class: EgressClass,
     profile: Option<String>,
     sink: Arc<dyn AuditSink>,
+    api_key: Option<String>,
 }
 
 impl Transport {
@@ -95,7 +96,20 @@ impl Transport {
             egress_class,
             profile,
             sink,
+            api_key: None,
         }
+    }
+
+    /// Anexa `Authorization: Bearer <api_key>` a toda requisição deste
+    /// transporte (MT-15) — necessário para gateways de nuvem
+    /// (OpenRouter/LiteLLM) que exigem chave de API; endpoints locais sem
+    /// autenticação (ex.: Ollama, vLLM local) simplesmente não chamam este
+    /// método. Builder em vez de parâmetro extra em [`Self::new`] para não
+    /// quebrar os chamadores existentes que não precisam de chave.
+    #[must_use]
+    pub fn with_api_key(mut self, api_key: impl Into<String>) -> Self {
+        self.api_key = Some(api_key.into());
+        self
     }
 
     /// Verifica a allowlist para `url` e emite o [`AuditEntry`] correspondente
@@ -151,10 +165,11 @@ impl Transport {
     ) -> Result<serde_json::Value, TransportError> {
         let parsed = self.authorize(url, task)?;
 
-        let resposta = self
-            .client
-            .post(parsed)
-            .json(body)
+        let mut requisicao = self.client.post(parsed).json(body);
+        if let Some(api_key) = &self.api_key {
+            requisicao = requisicao.bearer_auth(api_key);
+        }
+        let resposta = requisicao
             .send()
             .await
             .map_err(|e| TransportError::Http(e.to_string()))?;
@@ -194,10 +209,11 @@ impl Transport {
     ) -> Result<mpsc::Receiver<Result<String, TransportError>>, TransportError> {
         let parsed = self.authorize(url, task)?;
 
-        let mut resposta = self
-            .client
-            .post(parsed)
-            .json(body)
+        let mut requisicao = self.client.post(parsed).json(body);
+        if let Some(api_key) = &self.api_key {
+            requisicao = requisicao.bearer_auth(api_key);
+        }
+        let mut resposta = requisicao
             .send()
             .await
             .map_err(|e| TransportError::Http(e.to_string()))?;
@@ -425,6 +441,74 @@ mod tests {
             recebidas.push(linha.expect("mock não produz erro de transporte"));
         }
         assert_eq!(recebidas, vec!["{\"a\":1}", "{\"a\":2}", "{\"a\":3}"]);
+    }
+
+    /// Como [`start_mock_server`], mas também captura os bytes brutos da
+    /// primeira requisição recebida — usado para provar que um header foi
+    /// realmente enviado (MT-15, `with_api_key`).
+    async fn start_mock_server_capturando(
+        response_body: &'static str,
+    ) -> (std::net::SocketAddr, Arc<Mutex<Vec<u8>>>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind em porta efêmera deve funcionar");
+        let addr = listener
+            .local_addr()
+            .expect("socket deve ter endereço local");
+        let capturado = Arc::new(Mutex::new(Vec::new()));
+        let alvo = Arc::clone(&capturado);
+
+        tokio::spawn(async move {
+            if let Ok((mut socket, _)) = listener.accept().await {
+                let mut buf = [0u8; 4096];
+                if let Ok(n) = socket.read(&mut buf).await {
+                    alvo.lock()
+                        .expect("mutex de captura não deve envenenar")
+                        .extend_from_slice(&buf[..n]);
+                }
+                let resposta = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\
+                     Content-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    response_body.len(),
+                    response_body
+                );
+                let _ = socket.write_all(resposta.as_bytes()).await;
+                let _ = socket.shutdown().await;
+            }
+        });
+
+        (addr, capturado)
+    }
+
+    #[tokio::test]
+    async fn with_api_key_anexa_o_header_authorization_bearer() {
+        let (addr, capturado) = start_mock_server_capturando(r#"{"ok":true}"#).await;
+        let host = addr.ip().to_string();
+        let allowlist = Allowlist::new(vec![AllowlistEntry::new(
+            host.as_str(),
+            EgressClass::CloudOk,
+        )]);
+        let sink = Arc::new(AuditCollector::default());
+        let transport = Transport::new(allowlist, EgressClass::CloudOk, None, sink)
+            .with_api_key("chave-secreta");
+
+        let url = format!("http://{addr}/chat");
+        transport
+            .post_json(&url, "chat de teste", &serde_json::json!({}))
+            .await
+            .expect("chamada permitida deve passar");
+
+        let requisicao_bruta =
+            String::from_utf8_lossy(&capturado.lock().expect("mutex não deve envenenar"))
+                .into_owned();
+        assert!(
+            requisicao_bruta
+                .to_lowercase()
+                .contains("authorization: bearer chave-secreta"),
+            "esperava header Authorization: Bearer na requisição; recebido:\n{requisicao_bruta}"
+        );
     }
 
     #[test]
