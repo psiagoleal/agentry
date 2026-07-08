@@ -55,6 +55,10 @@ struct OllamaRequest<'a> {
     tools: Vec<OllamaTool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     options: Option<OllamaOptions>,
+    /// Ativa/desativa raciocínio estendido (MT-32, ADR-0014) — campo de
+    /// nível superior na API do Ollama, fora de `options`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    think: Option<bool>,
 }
 
 #[derive(Serialize, Default)]
@@ -219,6 +223,7 @@ fn build_request<'a>(request: &'a ChatRequest, stream: bool) -> OllamaRequest<'a
         stream,
         tools: request.tools.iter().map(tool_spec_to_ollama).collect(),
         options: OllamaOptions::from_request(request),
+        think: request.reasoning,
     }
 }
 
@@ -562,6 +567,29 @@ mod tests {
         assert!(
             json.get("options").is_none(),
             "options não deveria aparecer sem nenhum parâmetro definido"
+        );
+    }
+
+    #[test]
+    fn build_request_inclui_think_quando_reasoning_definido() {
+        let mut request = ChatRequest::new("modelo-x", vec![Message::user("oi")]);
+        request.reasoning = Some(true);
+
+        let ollama_request = build_request(&request, false);
+        let json = serde_json::to_value(&ollama_request).expect("deve serializar");
+
+        assert_eq!(json["think"], true);
+    }
+
+    #[test]
+    fn build_request_omite_think_sem_reasoning_definido() {
+        let request = ChatRequest::new("modelo-x", vec![Message::user("oi")]);
+        let ollama_request = build_request(&request, false);
+        let json = serde_json::to_value(&ollama_request).expect("deve serializar");
+
+        assert!(
+            json.get("think").is_none(),
+            "think não deveria aparecer sem reasoning definido"
         );
     }
 }

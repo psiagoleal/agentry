@@ -216,6 +216,7 @@ impl Session {
             max_tokens: self.preset.max_tokens,
             temperature: self.preset.temperature,
             top_p: self.preset.top_p,
+            reasoning: self.preset.reasoning,
         }
     }
 
@@ -602,6 +603,7 @@ mod tests {
             top_p: Some(0.8),
             system_prompt: Some("Você é útil.".into()),
             max_tokens: Some(512),
+            reasoning: Some(true),
         };
         let route = ResolvedRoute::new(mock.clone(), "modelo-x", preset);
         let mut session = Session::new(route, executor, TokenBudget::new(1000));
@@ -615,6 +617,7 @@ mod tests {
         assert_eq!(req.temperature, Some(0.3));
         assert_eq!(req.top_p, Some(0.8));
         assert_eq!(req.max_tokens, Some(512));
+        assert_eq!(req.reasoning, Some(true));
         assert_eq!(req.messages[0], Message::system("Você é útil."));
     }
 

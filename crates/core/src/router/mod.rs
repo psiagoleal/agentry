@@ -36,6 +36,9 @@ pub struct CallPreset {
     pub system_prompt: Option<String>,
     /// Limite de tokens de saída, se definido.
     pub max_tokens: Option<u32>,
+    /// Ativa (ou desativa explicitamente) o raciocínio estendido do modelo
+    /// para esta `task-class`, se ele suportar (MT-32, ADR-0014).
+    pub reasoning: Option<bool>,
 }
 
 /// Um candidato de roteamento: provider nomeado (via [`LlmProvider::name`]) +
@@ -305,6 +308,7 @@ mod tests {
             top_p: Some(0.9),
             system_prompt: Some("Você é um assistente de código.".into()),
             max_tokens: Some(2048),
+            reasoning: Some(true),
         };
         router.set_route(
             "code-gen",

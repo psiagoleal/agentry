@@ -63,6 +63,11 @@ pub struct ChatRequest {
     /// *Top-p* (*nucleus sampling*), se definido (MT-31, ADR-0008).
     #[serde(default)]
     pub top_p: Option<f32>,
+    /// Ativa (ou desativa explicitamente) o raciocínio estendido do modelo,
+    /// se ele suportar (MT-32, ADR-0014). Representação abstrata — cada
+    /// adapter traduz para seu mecanismo nativo (Ollama: campo `think`).
+    #[serde(default)]
+    pub reasoning: Option<bool>,
 }
 
 impl ChatRequest {
@@ -76,6 +81,7 @@ impl ChatRequest {
             max_tokens: None,
             temperature: None,
             top_p: None,
+            reasoning: None,
         }
     }
 }
