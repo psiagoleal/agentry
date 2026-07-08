@@ -14,8 +14,10 @@ contexto (ver skill `micro-ticket-planner`). Ordem pensada para que o **transpor
   `docs/architecture.md`. Qualquer dependência **consequente** nova exige ADR (regra do
   ADR-0004). Bibliotecas de teste (mock HTTP, etc.) são *dev-dependencies* e seguem a
   verificação de maturidade/licença do ADR-0004 — a escolha exata fica a confirmar no ticket.
-- Decisões estruturais já registradas: ADR-0001 (fundação LLM), ADR-0002 (egresso),
-  ADR-0003 (consumo de profiles), ADR-0004 (sinergia OSS).
+- Decisões estruturais já registradas: ver índice completo em [`docs/adr/README.md`](./adr/README.md)
+  (ADR-0001..0013 — fundação LLM, egresso, consumo de profiles, sinergia OSS, portabilidade,
+  LiteLLM, guardrails, presets de chamada, timeout/keep_alive, repo-map, RAG semântico, saída
+  estruturada, LSP-grounding).
 
 ---
 
@@ -162,10 +164,124 @@ contexto (ver skill `micro-ticket-planner`). Ordem pensada para que o **transpor
 
 ---
 
+## Fase 6 — Especialização de modelos open-source sem fine-tuning
+
+Motivação: o `agentry` tem como alvo de uso local modelos open-source pequenos (8B–30B, ex.:
+família Qwen) servidos via Ollama — bem mais fracos que modelos de fronteira em busca
+agenteica iterativa e propensos a alucinar assinatura/API e a produzir tool-call malformada.
+As quatro capacidades abaixo (ADR-0010..0013) atacam essas fraquezas **sem fine-tuning**,
+melhorando contexto e confiabilidade em vez de depender de raciocínio que o modelo pequeno
+não tem. Todas vêm **ativadas por padrão**, com flag de desativação no `settings-schema`
+(convenção herdada do ADR-0007/0008/0009: mudança de fronteira registrada no `exchange-log`).
+
+Ordem de construção: repo-map primeiro (mais barato, sem infra pesada), saída estruturada e
+LSP-grounding em paralelo (independentes entre si e do repo-map), RAG semântico por último
+(reaproveita a extração de símbolos do repo-map para o chunking).
+
+### MT-18: Parsing AST-aware via `tree-sitter` (extração de símbolos)
+- **Objetivo:** dado um arquivo-fonte e sua linguagem, extrair os símbolos de nível função/classe/método com *range* de bytes.
+- **Arquivos no escopo:** `crates/core/src/context/mod.rs`, `crates/core/src/context/ast.rs`.
+- **Critério de aceite:** testes — extrai símbolos corretos (nome + *range*) de um arquivo Rust e de um arquivo Python de exemplo.
+- **Fora de escopo:** repo-map (MT-19/20); chunking para RAG (MT-25) — só a extração de símbolos em si.
+- **Depende de:** nenhum · ADR-0010.
+
+### MT-19: Grafo de referências entre símbolos/arquivos
+- **Objetivo:** construir um grafo dirigido de referências (import/uso) a partir dos símbolos extraídos (MT-18).
+- **Arquivos no escopo:** `crates/core/src/context/repo_map/graph.rs`.
+- **Critério de aceite:** teste — grafo construído sobre um mini-repositório de exemplo reflete as referências esperadas (arestas corretas).
+- **Fora de escopo:** ranking (MT-20); tool exposta ao agent loop (MT-21).
+- **Depende de:** MT-18 · ADR-0010.
+
+### MT-20: Ranking de relevância (estilo PageRank) sobre o grafo
+- **Objetivo:** dado um conjunto de arquivos/símbolos "semente", ranquear os demais por relevância usando o grafo (MT-19).
+- **Arquivos no escopo:** `crates/core/src/context/repo_map/rank.rs`.
+- **Critério de aceite:** teste — símbolos mais referenciados a partir da semente ficam no topo do ranking em um grafo de exemplo conhecido.
+- **Fora de escopo:** tool exposta ao agent loop (MT-21).
+- **Depende de:** MT-19 · ADR-0010.
+
+### MT-21: Tool `repo_map` exposta ao agent loop
+- **Objetivo:** expor o repo-map (MT-19/20) como `Tool` (MT-11) — dada uma consulta/tarefa, devolve os arquivos/símbolos mais relevantes.
+- **Arquivos no escopo:** `crates/core/src/tools/repo_map.rs`.
+- **Critério de aceite:** testes — tool respeita o gate de permissão (MT-11); respeita a flag `context.repo_map.enabled` (*default* `true`) — desligada, a tool não é registrada.
+- **Fora de escopo:** UI/CLI de configuração.
+- **Depende de:** MT-11, MT-20 · ADR-0010.
+
+### MT-22: Saída estruturada (*constrained decoding*) no `OllamaProvider`
+- **Objetivo:** `OllamaProvider` envia o campo `format` (JSON Schema das tools) quando `ChatRequest.tools` não está vazio.
+- **Arquivos no escopo:** `crates/core/src/provider/ollama.rs`.
+- **Critério de aceite:** teste com mock do endpoint Ollama — corpo da requisição contém `format` correspondente ao schema das tools quando presentes; ausente quando não há tools; respeita a flag `providers.ollama.structured_output` (*default* `true`).
+- **Fora de escopo:** outros providers (OpenAI-compatible/Anthropic têm mecanismos próprios; não generalizar aqui).
+- **Depende de:** MT-08 · ADR-0012.
+
+### MT-23: Cliente LSP mínimo (spawn + JSON-RPC stdio)
+- **Objetivo:** cliente LSP capaz de iniciar um *language server* já instalado, fazer `initialize`/`didOpen`, e encerrar limpo ao final.
+- **Arquivos no escopo:** `crates/core/src/context/lsp/client.rs`.
+- **Critério de aceite:** teste — ciclo de vida completo (start → initialize → shutdown) contra um *language server* de teste/mock; nenhum processo órfão após o teste.
+- **Fora de escopo:** operações de leitura específicas (hover/definição — MT-24).
+- **Depende de:** nenhum · ADR-0013.
+
+### MT-24: Tool `lsp_hover`/`lsp_definition`
+- **Objetivo:** expor hover/*go-to-definition*/referências do cliente LSP (MT-23) como `Tool` (MT-11).
+- **Arquivos no escopo:** `crates/core/src/tools/lsp.rs`.
+- **Critério de aceite:** testes — tool respeita o gate de permissão (MT-11); respeita a flag `context.lsp_grounding.enabled` (*default* `true`); ausência do *language server* no ambiente é erro tratado (não trava o agent loop).
+- **Fora de escopo:** operações de escrita/refatoração via LSP.
+- **Depende de:** MT-11, MT-23 · ADR-0013.
+
+### MT-25: Chunking AST-aware para RAG
+- **Objetivo:** gerar chunks de função/classe/método (reaproveitando MT-18) com metadados (arquivo, símbolo, *range*) prontos para indexação.
+- **Arquivos no escopo:** `crates/core/src/context/rag/chunk.rs`.
+- **Critério de aceite:** teste — chunks gerados não quebram uma função no meio; metadados corretos.
+- **Fora de escopo:** geração de embeddings (MT-27); índice lexical (MT-26).
+- **Depende de:** MT-18 · ADR-0011.
+
+### MT-26: Índice lexical (`tantivy`/BM25) sobre os chunks
+- **Objetivo:** indexar os chunks (MT-25) num índice `tantivy` para busca lexical (BM25).
+- **Arquivos no escopo:** `crates/core/src/context/rag/lexical_index.rs`.
+- **Critério de aceite:** teste — consulta por identificador exato devolve o chunk esperado no topo.
+- **Fora de escopo:** busca híbrida (MT-28).
+- **Depende de:** MT-25 · ADR-0011.
+
+### MT-27: Índice semântico (embeddings + `lancedb`) sobre os chunks
+- **Objetivo:** gerar embeddings dos chunks (MT-25) via `LlmProvider::embeddings` (MT-03) e indexá-los em `lancedb`.
+- **Arquivos no escopo:** `crates/core/src/context/rag/semantic_index.rs`.
+- **Critério de aceite:** teste com provider mock de embeddings — consulta por vetor devolve os chunks mais próximos esperados.
+- **Fora de escopo:** busca híbrida (MT-28); reranking.
+- **Depende de:** MT-03, MT-25 · ADR-0011.
+
+### MT-28: Busca híbrida + *reranking*
+- **Objetivo:** combinar os índices lexical (MT-26) e semântico (MT-27) e reordenar o top-K com um *reranker* cross-encoder.
+- **Arquivos no escopo:** `crates/core/src/context/rag/hybrid_search.rs`.
+- **Critério de aceite:** teste — resultado combinado reflete tanto *match* lexical exato quanto proximidade semântica; *reranking* reordena corretamente um caso conhecido.
+- **Fora de escopo:** indexação incremental (MT-29); tool exposta ao agent loop (MT-30).
+- **Depende de:** MT-26, MT-27 · ADR-0011.
+
+### MT-29: Indexação incremental
+- **Objetivo:** reembedar/reindexar só arquivos alterados (via `git diff` ou observação de *filesystem*), nunca o repositório inteiro.
+- **Arquivos no escopo:** `crates/core/src/context/rag/incremental.rs`.
+- **Critério de aceite:** teste — alterar um arquivo dispara reindexação só dele; arquivos não alterados não são reprocessados.
+- **Fora de escopo:** tool exposta ao agent loop (MT-30).
+- **Depende de:** MT-26, MT-27 · ADR-0011.
+
+### MT-30: Tool `code_search` (RAG semântico) exposta ao agent loop
+- **Objetivo:** expor a busca híbrida (MT-28) como `Tool` (MT-11).
+- **Arquivos no escopo:** `crates/core/src/tools/code_search.rs`.
+- **Critério de aceite:** testes — tool respeita o gate de permissão (MT-11); respeita a flag `context.semantic_rag.enabled` (*default* `true`) — desligada, a tool não é registrada nem a indexação roda.
+- **Fora de escopo:** UI/CLI de configuração.
+- **Depende de:** MT-11, MT-28, MT-29 · ADR-0011.
+
+---
+
 ## Sequência crítica
 
 ```
 MT-01 → MT-02 → MT-03 ─┐
             └ MT-04 → MT-05 → MT-06 → MT-07 → MT-08 → MT-09 → MT-10 → MT-11 → MT-12,13 → MT-14
                                                   └ MT-15, MT-16 (após MT-07/08)
+                                                  └ MT-17 (após MT-04/08/09, independente)
+                                                  └ Fase 6 (após MT-11, independente):
+                                                       MT-18 → MT-19 → MT-20 → MT-21
+                                                       MT-18 → MT-25 → MT-26 ┐
+                                                                    → MT-27 ┴→ MT-28 → MT-29 → MT-30
+                                                       MT-22 (após MT-08, independente)
+                                                       MT-23 → MT-24 (independente)
 ```

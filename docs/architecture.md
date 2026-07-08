@@ -9,7 +9,9 @@ auditável. Faz par com o `ai-coding-agent-profiles` (camada de política) — v
 [`docs/interop/README.md`](./interop/README.md).
 
 > Decisões estruturais registradas em [`docs/adr/`](./adr/README.md): ADR-0001 (fundação LLM),
-> ADR-0002 (privacidade/egresso), ADR-0003 (consumo de profiles), ADR-0004 (sinergia OSS).
+> ADR-0002 (privacidade/egresso), ADR-0003 (consumo de profiles), ADR-0004 (sinergia OSS),
+> ADR-0010..0013 (especialização de modelos open-source sem fine-tuning: repo-map, RAG
+> semântico, saída estruturada, LSP-grounding).
 
 ## Módulos
 
@@ -26,7 +28,7 @@ flowchart TB
     Session --> Skills[Skills Loader<br/>SKILL.md progressivo]
     Session --> MCP[MCP Client<br/>rmcp]
     Tools --> Perm[Permission / Sandbox<br/>allow/ask/deny]
-    Session --> Ctx[Context Manager<br/>budget, cache, compressão, memória]
+    Session --> Ctx[Context Manager<br/>budget, cache, compressão, memória<br/>repo-map, RAG semântico, LSP-grounding]
     Config[(Config em camadas<br/>perfil + projeto + env)] -.-> Router
     Config -.-> Transport
 ```
@@ -42,7 +44,7 @@ flowchart TB
 | **Tool Registry + Permission** | fs/shell/search/edit atrás de gate `allow\|ask\|deny` | ADR-0002 |
 | **Skills Loader** | Carrega `SKILL.md` por *progressive disclosure* (name+description até acionar) | ADR-0003 |
 | **MCP Client** | Reaproveita o ecossistema MCP via `rmcp` (SDK oficial) | — |
-| **Context Manager** | Orçamento de tokens, *prompt caching*, compressão de tool-output (padrão `rtk`), memória (padrão `LLM-Wiki`) | ADR-0004 |
+| **Context Manager** | Orçamento de tokens, *prompt caching*, compressão de tool-output (padrão `rtk`), memória (padrão `LLM-Wiki`); repo-map (`tree-sitter`), RAG semântico (`tantivy`+`lancedb`), *grounding* via LSP — especialização de modelos open-source sem fine-tuning, todas ativadas por padrão e desabilitáveis pelo usuário | ADR-0004, ADR-0010..0013 |
 | **Config** | Camadas: perfil (`profiles`) + projeto + env | ADR-0003 |
 
 ## Fluxo de egresso (o coração da confidencialidade)
@@ -75,6 +77,9 @@ sequenceDiagram
 | TUI | `ratatui` | marco posterior (v0.1 é CLI streaming) |
 | Config | `serde` + `toml` | camadas |
 | MCP | `rmcp` | SDK oficial Rust |
+| Repo-map | `tree-sitter` (+ gramáticas por linguagem) | extração de símbolos, ADR-0010 |
+| RAG semântico | `tantivy` (lexical) + `lancedb` (vetorial) | ambos embutidos, sem servidor, ADR-0011 |
+| LSP-grounding | `lsp-types` + `lsp-server` | cliente LSP; fala com *language server* já instalado, ADR-0013 |
 
 > Excluídos do runtime da v0.1 por ADR-0001: frameworks de agente (`rig`) e clientes que
 > ocultem chamadas de rede (`genai`).
@@ -82,7 +87,9 @@ sequenceDiagram
 ## Roadmap (resumo)
 
 - **v0.1:** Provider Layer (Anthropic + OpenAI-compatible + Ollama) · Transporte/egresso ·
-  Router com classes de privacidade · Tools fs/shell/edit com permissão · CLI streaming.
+  Router com classes de privacidade · Tools fs/shell/edit com permissão · CLI streaming ·
+  Fase 6 — especialização de modelos open-source sem fine-tuning (repo-map, RAG semântico,
+  saída estruturada, LSP-grounding).
 - **v0.2:** Skills Loader · MCP client · compressão de tool-output.
 - **v0.3:** TUI · *prompt caching* · memória estilo `LLM-Wiki`.
 

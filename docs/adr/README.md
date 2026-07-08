@@ -16,3 +16,7 @@ Registros de decisões estruturais (ver skill `adr-writer`). Use
 | [0007](0007-guardrails-configuraveis-de-conteudo.md) | Guardrails configuráveis de conteúdo (gate distinto do Tool Registry) | Proposed |
 | [0008](0008-parametros-de-chamada-e-presets-por-task-class.md) | Parâmetros de chamada de LLM e presets de modelo por task-class | Proposed |
 | [0009](0009-timeout-adaptativo-e-keep-alive-para-troca-de-modelo.md) | Timeout adaptativo e `keep_alive` configurável para troca de modelo em provider local | Proposed |
+| [0010](0010-repo-map-tree-sitter.md) | Repo map (estilo Aider) via `tree-sitter`, sem vector DB | Proposed |
+| [0011](0011-rag-semantico-local-para-codigo.md) | RAG semântico local para código (chunking + busca híbrida + reranker) | Proposed |
+| [0012](0012-saida-estruturada-para-tool-calling.md) | Saída estruturada (*constrained decoding*) para tool-calling | Proposed |
+| [0013](0013-tool-de-grounding-via-lsp.md) | Tool de *grounding* via LSP (Language Server Protocol) | Proposed |

@@ -90,3 +90,41 @@ reescrever entradas; decisões vinculantes viram ADR (referenciar o ADR aqui).
   roadmap (Fase 3). Formato definitivo do esquema fica para a implementação, a confirmar
   com o `profiles` antes de congelar.
 
+---
+
+## 2026-07-08 — Quarta extensão ao `settings-schema:1`: especialização de modelos sem fine-tuning
+
+- **Origem:** `agentry`.
+- **Contexto:** o `agentry` tem como alvo de uso local modelos open-source pequenos (8B–30B,
+  ex.: Qwen) via Ollama — mais fracos que modelos de fronteira em busca agenteica iterativa e
+  propensos a alucinar API/produzir tool-call malformada. Quatro capacidades foram desenhadas
+  para compensar isso sem fine-tuning, todas **ativadas por padrão e desabilitáveis pelo
+  usuário**.
+- **ADRs criados (`agentry`):**
+  - **ADR-0010** (Proposed) — Repo map (estilo Aider) via `tree-sitter`: grafo de referências +
+    ranking de relevância, sem vector DB. Maturidade do crate `tree-sitter` verificada
+    (`gh repo view`/crates.io): MIT, 26,9M downloads, ativo.
+  - **ADR-0011** (Proposed) — RAG semântico local: chunking AST-aware (reaproveita ADR-0010) +
+    índice lexical (`tantivy`) + índice semântico (`lancedb`, via `LlmProvider::embeddings`
+    já existente) + busca híbrida + reranker + indexação incremental. Maturidade verificada:
+    `tantivy` (MIT, 15M downloads), `lancedb` (Apache-2.0, 639k downloads), ambos nativos em
+    Rust, sem servidor.
+  - **ADR-0012** (Proposed) — Saída estruturada (*constrained decoding*) para tool-calling no
+    `OllamaProvider`, via o campo `format` já existente na API do Ollama (sem dependência
+    nova).
+  - **ADR-0013** (Proposed) — Tool de *grounding* via LSP (`lsp-types`+`lsp-server`), só
+    leitura (hover/definição), falando com *language server* já instalado pelo usuário — o
+    `agentry` não empacota nenhum. Nota de maturidade: `lsp-types` sem *push* há mais de um
+    ano, mitigado por ser dependência direta do `rust-analyzer` (ativo); registrado para
+    reverificação futura.
+- **Pendências (rascunho a ratificar por ADR de esquema específico, quando implementado):**
+  - `context.repo_map.enabled` (ADR-0010).
+  - `context.semantic_rag.enabled` (ADR-0011).
+  - `providers.ollama.structured_output` (ADR-0012).
+  - `context.lsp_grounding.enabled` (ADR-0013).
+  - Todas com *default* `true` — convenção "ativado por padrão, desabilitável pelo usuário"
+    definida nesta troca.
+- **Status:** ✅ 4 ADRs de direção criados no `agentry`; nova **Fase 6** e micro-tickets
+  **MT-18..MT-30** adicionados ao roadmap. Formato definitivo das chaves de esquema fica para
+  a implementação, a confirmar com o `profiles` antes de congelar.
+
