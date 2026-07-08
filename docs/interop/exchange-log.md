@@ -155,3 +155,28 @@ reescrever entradas; decisões vinculantes viram ADR (referenciar o ADR aqui).
   à Fase 4 do roadmap (antes do MT-14, que passa a expor as duas superfícies de override).
   Formato definitivo fica para a implementação, a confirmar com o `profiles` antes de
   congelar.
+
+---
+
+## 2026-07-08 — Sexta extensão ao `settings-schema:1`: Reviewer (auditoria semântica)
+
+- **Origem:** `agentry`.
+- **Contexto:** o ADR-0007 (Guardrail Gate) já tinha adiado moderação semântica por modelo
+  para "v0.2, se necessária, sob novo ADR" — este é esse ADR, motivado pela discussão sobre
+  ter um modelo "reviewer" para auditorias diversas (correção, segurança, conformidade,
+  cumprimento da tarefa).
+- **ADR criado (`agentry`):**
+  - **ADR-0015** (Proposed) — Reviewer: cada tipo de auditoria é uma `task-class` própria
+    (ex.: `review-security`), resolvida pelo Router (MT-09) como qualquer outra — sem
+    infraestrutura nova, reaproveita Router + `ChatRequest` + saída estruturada (ADR-0012)
+    inteiramente. Disparo pós-`Done` (v0.1); dois modos — `advisory` (anexa veredito ao
+    `SessionOutcome`) e `blocking` (retry corretivo limitado por teto, falha persistente
+    sempre exposta). **Default desligado** (diferente do pacote ADR-0010..0013): é uma
+    segunda chamada completa de modelo por tarefa, custo/latência reais, não uma capacidade
+    local barata.
+- **Pendências (rascunho a ratificar por ADR de esquema específico, quando implementado):**
+  - Chaves de habilitação/modo por tipo de auditoria e por `task-class` no `settings-schema`
+    (ADR-0015).
+- **Status:** ✅ ADR de direção criado no `agentry`; micro-tickets **MT-34/35** adicionados à
+  Fase 4 do roadmap. Formato definitivo fica para a implementação, a confirmar com o
+  `profiles` antes de congelar.

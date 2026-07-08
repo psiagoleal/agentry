@@ -11,7 +11,7 @@ auditável. Faz par com o `ai-coding-agent-profiles` (camada de política) — v
 > Decisões estruturais registradas em [`docs/adr/`](./adr/README.md): ADR-0001 (fundação LLM),
 > ADR-0002 (privacidade/egresso), ADR-0003 (consumo de profiles), ADR-0004 (sinergia OSS),
 > ADR-0010..0013 (especialização de modelos open-source sem fine-tuning: repo-map, RAG
-> semântico, saída estruturada, LSP-grounding).
+> semântico, saída estruturada, LSP-grounding), ADR-0015 (Reviewer — auditoria semântica).
 
 ## Módulos
 
@@ -40,7 +40,7 @@ flowchart TB
 | **Provider Layer** | `trait LlmProvider` (chat, stream, tool-calling, embeddings); adaptadores Anthropic / OpenAI-compatible (inclui gateways LiteLLM, sob classe declarada) / Ollama | ADR-0001, ADR-0006 |
 | **Transporte** | Único ponto de saída de rede: allowlist por perfil, *fail-closed*, redação de segredos, audit log, **zero telemetria** | ADR-0002 |
 | **Router / Policy** | Mapeia `task-class → (provider, modelo, classe de egresso)`; fallback por custo/latência/disponibilidade | ADR-0002, ADR-0003 |
-| **Agent Loop** | Laço ReAct (mensagem → tool-call → observação), streaming, orçamento de tokens | ADR-0001 |
+| **Agent Loop** | Laço ReAct (mensagem → tool-call → observação), streaming, orçamento de tokens; `Reviewer` opcional pós-`Done` (auditoria semântica por tipo, desligado por padrão) | ADR-0001, ADR-0015 |
 | **Tool Registry + Permission** | fs/shell/search/edit atrás de gate `allow\|ask\|deny` | ADR-0002 |
 | **Skills Loader** | Carrega `SKILL.md` por *progressive disclosure* (name+description até acionar) | ADR-0003 |
 | **MCP Client** | Reaproveita o ecossistema MCP via `rmcp` (SDK oficial) | — |

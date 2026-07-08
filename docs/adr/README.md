@@ -21,3 +21,4 @@ Registros de decisões estruturais (ver skill `adr-writer`). Use
 | [0012](0012-saida-estruturada-para-tool-calling.md) | Saída estruturada (*constrained decoding*) para tool-calling | Proposed |
 | [0013](0013-tool-de-grounding-via-lsp.md) | Tool de *grounding* via LSP (Language Server Protocol) | Proposed |
 | [0014](0014-override-runtime-de-parametros-de-chamada.md) | Override runtime de parâmetros de chamada (sessão + invocação única) | Proposed |
+| [0015](0015-reviewer-auditoria-semantica-por-task-class.md) | Reviewer — auditoria semântica de tarefas via `task-class` dedicada | Proposed |

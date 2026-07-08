@@ -15,9 +15,9 @@ contexto (ver skill `micro-ticket-planner`). Ordem pensada para que o **transpor
   ADR-0004). Bibliotecas de teste (mock HTTP, etc.) são *dev-dependencies* e seguem a
   verificação de maturidade/licença do ADR-0004 — a escolha exata fica a confirmar no ticket.
 - Decisões estruturais já registradas: ver índice completo em [`docs/adr/README.md`](./adr/README.md)
-  (ADR-0001..0014 — fundação LLM, egresso, consumo de profiles, sinergia OSS, portabilidade,
+  (ADR-0001..0015 — fundação LLM, egresso, consumo de profiles, sinergia OSS, portabilidade,
   LiteLLM, guardrails, presets de chamada, timeout/keep_alive, repo-map, RAG semântico, saída
-  estruturada, LSP-grounding, override runtime de parâmetros).
+  estruturada, LSP-grounding, override runtime de parâmetros, Reviewer).
 
 ---
 
@@ -157,6 +157,20 @@ contexto (ver skill `micro-ticket-planner`). Ordem pensada para que o **transpor
 - **Critério de aceite:** testes — precedência de camadas resolve corretamente; override de `model`/`provider` que viole a classe de egresso ativa é bloqueado, não aplicado.
 - **Fora de escopo:** superfícies de interação (flags/REPL — MT-14).
 - **Depende de:** MT-31 · ADR-0014.
+
+### MT-34: `Reviewer` — auditoria semântica por tipo, via `task-class` dedicada
+- **Objetivo:** componente que monta a requisição de auditoria (prompt por tipo — `correctness`/`security`/`guardrail-compliance`/`task-completion` — + artefato a revisar + contexto original) e resolve via `Router::resolve("review-<tipo>")`, reaproveitando saída estruturada (ADR-0012) para obter o veredito (`pass`/`fail` + notas) em formato previsível.
+- **Arquivos no escopo:** `crates/core/src/session/reviewer.rs`.
+- **Critério de aceite:** teste — Reviewer monta a requisição certa por tipo de auditoria e interpreta corretamente o veredito estruturado devolvido por um provider mock.
+- **Fora de escopo:** disparo automático dentro do `Session` (MT-35); UI/CLI de configuração.
+- **Depende de:** MT-09, MT-31 · ADR-0015.
+
+### MT-35: Reviewer integrado ao agent loop (pós-`Done`, com retry limitado)
+- **Objetivo:** `Session::run()`/`run_streaming()` disparam o `Reviewer` (MT-34) após `StopReason::Done`, conforme tipos de auditoria habilitados para a `task-class`; modo `advisory` anexa o veredito a `SessionOutcome`; modo `blocking` com veredito `fail` gera turno corretivo (notas como observação) até um teto de retentativas, após o qual a falha persistente é exposta, nunca suprimida.
+- **Arquivos no escopo:** `crates/core/src/session/mod.rs`.
+- **Critério de aceite:** testes — modo `advisory` não bloqueia a resposta; modo `blocking` reprovado dispara retry até o teto e depois desiste reportando a falha; nenhuma auditoria roda se não habilitada (*default* desligado, ADR-0015).
+- **Fora de escopo:** revisão pré-execução (antes de tool-call); UI/CLI.
+- **Depende de:** MT-34 · ADR-0015.
 
 ### MT-14: CLI streaming (one-shot + REPL) com override de parâmetros
 - **Objetivo:** interface de linha que roda o loop, exibe stream/diffs e prompts de permissão; expõe `RuntimeOverride` (MT-33) por **flags na invocação one-shot** (ex.: `--model`, `--temperature`, `--reasoning`) e por **comandos no REPL** (ex.: `/model`, `/temperature`, `/reasoning`, no estilo do `/model` do Claude Code), com eco de confirmação da mudança.
@@ -305,4 +319,5 @@ MT-01 → MT-02 → MT-03 ─┐
                                                                     → MT-27 ┴→ MT-28 → MT-29 → MT-30
                                                        MT-22 (após MT-08, independente)
                                                        MT-23 → MT-24 (independente)
+                                                  └ MT-34 → MT-35 (após MT-09/31, independente do MT-14)
 ```
