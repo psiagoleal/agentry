@@ -128,3 +128,30 @@ reescrever entradas; decisões vinculantes viram ADR (referenciar o ADR aqui).
   **MT-18..MT-30** adicionados ao roadmap. Formato definitivo das chaves de esquema fica para
   a implementação, a confirmar com o `profiles` antes de congelar.
 
+---
+
+## 2026-07-08 — Quinta extensão ao `settings-schema:1`: override runtime de parâmetros
+
+- **Origem:** `agentry`.
+- **Contexto:** discussão sobre configurar `reasoning`/`thinking` (e, mais amplamente, todo o
+  conjunto de parâmetros de chamada) tanto como *default* em camadas quanto ajustável em
+  tempo real (flag de CLI para invocação única; comando REPL para a sessão), no estilo do
+  `/model` do Claude Code. Descoberta no processo: o `CallPreset` do ADR-0008/MT-09 já existe
+  no código mas não era consumido por `Session` — lacuna pré-existente, fechada pelo mesmo
+  ADR.
+- **ADR criado (`agentry`):**
+  - **ADR-0014** (Proposed) — `CallPreset` ganha campo `reasoning`; novo tipo
+    `RuntimeOverride` (model/provider/temperature/top_p/system_prompt/max_tokens/reasoning)
+    com precedência chamada-única > sessão > `task-class` > `settings-schema` > default do
+    provider. **Fronteira de segurança explícita:** `RuntimeOverride` nunca contém classe de
+    egresso nem permissões — essas continuam fixas pela resolução de `Config` (MT-04) feita
+    na inicialização; override de `model`/`provider` continua sujeito à checagem de
+    allowlist/classe do Router (nunca contorna o *fail-closed* do ADR-0002); override só vem
+    de comando explícito do usuário, nunca inferido de conteúdo de mensagem/tool-output
+    (fecha superfície de *prompt injection*).
+- **Pendências (rascunho a ratificar por ADR de esquema específico, quando implementado):**
+  - Formato de `reasoning` no `settings-schema` (ADR-0014, estende ADR-0008).
+- **Status:** ✅ ADR de direção criado no `agentry`; micro-tickets **MT-31/32/33** adicionados
+  à Fase 4 do roadmap (antes do MT-14, que passa a expor as duas superfícies de override).
+  Formato definitivo fica para a implementação, a confirmar com o `profiles` antes de
+  congelar.

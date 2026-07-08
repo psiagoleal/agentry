@@ -15,9 +15,9 @@ contexto (ver skill `micro-ticket-planner`). Ordem pensada para que o **transpor
   ADR-0004). Bibliotecas de teste (mock HTTP, etc.) são *dev-dependencies* e seguem a
   verificação de maturidade/licença do ADR-0004 — a escolha exata fica a confirmar no ticket.
 - Decisões estruturais já registradas: ver índice completo em [`docs/adr/README.md`](./adr/README.md)
-  (ADR-0001..0013 — fundação LLM, egresso, consumo de profiles, sinergia OSS, portabilidade,
+  (ADR-0001..0014 — fundação LLM, egresso, consumo de profiles, sinergia OSS, portabilidade,
   LiteLLM, guardrails, presets de chamada, timeout/keep_alive, repo-map, RAG semântico, saída
-  estruturada, LSP-grounding).
+  estruturada, LSP-grounding, override runtime de parâmetros).
 
 ---
 
@@ -137,12 +137,33 @@ contexto (ver skill `micro-ticket-planner`). Ordem pensada para que o **transpor
 - **Fora de escopo:** sandbox completo de SO (só os ganchos/política).
 - **Depende de:** MT-11 · ADR-0002.
 
-### MT-14: CLI streaming (one-shot + REPL)
-- **Objetivo:** interface de linha que roda o loop, exibe stream/diffs e prompts de permissão.
+### MT-31: Consumir `CallPreset` no `Session` (fecha a lacuna do ADR-0008)
+- **Objetivo:** `Session` passa a resolver a rota via `Router::resolve()` (em vez de receber provider/modelo fixos) e aplicar o `CallPreset` resolvido — `temperature`/`top_p`/`max_tokens` no `ChatRequest`; `system_prompt` antepõe uma `Message::system(...)` ao histórico se ainda não houver uma.
+- **Arquivos no escopo:** `crates/core/src/session/mod.rs`, `crates/core/src/provider/mod.rs` (`ChatRequest` ganha `temperature`/`top_p`).
+- **Critério de aceite:** testes — preset de `task-class` (temperature/top_p/system_prompt/max_tokens) chega de fato ao `ChatRequest` enviado ao provider mock; `system_prompt` não duplica se já houver mensagem de sistema.
+- **Fora de escopo:** override em runtime (MT-32/33); CLI (MT-14).
+- **Depende de:** MT-09, MT-10 · ADR-0008.
+
+### MT-32: `reasoning`/`thinking` como parâmetro de chamada
+- **Objetivo:** `CallPreset` ganha campo `reasoning` (representação abstrata); `OllamaProvider` traduz para o mecanismo nativo do Ollama (`think`, para modelos que suportam raciocínio).
+- **Arquivos no escopo:** `crates/core/src/router/mod.rs`, `crates/core/src/provider/ollama.rs`.
+- **Critério de aceite:** teste com mock do endpoint Ollama — `think` presente na requisição quando `reasoning` está definido no preset.
+- **Fora de escopo:** granularidade específica de outros providers (fica para quando forem implementados, MT-15/16).
+- **Depende de:** MT-31 · ADR-0014.
+
+### MT-33: Camada de override em runtime (`RuntimeOverride`)
+- **Objetivo:** tipo `RuntimeOverride` (model/provider/temperature/top_p/system_prompt/max_tokens/reasoning) aplicado com a precedência do ADR-0014 (chamada única > sessão > preset de `task-class` > `settings-schema` > default do provider); override de `model`/`provider` continua sujeito à checagem de classe de egresso do Router — nunca a contorna.
+- **Arquivos no escopo:** `crates/core/src/router/mod.rs` (ou novo `crates/core/src/router/override.rs`).
+- **Critério de aceite:** testes — precedência de camadas resolve corretamente; override de `model`/`provider` que viole a classe de egresso ativa é bloqueado, não aplicado.
+- **Fora de escopo:** superfícies de interação (flags/REPL — MT-14).
+- **Depende de:** MT-31 · ADR-0014.
+
+### MT-14: CLI streaming (one-shot + REPL) com override de parâmetros
+- **Objetivo:** interface de linha que roda o loop, exibe stream/diffs e prompts de permissão; expõe `RuntimeOverride` (MT-33) por **flags na invocação one-shot** (ex.: `--model`, `--temperature`, `--reasoning`) e por **comandos no REPL** (ex.: `/model`, `/temperature`, `/reasoning`, no estilo do `/model` do Claude Code), com eco de confirmação da mudança.
 - **Arquivos no escopo:** `crates/cli/src/main.rs`, `crates/cli/src/repl.rs`.
-- **Critério de aceite:** teste de integração — `agentry "<tarefa>"` roda o loop com Ollama local/mock e trata permissão interativa.
+- **Critério de aceite:** teste de integração — `agentry "<tarefa>"` roda o loop com Ollama local/mock e trata permissão interativa; flag de override muda o parâmetro só daquela invocação; comando REPL muda o parâmetro para os turnos seguintes da sessão até ser trocado de novo.
 - **Fora de escopo:** TUI (v0.3); skills/MCP (v0.2).
-- **Depende de:** MT-10, MT-12, MT-13.
+- **Depende de:** MT-10, MT-12, MT-13, MT-33 · ADR-0014.
 
 ---
 
@@ -275,7 +296,7 @@ LSP-grounding em paralelo (independentes entre si e do repo-map), RAG semântico
 
 ```
 MT-01 → MT-02 → MT-03 ─┐
-            └ MT-04 → MT-05 → MT-06 → MT-07 → MT-08 → MT-09 → MT-10 → MT-11 → MT-12,13 → MT-14
+            └ MT-04 → MT-05 → MT-06 → MT-07 → MT-08 → MT-09 → MT-10 → MT-11 → MT-12,13 → MT-31 → MT-32,33 → MT-14
                                                   └ MT-15, MT-16 (após MT-07/08)
                                                   └ MT-17 (após MT-04/08/09, independente)
                                                   └ Fase 6 (após MT-11, independente):
