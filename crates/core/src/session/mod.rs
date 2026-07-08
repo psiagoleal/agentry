@@ -3,6 +3,12 @@
 //! com streaming e orçamento de tokens, sobre qualquer [`LlmProvider`]
 //! (`MockProvider` do MT-03 ou o adapter Ollama do MT-08).
 //!
+//! `Session` é construída a partir de uma [`ResolvedRoute`] (Router, MT-09) —
+//! não recebe provider/modelo soltos — e aplica o [`CallPreset`] resolvido a
+//! cada turno (MT-31, ADR-0008): `temperature`/`top_p`/`max_tokens` vão no
+//! `ChatRequest`; `system_prompt` (se houver) é anteposto ao histórico como
+//! `Message::system(...)` comum, uma única vez.
+//!
 //! Execução real de tools (fs, shell) ainda não existe — chega nos MT-11+.
 //! Aqui só o contrato [`ToolExecutor`] que o loop consome, dyn-compatible via
 //! [`BoxFuture`] no mesmo padrão de [`LlmProvider`] (MT-03), sem `async-trait`.
@@ -12,6 +18,7 @@ use std::sync::Arc;
 
 use crate::model::{ContentBlock, Message, Role, StreamEvent, ToolCall, ToolResult, Usage};
 use crate::provider::{BoxFuture, ChatRequest, LlmProvider, ProviderError, ToolSpec};
+use crate::router::{CallPreset, ResolvedRoute};
 
 /// Executa uma chamada de tool solicitada pelo modelo e devolve a observação.
 ///
@@ -148,6 +155,7 @@ fn extract_tool_calls(message: &Message) -> Vec<ToolCall> {
 pub struct Session {
     provider: Arc<dyn LlmProvider>,
     model: String,
+    preset: CallPreset,
     tools: Vec<ToolSpec>,
     executor: Arc<dyn ToolExecutor>,
     messages: Vec<Message>,
@@ -155,17 +163,14 @@ pub struct Session {
 }
 
 impl Session {
-    /// Cria uma sessão vazia (sem tools declaradas; use [`Self::with_tools`]).
+    /// Cria uma sessão a partir de uma rota já resolvida pelo Router
+    /// (ADR-0008/MT-09) — sem tools declaradas; use [`Self::with_tools`].
     #[must_use]
-    pub fn new(
-        provider: Arc<dyn LlmProvider>,
-        model: impl Into<String>,
-        executor: Arc<dyn ToolExecutor>,
-        budget: TokenBudget,
-    ) -> Self {
+    pub fn new(route: ResolvedRoute, executor: Arc<dyn ToolExecutor>, budget: TokenBudget) -> Self {
         Self {
-            provider,
-            model: model.into(),
+            provider: route.provider,
+            model: route.model,
+            preset: route.preset,
             tools: Vec::new(),
             executor,
             messages: Vec::new(),
@@ -191,12 +196,26 @@ impl Session {
         &self.messages
     }
 
-    fn build_request(&self) -> ChatRequest {
+    /// Garante que a mensagem de sistema do preset (se houver) esteja no
+    /// início do histórico — insere só uma vez; chamadas seguintes (novos
+    /// turnos, ou novas mensagens de usuário) não duplicam.
+    fn ensure_system_prompt(&mut self) {
+        if let Some(system_prompt) = self.preset.system_prompt.clone() {
+            if !self.messages.iter().any(|m| m.role == Role::System) {
+                self.messages.insert(0, Message::system(system_prompt));
+            }
+        }
+    }
+
+    fn build_request(&mut self) -> ChatRequest {
+        self.ensure_system_prompt();
         ChatRequest {
             model: self.model.clone(),
             messages: self.messages.clone(),
             tools: self.tools.clone(),
-            max_tokens: None,
+            max_tokens: self.preset.max_tokens,
+            temperature: self.preset.temperature,
+            top_p: self.preset.top_p,
         }
     }
 
@@ -365,6 +384,11 @@ mod tests {
         }
     }
 
+    /// Rota resolvida de teste, com preset padrão (sem `temperature`/`system_prompt`/etc.).
+    fn route(provider: Arc<dyn LlmProvider>) -> ResolvedRoute {
+        ResolvedRoute::new(provider, "modelo-x", CallPreset::default())
+    }
+
     #[tokio::test]
     async fn ciclo_completo_de_tool_call_termina_com_resposta_final() {
         let mock = Arc::new(MockProvider::new("mock"));
@@ -386,8 +410,7 @@ mod tests {
         let executor = Arc::new(CountingExecutor::default());
 
         let mut session = Session::new(
-            mock.clone(),
-            "modelo-x",
+            route(mock.clone()),
             executor.clone(),
             TokenBudget::new(1000),
         );
@@ -448,7 +471,7 @@ mod tests {
         mock.enqueue_chat(Ok(resposta_final("feito", Usage::default())));
         let executor = Arc::new(CountingExecutor::default());
 
-        let mut session = Session::new(mock, "modelo-x", executor.clone(), TokenBudget::new(1000));
+        let mut session = Session::new(route(mock), executor.clone(), TokenBudget::new(1000));
         session.push_user_message("faça duas coisas");
 
         let outcome = session.run().await.expect("loop deve completar");
@@ -471,12 +494,8 @@ mod tests {
         )));
         let executor = Arc::new(CountingExecutor::default());
 
-        let mut session = Session::new(
-            mock.clone(),
-            "modelo-x",
-            executor.clone(),
-            TokenBudget::new(100),
-        );
+        let mut session =
+            Session::new(route(mock.clone()), executor.clone(), TokenBudget::new(100));
         session.push_user_message("tarefa longa");
 
         let outcome = session
@@ -527,7 +546,7 @@ mod tests {
         ]);
         let executor = Arc::new(CountingExecutor::default());
 
-        let mut session = Session::new(mock, "modelo-x", executor.clone(), TokenBudget::new(1000));
+        let mut session = Session::new(route(mock), executor.clone(), TokenBudget::new(1000));
         session.push_user_message("leia a.txt");
 
         let mut eventos_recebidos = 0usize;
@@ -560,7 +579,7 @@ mod tests {
         mock.enqueue_chat(Err(ProviderError::Network("fora do ar".into())));
         let executor = Arc::new(CountingExecutor::default());
 
-        let mut session = Session::new(mock, "modelo-x", executor, TokenBudget::new(1000));
+        let mut session = Session::new(route(mock), executor, TokenBudget::new(1000));
         session.push_user_message("oi");
 
         let erro = session
@@ -571,5 +590,62 @@ mod tests {
             erro,
             SessionError::Provider(ProviderError::Network("fora do ar".into()))
         );
+    }
+
+    #[tokio::test]
+    async fn preset_de_task_class_chega_ao_chat_request() {
+        let mock = Arc::new(MockProvider::new("mock"));
+        mock.enqueue_chat(Ok(resposta_final("ok", Usage::default())));
+        let executor = Arc::new(CountingExecutor::default());
+        let preset = CallPreset {
+            temperature: Some(0.3),
+            top_p: Some(0.8),
+            system_prompt: Some("Você é útil.".into()),
+            max_tokens: Some(512),
+        };
+        let route = ResolvedRoute::new(mock.clone(), "modelo-x", preset);
+        let mut session = Session::new(route, executor, TokenBudget::new(1000));
+        session.push_user_message("oi");
+
+        session.run().await.expect("loop deve completar");
+
+        let requisicoes = mock.chat_requests();
+        assert_eq!(requisicoes.len(), 1);
+        let req = &requisicoes[0];
+        assert_eq!(req.temperature, Some(0.3));
+        assert_eq!(req.top_p, Some(0.8));
+        assert_eq!(req.max_tokens, Some(512));
+        assert_eq!(req.messages[0], Message::system("Você é útil."));
+    }
+
+    #[tokio::test]
+    async fn system_prompt_nao_duplica_entre_chamadas_a_run() {
+        let mock = Arc::new(MockProvider::new("mock"));
+        mock.enqueue_chat(Ok(resposta_final("primeira resposta", Usage::default())));
+        mock.enqueue_chat(Ok(resposta_final("segunda resposta", Usage::default())));
+        let executor = Arc::new(CountingExecutor::default());
+        let preset = CallPreset {
+            system_prompt: Some("Instrução fixa.".into()),
+            ..CallPreset::default()
+        };
+        let mut session = Session::new(
+            ResolvedRoute::new(mock, "modelo-x", preset),
+            executor,
+            TokenBudget::new(10_000),
+        );
+
+        session.push_user_message("primeira pergunta");
+        session.run().await.expect("primeiro turno deve completar");
+
+        session.push_user_message("segunda pergunta");
+        session.run().await.expect("segundo turno deve completar");
+
+        let historico = session.messages();
+        let mensagens_de_sistema = historico.iter().filter(|m| m.role == Role::System).count();
+        assert_eq!(
+            mensagens_de_sistema, 1,
+            "system_prompt não deve duplicar entre chamadas a run()"
+        );
+        assert_eq!(historico[0].role, Role::System);
     }
 }

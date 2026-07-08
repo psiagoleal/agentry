@@ -115,6 +115,22 @@ pub struct ResolvedRoute {
     pub preset: CallPreset,
 }
 
+impl ResolvedRoute {
+    /// Cria uma rota já resolvida (normalmente devolvida por [`Router::resolve`]).
+    #[must_use]
+    pub fn new(
+        provider: Arc<dyn LlmProvider>,
+        model: impl Into<String>,
+        preset: CallPreset,
+    ) -> Self {
+        Self {
+            provider,
+            model: model.into(),
+            preset,
+        }
+    }
+}
+
 impl core::fmt::Debug for ResolvedRoute {
     // `LlmProvider` não exige `Debug` (MT-03); imprime só o nome do provider.
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {

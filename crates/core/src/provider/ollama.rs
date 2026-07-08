@@ -57,9 +57,30 @@ struct OllamaRequest<'a> {
     options: Option<OllamaOptions>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Default)]
 struct OllamaOptions {
-    num_predict: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    num_predict: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    temperature: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    top_p: Option<f32>,
+}
+
+impl OllamaOptions {
+    /// Constrói as opções a partir do `ChatRequest`, ou `None` se nenhum
+    /// parâmetro (MT-31, ADR-0008) estiver definido.
+    fn from_request(request: &ChatRequest) -> Option<Self> {
+        if request.max_tokens.is_none() && request.temperature.is_none() && request.top_p.is_none()
+        {
+            return None;
+        }
+        Some(Self {
+            num_predict: request.max_tokens,
+            temperature: request.temperature,
+            top_p: request.top_p,
+        })
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
@@ -197,7 +218,7 @@ fn build_request<'a>(request: &'a ChatRequest, stream: bool) -> OllamaRequest<'a
         messages: request.messages.iter().map(message_to_ollama).collect(),
         stream,
         tools: request.tools.iter().map(tool_spec_to_ollama).collect(),
-        options: request.max_tokens.map(|n| OllamaOptions { num_predict: n }),
+        options: OllamaOptions::from_request(request),
     }
 }
 
@@ -512,6 +533,35 @@ mod tests {
             conexoes.load(Ordering::SeqCst),
             0,
             "nenhuma conexão deveria ter sido aberta"
+        );
+    }
+
+    #[test]
+    fn build_request_inclui_temperature_e_top_p_quando_definidos() {
+        let mut request = ChatRequest::new("modelo-x", vec![Message::user("oi")]);
+        request.temperature = Some(0.3);
+        request.top_p = Some(0.8);
+        request.max_tokens = Some(100);
+
+        let ollama_request = build_request(&request, false);
+        let json = serde_json::to_value(&ollama_request).expect("deve serializar");
+
+        // Compara contra o mesmo caminho f32→f64 do serde_json, evitando
+        // falso-negativo por imprecisão de largura de ponto flutuante.
+        assert_eq!(json["options"]["temperature"], serde_json::json!(0.3_f32));
+        assert_eq!(json["options"]["top_p"], serde_json::json!(0.8_f32));
+        assert_eq!(json["options"]["num_predict"], 100);
+    }
+
+    #[test]
+    fn build_request_omite_options_sem_nenhum_parametro() {
+        let request = ChatRequest::new("modelo-x", vec![Message::user("oi")]);
+        let ollama_request = build_request(&request, false);
+        let json = serde_json::to_value(&ollama_request).expect("deve serializar");
+
+        assert!(
+            json.get("options").is_none(),
+            "options não deveria aparecer sem nenhum parâmetro definido"
         );
     }
 }

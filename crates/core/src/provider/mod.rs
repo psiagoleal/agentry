@@ -57,10 +57,16 @@ pub struct ChatRequest {
     /// Limite de tokens de saída, se imposto.
     #[serde(default)]
     pub max_tokens: Option<u32>,
+    /// Temperatura de amostragem, se definida (MT-31, ADR-0008).
+    #[serde(default)]
+    pub temperature: Option<f32>,
+    /// *Top-p* (*nucleus sampling*), se definido (MT-31, ADR-0008).
+    #[serde(default)]
+    pub top_p: Option<f32>,
 }
 
 impl ChatRequest {
-    /// Cria uma requisição mínima (sem tools nem limite de tokens).
+    /// Cria uma requisição mínima (sem tools nem parâmetros de amostragem).
     #[must_use]
     pub fn new(model: impl Into<String>, messages: Vec<Message>) -> Self {
         Self {
@@ -68,6 +74,8 @@ impl ChatRequest {
             messages,
             tools: Vec::new(),
             max_tokens: None,
+            temperature: None,
+            top_p: None,
         }
     }
 }
