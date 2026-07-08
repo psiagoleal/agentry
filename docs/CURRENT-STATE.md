@@ -9,8 +9,8 @@
 
 - **Data:** 2026-07-08
 - **Branch:** `main`
-- **Commit:** `7fb92fb`
-- **Fase:** Fase 4 fechada. Todos os MT-01..MT-14 concluídos.
+- **Commit:** `870ff27`
+- **Fase:** Fase 5 em andamento — MT-15 concluído, falta o MT-16 (Anthropic) para fechar.
 
 ## Metas cumpridas / Em andamento / Próximo passo
 
@@ -45,10 +45,11 @@
 - [x] **MT-32** — `CallPreset`/`ChatRequest` ganham `reasoning: Option<bool>`; `Session::build_request()` propaga; `OllamaProvider` traduz para o campo `think` (nível superior da API do Ollama, fora de `options`). Ausência nunca envia o campo, preservando o comportamento *default* do Ollama. 3 testes novos, 107 testes no total, `cargo build --release` verde (`0decd45`).
 - [x] **MT-33** — `RuntimeOverride` (provider/model/temperature/top_p/system_prompt/max_tokens/reasoning) + `Router::resolve_with_override`, com `resolve()` agora um atalho para override vazio (testes existentes inalterados). Precedência via `merged_over` (mesma convenção de `Settings::merged_over`, MT-04). **Decisão de segurança central**: override de `model`/`provider` só escolhe entre candidatos **já declarados** na `RouteEntry` (nunca um alvo novo, não vetado) e continua sujeito à mesma checagem de classe de egresso — bloqueado mesmo quando pedido explicitamente, provando que o override nunca contorna o *fail-closed* do ADR-0002. 6 testes novos, 113 testes no total, `cargo build --release` verde (`3244dbc`). **ADR-0014 (MT-31/32/33) totalmente implementado.**
 - [x] **MT-14** — `crates/cli/src/{main.rs,repl.rs}`: liga tudo em uma CLI real. `agentry "<tarefa>"` roda um turno via streaming (loop de tool-calls do MT-10) contra Ollama local e sai; sem tarefa, entra no REPL, com comandos `/model`/`/temperature`/`/top_p`/`/max_tokens`/`/system`/`/reasoning` como override de sessão (ADR-0014), persistindo até trocados de novo; flags equivalentes na invocação one-shot valem só para aquela chamada. `/model` declara o novo candidato na task-class `chat` antes de resolver — nunca contorna a checagem de classe de egresso do Router. Escopo ampliado com dois módulos de suporte (`streaming.rs`, `tool_executor.rs`, ambos em `crates/cli/src`) e duas extensões pontuais no core: `ToolRegistry::execute_confirmed` (roda uma tool após confirmação humana sem reconsultar o gate) e `Session::apply_route` (troca provider/modelo/preset preservando histórico). 8 testes novos na CLI, 116 no core, fmt/clippy limpos, `cargo build --release` verde, smoke-test manual do binário (`--help`, one-shot contra host sem Ollama falha limpo sem panic, REPL sai limpo em EOF) (`7fb92fb`). **Fecha a Fase 4.**
+- [x] **MT-15** — `crates/core/src/provider/openai_compat.rs`: `OpenAiCompatProvider` (vLLM/OpenRouter/gateways LiteLLM) sobre o Transporte único, cobrindo chat, streaming SSE (`data: {...}`, com acumulação incremental de `tool_calls` por índice) e tool-calling; diferente do Ollama, a API OpenAI exige `tool_call_id` por mensagem de resultado, então um `Message` de domínio com múltiplos `ToolResult` expande em várias `OpenAiMessage`. Dois testes cobrem literalmente os dois lados do critério de aceite do ADR-0006: endpoint com classe de egresso declarada na allowlist funciona; sem declaração é bloqueado (fail-closed), mesmo em host local. **Escopo estendido além do ticket, com aprovação explícita do usuário:** `Transport` (`crates/core/src/transport/mod.rs`) ganhou `with_api_key` (builder, não quebra chamadores existentes) — anexa `Authorization: Bearer` a toda requisição, gap real descoberto ao projetar o adapter (OpenRouter/LiteLLM em nuvem normalmente exigem chave de API, e nenhum outro módulo pode tocar `reqwest` para isso). 10 testes novos (9 no adapter, 1 no transporte), 126 testes no core + 8 na CLI, fmt/clippy limpos, `cargo build --release` verde (`870ff27`).
 
 **Em andamento:** nada pendente no turno.
 
-**Próximo passo:** nenhum ticket específico priorizado ainda. **Pendências independentes em aberto:** MT-15/16 (demais providers, Fase 5); MT-17 (ADR-0009, timeout/keep_alive); MT-18..MT-30 (Fase 6, ADR-0010..0013); MT-34/35 (ADR-0015, Reviewer).
+**Próximo passo:** **MT-16** — adapter Anthropic (Messages API, *tool use*, streaming SSE) sobre o Transporte: fecha a Fase 5. Consultar a skill `claude-api` para o surface correto da API ao implementar. **Pendências independentes em aberto:** MT-17 (ADR-0009, timeout/keep_alive); MT-18..MT-30 (Fase 6, ADR-0010..0013); MT-34/35 (ADR-0015, Reviewer).
 
 ## Impedimentos abertos
 
@@ -62,6 +63,7 @@
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-08 | `870ff27` | MT-15: adapter OpenAI-compatible (vLLM/OpenRouter/LiteLLM); Transport ganha with_api_key | MT-15 |
 | 2026-07-08 | `7fb92fb` | MT-14: CLI one-shot + REPL com override de parâmetros; fecha a Fase 4 | MT-14 |
 | 2026-07-08 | `3244dbc` | MT-33: RuntimeOverride no Router; ADR-0014 totalmente implementado | MT-33 |
 | 2026-07-08 | `0decd45` | MT-32: reasoning/thinking como parâmetro de chamada (campo think no Ollama) | MT-32 |
