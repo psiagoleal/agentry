@@ -7,10 +7,10 @@
 
 ## Último turno
 
-- **Data:** 2026-07-07
+- **Data:** 2026-07-08
 - **Branch:** `main`
-- **Commit:** `cf21f6f`
-- **Fase:** Fase 4 do roadmap (loop, tools, permissão, CLI) — MT-11 concluído.
+- **Commit:** `70c0470`
+- **Fase:** Fase 4 (MT-11 concluído) + ADR-0010..0013 registrados, nova Fase 6 (especialização sem fine-tuning) adicionada ao roadmap.
 
 ## Metas cumpridas / Em andamento / Próximo passo
 
@@ -36,10 +36,11 @@
 - [x] **MT-10** — `crates/core/src/session/mod.rs`: `Session` com `run()` (chat agregado) e `run_streaming()` (chat_stream + `StreamAggregator` reconstruindo a mensagem final a partir dos eventos), ambos partilhando `after_response()` (soma uso, decide orçamento, executa tool-calls). Execução real de tools ainda não existe — o loop consome só o contrato `ToolExecutor` (dyn-compatible via `BoxFuture`, mesmo padrão do `LlmProvider`); implementações reais (fs/shell) chegam no MT-11+. Orçamento checado logo após cada resposta, **antes** de executar qualquer tool-call pendente. 5 testes novos, 74 no total, `cargo build --release` verde (`cdd4fc6`). **Abre a Fase 4.**
 - [x] **ADR-0009** (Proposed) — timeout adaptativo + `keep_alive` configurável para troca de modelo em provider local: Router sinaliza `is_model_switch` em `ResolvedRoute` (rastreando o último modelo por provider); Transporte ganha timeout por chamada; `OllamaProvider` usa o sinal para timeout frio/quente e envia `keep_alive`. Motivado por uma lacuna real auditada: `Transport::new` hoje constrói `reqwest::Client::new()` sem nenhum timeout configurado. Muda a fronteira do `settings-schema` — registrado em `docs/interop/exchange-log.md`; micro-ticket **MT-17** adicionado à Fase 3 do roadmap (`ef69785`).
 - [x] **MT-11** — `crates/core/src/tools/{mod.rs,permission.rs}`: `trait Tool` dyn-compatible via `BoxFuture` (mesmo padrão de `LlmProvider`/`ToolExecutor`) + `ToolRegistry` + `PermissionGate` reaproveitando `config::Permissions` (deny/ask do MT-04) em vez de inventar novo formato de política. `deny` (explícito ou tool não registrada) bloqueia sem executar; `ask` **sinaliza** devolvendo a `ToolCall` pendente (`ExecutionOutcome::NeedsConfirmation`) — nunca bloqueia esperando confirmação humana, isso fica para a CLI (MT-14); `allow` executa. Precedência fail-closed: `deny` checado antes de `ask` no mesmo nome. 10 testes novos, 84 no total, `cargo build --release` verde (`cf21f6f`).
+- [x] **ADR-0010..0013** (Proposed) — pacote de 4 ADRs para "especialização de modelos open-source sem fine-tuning" (alvo: Qwen 8B-30B local via Ollama). **ADR-0010:** repo-map estilo Aider via `tree-sitter` (grafo de referências + ranking), sem vector DB — construído primeiro por ser mais barato. **ADR-0011:** RAG semântico local — chunking AST-aware (reaproveita ADR-0010) + índice lexical `tantivy` + índice semântico `lancedb` (via `LlmProvider::embeddings` já existente) + busca híbrida + reranker + indexação incremental; `tantivy`/`lancedb` escolhidos por serem nativos em Rust (sem ponte Python/FFI). **ADR-0012:** saída estruturada (constrained decoding) para tool-calling via o campo `format` já existente na API do Ollama — sem dependência nova. **ADR-0013:** tool de grounding via LSP (`lsp-types`+`lsp-server`), só leitura, falando com language server já instalado pelo usuário. Maturidade das 4 dependências novas verificada via `gh repo view`+crates.io antes de fechar os ADRs (todas MIT/Apache-2.0, ativas; `lsp-types` sem push há >1 ano, mitigado por ser dependência direta do `rust-analyzer` ativo — registrado para reverificação). Todas ativadas por padrão, desabilitáveis via `settings-schema` — mudança de fronteira registrada no `exchange-log.md`. Nova **Fase 6** + micro-tickets **MT-18..MT-30** adicionados ao roadmap via skill `micro-ticket-planner` (`70c0470`).
 
-**Em andamento:** nada pendente no turno.
+**Em andamento:** nada pendente no turno. **Nota:** commit anterior a este (`31e4fef`) tinha um erro de citação de shell (backtick de `` `format` `` expandido como comando) corrompendo um trecho da mensagem de commit — corrigido via `--amend` no mesmo turno, antes de qualquer push.
 
-**Próximo passo:** **MT-12** — Tools de filesystem (read, write/edit, search) em `crates/core/src/tools/fs.rs`, respeitando `.claudeignore` e o gate de permissão do MT-11 (depende de MT-11, feito). **Pendências independentes ainda abertas:** MT-17 (ADR-0009, timeout/keep_alive) pode ser feito a qualquer momento, sem bloquear a Fase 4.
+**Próximo passo:** **MT-12** — Tools de filesystem (read, write/edit, search) em `crates/core/src/tools/fs.rs`, respeitando `.claudeignore` e o gate de permissão do MT-11 (depende de MT-11, feito) — dá sequência à Fase 4 já em andamento. **Pendências independentes ainda abertas (sem bloquear a Fase 4):** MT-17 (ADR-0009, timeout/keep_alive); MT-18..MT-30 (Fase 6, ADR-0010..0013) — MT-18 (parsing tree-sitter) é o ponto de entrada natural quando essa fase começar.
 
 ## Impedimentos abertos
 
@@ -53,6 +54,7 @@
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-08 | `70c0470` | ADR-0010..0013: RAG/repo-map/saída estruturada/LSP-grounding; Fase 6 + MT-18..MT-30 | — |
 | 2026-07-07 | `cf21f6f` | MT-11: Tool Registry + gate de permissão allow\|ask\|deny + testes | MT-11 |
 | 2026-07-07 | `ef69785` | ADR-0009: timeout adaptativo + keep_alive para troca de modelo local; MT-17 adicionado | — |
 | 2026-07-07 | `cdd4fc6` | MT-10: agent loop ReAct mínimo (run + run_streaming); abre a Fase 4 | MT-10 |
