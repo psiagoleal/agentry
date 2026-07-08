@@ -19,6 +19,9 @@ tokio = { version = "1", default-features = false }
 # rustls-tls (não native-tls): evita depender de OpenSSL do SO, mantendo a
 # matriz de CI de 3 SOs (ADR-0005) livre de dependência de TLS nativa por plataforma.
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+# Semântica de .gitignore/.claudeignore correta e madura (do ripgrep) em vez
+# de reimplementar globs/negação/precedência na mão (MT-12).
+ignore = "0.4"
 
 # Lints compartilhados do workspace (qualidade desde o bootstrap).
 [workspace.lints.clippy]

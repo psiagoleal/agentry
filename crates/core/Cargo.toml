@@ -19,6 +19,7 @@ serde_json = { workspace = true }
 # fluxo de linhas — passa a ser runtime, não só dev-dependency.
 tokio = { workspace = true, features = ["sync", "rt"] }
 reqwest = { workspace = true }
+ignore = { workspace = true }
 
 [dev-dependencies]
 # "net"/"io-util": servidor HTTP mínimo de teste do MT-07 (sem lib de mock nova).

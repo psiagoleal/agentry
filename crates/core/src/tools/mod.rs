@@ -1,12 +1,11 @@
 // Caminho relativo: crates/core/src/tools/mod.rs
 //! Tool Registry (MT-11): `trait Tool`, registro e decisão de execução sob o
-//! gate de permissão ([`permission`]).
-//!
-//! Implementações reais (fs, shell) chegam nos MT-12/13; aqui só o contrato,
-//! o registro e a decisão `allow`/`ask`/`deny`. **`ask` nunca bloqueia
-//! esperando um humano** — sinaliza devolvendo a [`ToolCall`] pendente; quem
-//! interage com o usuário (a CLI, MT-14) decide o que fazer com esse sinal.
+//! gate de permissão ([`permission`]). [`fs`] traz as tools de filesystem
+//! (MT-12); shell chega no MT-13. **`ask` nunca bloqueia esperando um
+//! humano** — sinaliza devolvendo a [`ToolCall`] pendente; quem interage com
+//! o usuário (a CLI, MT-14) decide o que fazer com esse sinal.
 
+pub mod fs;
 pub mod permission;
 
 use std::collections::HashMap;
