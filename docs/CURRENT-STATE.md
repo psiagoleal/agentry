@@ -9,8 +9,8 @@
 
 - **Data:** 2026-07-08
 - **Branch:** `main`
-- **Commit:** `3244dbc`
-- **Fase:** Fase 4 — só falta o MT-14 (CLI) para fechar. ADR-0014 (override runtime) totalmente implementado (MT-31/32/33).
+- **Commit:** `7fb92fb`
+- **Fase:** Fase 4 fechada. Todos os MT-01..MT-14 concluídos.
 
 ## Metas cumpridas / Em andamento / Próximo passo
 
@@ -44,10 +44,11 @@
 - [x] **MT-13** — `crates/core/src/tools/shell.rs`: `ShellTool` com `ShellPolicy` própria — **inverte** a semântica do gate genérico do MT-11 (lá, nome fora das listas é `Allow`; aqui, comando fora de `allow` é sempre `Deny`), uma segunda camada de política interna à tool, além do `ToolRegistry`. `CommandRunner` é o gancho de sandbox pedido pelo ticket: execução real atrás de um trait dyn-compatible via `BoxFuture`, para um executor com sandbox real (namespaces/seccomp/contêiner) substituir o `SystemCommandRunner` (via `tokio::process`, `sh -c`/`cmd /C` por SO, ADR-0005) no futuro sem tocar a política. 9 testes novos — incluindo prova de que comando bloqueado nunca chega a chamar o executor, que `deny` no gate genérico do MT-11 barra antes da `ShellPolicy`, e um teste real via `SystemCommandRunner`. 105 testes no total, `cargo build --release` verde (`39211bc`).
 - [x] **MT-32** — `CallPreset`/`ChatRequest` ganham `reasoning: Option<bool>`; `Session::build_request()` propaga; `OllamaProvider` traduz para o campo `think` (nível superior da API do Ollama, fora de `options`). Ausência nunca envia o campo, preservando o comportamento *default* do Ollama. 3 testes novos, 107 testes no total, `cargo build --release` verde (`0decd45`).
 - [x] **MT-33** — `RuntimeOverride` (provider/model/temperature/top_p/system_prompt/max_tokens/reasoning) + `Router::resolve_with_override`, com `resolve()` agora um atalho para override vazio (testes existentes inalterados). Precedência via `merged_over` (mesma convenção de `Settings::merged_over`, MT-04). **Decisão de segurança central**: override de `model`/`provider` só escolhe entre candidatos **já declarados** na `RouteEntry` (nunca um alvo novo, não vetado) e continua sujeito à mesma checagem de classe de egresso — bloqueado mesmo quando pedido explicitamente, provando que o override nunca contorna o *fail-closed* do ADR-0002. 6 testes novos, 113 testes no total, `cargo build --release` verde (`3244dbc`). **ADR-0014 (MT-31/32/33) totalmente implementado.**
+- [x] **MT-14** — `crates/cli/src/{main.rs,repl.rs}`: liga tudo em uma CLI real. `agentry "<tarefa>"` roda um turno via streaming (loop de tool-calls do MT-10) contra Ollama local e sai; sem tarefa, entra no REPL, com comandos `/model`/`/temperature`/`/top_p`/`/max_tokens`/`/system`/`/reasoning` como override de sessão (ADR-0014), persistindo até trocados de novo; flags equivalentes na invocação one-shot valem só para aquela chamada. `/model` declara o novo candidato na task-class `chat` antes de resolver — nunca contorna a checagem de classe de egresso do Router. Escopo ampliado com dois módulos de suporte (`streaming.rs`, `tool_executor.rs`, ambos em `crates/cli/src`) e duas extensões pontuais no core: `ToolRegistry::execute_confirmed` (roda uma tool após confirmação humana sem reconsultar o gate) e `Session::apply_route` (troca provider/modelo/preset preservando histórico). 8 testes novos na CLI, 116 no core, fmt/clippy limpos, `cargo build --release` verde, smoke-test manual do binário (`--help`, one-shot contra host sem Ollama falha limpo sem panic, REPL sai limpo em EOF) (`7fb92fb`). **Fecha a Fase 4.**
 
-**Em andamento:** nada pendente no turno. **Nota:** um commit anterior nesta sessão (`31e4fef`) teve um erro de citação de shell (backtick de `` `format` `` expandido como comando) corrompendo um trecho da mensagem — corrigido via `--amend` no mesmo turno, antes de qualquer push.
+**Em andamento:** nada pendente no turno.
 
-**Próximo passo:** **MT-14** — CLI streaming (one-shot + REPL) com override de parâmetros (`crates/cli/src/{main.rs,repl.rs}`): fecha a Fase 4. Todas as dependências (MT-10/12/13/33) já estão feitas — nada bloqueando. **Pendências independentes ainda abertas (sem bloquear a Fase 4):** MT-17 (ADR-0009, timeout/keep_alive); MT-18..MT-30 (Fase 6, ADR-0010..0013); MT-34/35 (ADR-0015, Reviewer).
+**Próximo passo:** nenhum ticket específico priorizado ainda. **Pendências independentes em aberto:** MT-15/16 (demais providers, Fase 5); MT-17 (ADR-0009, timeout/keep_alive); MT-18..MT-30 (Fase 6, ADR-0010..0013); MT-34/35 (ADR-0015, Reviewer).
 
 ## Impedimentos abertos
 
@@ -61,6 +62,7 @@
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-08 | `7fb92fb` | MT-14: CLI one-shot + REPL com override de parâmetros; fecha a Fase 4 | MT-14 |
 | 2026-07-08 | `3244dbc` | MT-33: RuntimeOverride no Router; ADR-0014 totalmente implementado | MT-33 |
 | 2026-07-08 | `0decd45` | MT-32: reasoning/thinking como parâmetro de chamada (campo think no Ollama) | MT-32 |
 | 2026-07-08 | `39211bc` | MT-13: tool de shell default-deny (ShellPolicy + CommandRunner como gancho de sandbox) | MT-13 |
