@@ -9,8 +9,8 @@
 
 - **Data:** 2026-07-08
 - **Branch:** `main`
-- **Commit:** `39211bc`
-- **Fase:** Fase 4 (MT-11, MT-31, MT-12, MT-13 concluídos) + ADR-0010..0015 registrados; falta só o MT-14 (CLI) para fechar a Fase 4.
+- **Commit:** `3244dbc`
+- **Fase:** Fase 4 — só falta o MT-14 (CLI) para fechar. ADR-0014 (override runtime) totalmente implementado (MT-31/32/33).
 
 ## Metas cumpridas / Em andamento / Próximo passo
 
@@ -42,10 +42,12 @@
 - [x] **ADR-0015** (Proposed) — Reviewer: auditoria semântica por tipo (`correctness`/`security`/`guardrail-compliance`/`task-completion`), cada uma uma `task-class` própria roteada pelo Router (MT-09) como qualquer outra — sem infraestrutura nova, reaproveita Router+`ChatRequest`+saída estruturada (ADR-0012) inteiramente. Fecha a lacuna que o próprio ADR-0007 tinha deixado em aberto ("moderação semântica... v0.2, se necessária"). Disparo pós-`Done`; modos `advisory`/`blocking` (retry limitado por teto, falha persistente sempre exposta). **Default desligado** (diferente do pacote ADR-0010..0013): é uma segunda chamada completa de modelo por tarefa. Micro-tickets **MT-34/35** adicionados à Fase 4 (`5b5ee37`).
 - [x] **MT-12** — `crates/core/src/tools/fs.rs`: `FsReadTool`, `FsWriteTool`, `FsEditTool` (substituição de ocorrência única) e `FsSearchTool` (substring literal, sem regex), todas implementando `Tool` (MT-11) sob o `ToolRegistry` existente, sem lógica de permissão própria. Caminho absoluto ou com `..` rejeitado antes de qualquer I/O; `.claudeignore` respeitado via a crate `ignore` (motor do `ripgrep` — maturidade verificada: 143M downloads, MIT, ativo) em vez de reimplementar semântica de glob na mão. 12 testes novos (diretório temporário com limpeza via `Drop`, sem dependência de teste nova), incluindo um teste de integração confirmando que `deny` impede a escrita de fato, não só sinaliza. 100 testes no total, `cargo build --release` verde (`814ba2f`).
 - [x] **MT-13** — `crates/core/src/tools/shell.rs`: `ShellTool` com `ShellPolicy` própria — **inverte** a semântica do gate genérico do MT-11 (lá, nome fora das listas é `Allow`; aqui, comando fora de `allow` é sempre `Deny`), uma segunda camada de política interna à tool, além do `ToolRegistry`. `CommandRunner` é o gancho de sandbox pedido pelo ticket: execução real atrás de um trait dyn-compatible via `BoxFuture`, para um executor com sandbox real (namespaces/seccomp/contêiner) substituir o `SystemCommandRunner` (via `tokio::process`, `sh -c`/`cmd /C` por SO, ADR-0005) no futuro sem tocar a política. 9 testes novos — incluindo prova de que comando bloqueado nunca chega a chamar o executor, que `deny` no gate genérico do MT-11 barra antes da `ShellPolicy`, e um teste real via `SystemCommandRunner`. 105 testes no total, `cargo build --release` verde (`39211bc`).
+- [x] **MT-32** — `CallPreset`/`ChatRequest` ganham `reasoning: Option<bool>`; `Session::build_request()` propaga; `OllamaProvider` traduz para o campo `think` (nível superior da API do Ollama, fora de `options`). Ausência nunca envia o campo, preservando o comportamento *default* do Ollama. 3 testes novos, 107 testes no total, `cargo build --release` verde (`0decd45`).
+- [x] **MT-33** — `RuntimeOverride` (provider/model/temperature/top_p/system_prompt/max_tokens/reasoning) + `Router::resolve_with_override`, com `resolve()` agora um atalho para override vazio (testes existentes inalterados). Precedência via `merged_over` (mesma convenção de `Settings::merged_over`, MT-04). **Decisão de segurança central**: override de `model`/`provider` só escolhe entre candidatos **já declarados** na `RouteEntry` (nunca um alvo novo, não vetado) e continua sujeito à mesma checagem de classe de egresso — bloqueado mesmo quando pedido explicitamente, provando que o override nunca contorna o *fail-closed* do ADR-0002. 6 testes novos, 113 testes no total, `cargo build --release` verde (`3244dbc`). **ADR-0014 (MT-31/32/33) totalmente implementado.**
 
 **Em andamento:** nada pendente no turno. **Nota:** um commit anterior nesta sessão (`31e4fef`) teve um erro de citação de shell (backtick de `` `format` `` expandido como comando) corrompendo um trecho da mensagem — corrigido via `--amend` no mesmo turno, antes de qualquer push.
 
-**Próximo passo:** **MT-14** — CLI streaming (one-shot + REPL) com override de parâmetros (`crates/cli/src/{main.rs,repl.rs}`): fecha a Fase 4. Depende de MT-10/12/13 (todos feitos) e MT-33 (`RuntimeOverride`, ainda pendente) — vale decidir se o MT-14 espera o MT-33 ou se entra primeiro sem override e ganha as flags/comandos depois. **Pendências independentes ainda abertas:** MT-17 (ADR-0009, timeout/keep_alive); MT-18..MT-30 (Fase 6, ADR-0010..0013); MT-32/33 (ADR-0014); MT-34/35 (ADR-0015, Reviewer).
+**Próximo passo:** **MT-14** — CLI streaming (one-shot + REPL) com override de parâmetros (`crates/cli/src/{main.rs,repl.rs}`): fecha a Fase 4. Todas as dependências (MT-10/12/13/33) já estão feitas — nada bloqueando. **Pendências independentes ainda abertas (sem bloquear a Fase 4):** MT-17 (ADR-0009, timeout/keep_alive); MT-18..MT-30 (Fase 6, ADR-0010..0013); MT-34/35 (ADR-0015, Reviewer).
 
 ## Impedimentos abertos
 
@@ -59,6 +61,8 @@
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-08 | `3244dbc` | MT-33: RuntimeOverride no Router; ADR-0014 totalmente implementado | MT-33 |
+| 2026-07-08 | `0decd45` | MT-32: reasoning/thinking como parâmetro de chamada (campo think no Ollama) | MT-32 |
 | 2026-07-08 | `39211bc` | MT-13: tool de shell default-deny (ShellPolicy + CommandRunner como gancho de sandbox) | MT-13 |
 | 2026-07-08 | `814ba2f` | MT-12: tools de filesystem read/write/edit/search (crate `ignore` p/ .claudeignore) | MT-12 |
 | 2026-07-08 | `5b5ee37` | ADR-0015: Reviewer (auditoria semântica por task-class); MT-34/35 adicionados | — |
