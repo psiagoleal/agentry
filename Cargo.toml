@@ -40,6 +40,12 @@ streaming-iterator = "0.1"
 # downloads) é o próprio crate de framing do rust-analyzer.
 lsp-types = "0.97"
 lsp-server = "0.8"
+# Índice lexical sobre os chunks do RAG (MT-26/ADR-0011): motor de busca
+# nativo em Rust, embutido/in-process (sem servidor externo nem ponte FFI),
+# mantendo a árvore de dependências auditável (ADR-0001).
+# Maturidade verificada (ADR-0011, 2026-07-08): 15.523 estrelas, 15M+
+# downloads no crates.io, MIT, push recente.
+tantivy = "0.26"
 
 # Lints compartilhados do workspace (qualidade desde o bootstrap).
 [workspace.lints.clippy]

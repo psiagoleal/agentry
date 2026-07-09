@@ -27,6 +27,7 @@ tree-sitter-python = { workspace = true }
 streaming-iterator = { workspace = true }
 lsp-types = { workspace = true }
 lsp-server = { workspace = true }
+tantivy = { workspace = true }
 
 [dev-dependencies]
 # "net"/"io-util": servidor HTTP mínimo de teste do MT-07 (sem lib de mock nova).
