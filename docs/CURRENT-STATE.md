@@ -9,8 +9,8 @@
 
 - **Data:** 2026-07-09
 - **Branch:** `main`
-- **Commit:** `e2461b0`
-- **Fase:** Fase 5 fechada (MT-01..MT-16). ADR-0016 (compactação de sessão, MT-36/37) e ADR-0009 (timeout adaptativo/keep_alive, MT-17) totalmente implementados, fora da sequência de fases. ADR-0010 (repo-map via tree-sitter) totalmente implementado — MT-18/19/20/21 concluídos.
+- **Commit:** `50f4095`
+- **Fase:** Fase 5 fechada (MT-01..MT-16). ADR-0016 (compactação de sessão, MT-36/37) e ADR-0009 (timeout adaptativo/keep_alive, MT-17) totalmente implementados, fora da sequência de fases. ADR-0010 (repo-map via tree-sitter) totalmente implementado (MT-18/19/20/21). Fase 6 seguindo com MT-22 (ADR-0012) concluído.
 
 ## Metas cumpridas / Em andamento / Próximo passo
 
@@ -56,10 +56,11 @@
 - [x] **MT-19** — `crates/core/src/context/repo_map/graph.rs`: `build_reference_graph` roda a mesma *tags query* do MT-18, mas com parse+query próprio (não reaproveita `ast::extract_symbols`) extraindo tanto `definition.*` (sem o filtro função/classe/método — uma referência pode apontar para constante/trait/macro definida em outro arquivo) quanto `reference.*` (chamada de função/método, implementação de trait). Aresta dirigida `A -> B` por referência em `A` que casa com um nome definido em `B`, peso = contagem; **sem auto-referência** (não ajuda a decidir relevância entre arquivos, propósito do grafo que o MT-20 vai rankear). 5 testes novos (peso correto entre dois arquivos; sem auto-referência; nome desconhecido não gera aresta; mesmo mecanismo funciona para Python; arquivos sem relação não geram grafo), 160 testes no core + 11 na CLI, fmt/clippy limpos, `cargo build --release` verde (`73b0a2b`).
 - [x] **MT-20** — `crates/core/src/context/repo_map/rank.rs`: `rank()` implementa PageRank **personalizado** (mesma técnica do Aider) sobre o grafo do MT-19 — massa de teleporte concentrada nos arquivos "semente" (em vez de uniforme), propagada pelas arestas ponderadas pela contagem de referências e normalizadas pelo peso de saída; nós sem aresta de saída redistribuem massa conforme a personalização em vez de desaparecer; `seeds` vazio cai no PageRank clássico; os próprios nós de `seeds` são excluídos do ranking devolvido. **Dois bugs pegos durante a escrita dos testes** (nunca chegaram a ser commitados): indexação direta num `HashMap` de pesos de saída panicava quando uma aresta apontava para um nó fora do subconjunto de `nodes` passado (trocado por `.get()` com skip silencioso); e o cenário de teste original dependia de propagação de segunda ordem através de um nó sem personalização própria, que é zero por construção no PageRank personalizado — não bug do algoritmo, premissa errada do teste, corrigido para testar peso de aresta direto da semente. 4 testes novos, 164 testes no core + 11 na CLI, fmt/clippy limpos, `cargo build --release` verde (`ef7d9b8`).
 - [x] **MT-21** — `crates/core/src/tools/repo_map.rs`: `RepoMapTool` expõe o repo-map (MT-19/20) como `Tool` (MT-11) — lê arquivos-fonte sob uma raiz fixa respeitando `.claudeignore` (mesma técnica do MT-12, via `ignore::WalkBuilder`), filtra por extensão suportada (`.rs`/`.py`, mesmas linguagens do MT-18), constrói o grafo e devolve os arquivos mais relevantes a partir de `seeds` dados pelo modelo; roda sob o mesmo `ToolRegistry`/gate de permissão de qualquer outra tool. `register_repo_map_tool` decide, a partir de uma flag booleana, se a tool é registrada — mecanismo testável de `context.repo_map.enabled` (ADR-0010, *default* `true`) sem a fiação real com o `settings-schema` (fora de escopo — UI/CLI de configuração). 6 testes novos (ranking a partir da semente com peso correto; respeita `.claudeignore`; sem arquivos suportados não é erro; respeita o gate de permissão; flag ligada/desligada), 170 testes no core + 11 na CLI, fmt/clippy limpos, `cargo build --release` verde (`e2461b0`). **Fecha a trilha repo-map (MT-18..21, ADR-0010).**
+- [x] **MT-22** — `crates/core/src/provider/ollama.rs`: `OllamaProvider` ganha `structured_output: bool` (*default* `true`, `with_structured_output` builder) — quando ativo e `ChatRequest.tools` não vazio, o campo `format` da API do Ollama recebe um JSON Schema combinado das `tools` (`oneOf` de `{name: <const>, arguments: <input_schema>}`), restringindo a geração da porção de tool-call ao formato esperado (ADR-0012) — reduz JSON malformado em modelos pequenos, sem fine-tuning e sem dependência nova. Fiação real da flag com o `settings-schema` (`providers.ollama.structured_output`) deliberadamente adiada, mesmo padrão do MT-16/MT-17 — a flag é hoje uma propriedade construída direto no provider. 4 testes novos (format presente com tools+flag ativa; ausente sem tools; ausente com a flag desativada mesmo havendo tools; round-trip via Transporte real nos dois sentidos), 174 testes no core + 11 na CLI, fmt/clippy limpos, `cargo build --release` verde (`50f4095`).
 
 **Em andamento:** nada pendente no turno.
 
-**Próximo passo:** nenhum ticket específico priorizado ainda. Trilha do repo-map (MT-18..21, ADR-0010) fechada. **Pendências independentes em aberto na Fase 6:** MT-22 (saída estruturada no `OllamaProvider`, ADR-0012, após MT-08 — já feito, sem bloqueio); MT-23→MT-24 (tool de grounding via LSP, ADR-0013); MT-25..30 (RAG semântico local, ADR-0011, MT-25 depende do MT-18 já concluído). **Fora da Fase 6:** MT-34/35 (ADR-0015, Reviewer).
+**Próximo passo:** nenhum ticket específico priorizado ainda. **Pendências independentes em aberto na Fase 6:** MT-23→MT-24 (tool de grounding via LSP, ADR-0013); MT-25..30 (RAG semântico local, ADR-0011, MT-25 depende do MT-18 já concluído). **Fora da Fase 6:** MT-34/35 (ADR-0015, Reviewer).
 
 ## Impedimentos abertos
 
@@ -73,6 +74,7 @@
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-09 | `50f4095` | MT-22: saída estruturada para tool-calling no Ollama (ADR-0012) | MT-22 |
 | 2026-07-09 | `e2461b0` | MT-21: tool repo_map exposta ao agent loop; fecha a trilha repo-map (ADR-0010) | MT-21 |
 | 2026-07-09 | `ef7d9b8` | MT-20: ranking de relevância estilo PageRank (ADR-0010) | MT-20 |
 | 2026-07-09 | `73b0a2b` | MT-19: grafo de referências entre arquivos (ADR-0010) | MT-19 |
