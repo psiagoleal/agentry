@@ -132,6 +132,36 @@ impl LspClient {
         }
     }
 
+    /// Envia uma requisição arbitrária `method` com `params` e devolve a
+    /// resposta desserializada como `R` — primitivo genérico usado pelas
+    /// tools de leitura do MT-24 (`textDocument/hover`/`definition`/
+    /// `references`); `initialize`/`shutdown` continuam com métodos
+    /// dedicados por já precisarem de passos adicionais no *handshake*.
+    ///
+    /// # Errors
+    ///
+    /// Devolve [`LspError::Protocol`] se o servidor responder com erro;
+    /// [`LspError::Io`] se a comunicação falhar ou a resposta não
+    /// desserializar como `R`.
+    pub fn request<P, R>(&mut self, method: &str, params: P) -> Result<R, LspError>
+    where
+        P: serde::Serialize,
+        R: serde::de::DeserializeOwned,
+    {
+        let id = self.proximo_request_id();
+        self.enviar(Message::Request(Request::new(
+            id.clone(),
+            method.to_string(),
+            params,
+        )))?;
+        let resposta = self.esperar_resposta(&id)?;
+        if let Some(erro) = resposta.error {
+            return Err(LspError::Protocol(erro.message));
+        }
+        serde_json::from_value(resposta.result.unwrap_or_default())
+            .map_err(|e| LspError::Io(e.to_string()))
+    }
+
     /// Envia `initialize`, espera a resposta e envia a notificação
     /// `initialized` — *handshake* completo do LSP.
     ///
@@ -143,7 +173,6 @@ impl LspClient {
     /// Devolve [`LspError::Protocol`] se o servidor responder com erro;
     /// [`LspError::Io`]/[`LspError::Closed`] em falha de comunicação.
     pub fn initialize(&mut self, root_uri: Option<Uri>) -> Result<InitializeResult, LspError> {
-        let id = self.proximo_request_id();
         let workspace_folders = root_uri.map(|uri| {
             vec![lsp_types::WorkspaceFolder {
                 uri,
@@ -154,19 +183,7 @@ impl LspClient {
             workspace_folders,
             ..Default::default()
         };
-        self.enviar(Message::Request(Request::new(
-            id.clone(),
-            "initialize".to_string(),
-            params,
-        )))?;
-
-        let resposta = self.esperar_resposta(&id)?;
-        if let Some(erro) = resposta.error {
-            return Err(LspError::Protocol(erro.message));
-        }
-        let resultado: InitializeResult =
-            serde_json::from_value(resposta.result.unwrap_or_default())
-                .map_err(|e| LspError::Io(e.to_string()))?;
+        let resultado: InitializeResult = self.request("initialize", params)?;
 
         self.enviar(Message::Notification(Notification::new(
             "initialized".to_string(),
@@ -208,16 +225,7 @@ impl LspClient {
     /// `shutdown`; [`LspError::Io`] se a troca de mensagens ou a espera
     /// pelo processo falhar.
     pub fn shutdown(mut self) -> Result<(), LspError> {
-        let id = self.proximo_request_id();
-        self.enviar(Message::Request(Request::new(
-            id.clone(),
-            "shutdown".to_string(),
-            serde_json::Value::Null,
-        )))?;
-        let resposta = self.esperar_resposta(&id)?;
-        if let Some(erro) = resposta.error {
-            return Err(LspError::Protocol(erro.message));
-        }
+        let _resultado: serde_json::Value = self.request("shutdown", serde_json::Value::Null)?;
 
         self.enviar(Message::Notification(Notification::new(
             "exit".to_string(),
