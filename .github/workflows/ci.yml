@@ -36,3 +36,20 @@ jobs:
         run: cargo test --all --verbose
       - name: Build release
         run: cargo build --all --release
+
+  # Camada independente da disciplina de segredos do repo: além do skill
+  # `secrets-guard` (comportamento do assistente) e da redação automática do
+  # audit log (ADR-0002/MT-06), varre todo push/PR por segredos commitados —
+  # rede de segurança que não depende do agente ter seguido a política.
+  # gitleaks: MIT, ativo (>28k stars); gitleaks-action não exige
+  # GITLEAKS_LICENSE para repositórios pessoais (não é o caso de uma "Organization"
+  # no GitHub), só para contas de organização.
+  secrets-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
