@@ -2,13 +2,15 @@
 //! Tool Registry (MT-11): `trait Tool`, registro e decisão de execução sob o
 //! gate de permissão ([`permission`]). [`fs`] traz as tools de filesystem
 //! (MT-12); [`shell`] traz a tool de shell sob permissão (MT-13, com sua
-//! própria política *default-deny*, mais restritiva que o gate genérico).
+//! própria política *default-deny*, mais restritiva que o gate genérico);
+//! [`repo_map`] expõe o repo-map estilo Aider (MT-19/20) como tool (MT-21).
 //! **`ask` nunca bloqueia esperando um humano** — sinaliza devolvendo a
 //! [`ToolCall`] pendente; quem interage com o usuário (a CLI, MT-14) decide
 //! o que fazer com esse sinal.
 
 pub mod fs;
 pub mod permission;
+pub mod repo_map;
 pub mod shell;
 
 use std::collections::HashMap;
