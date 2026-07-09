@@ -18,7 +18,7 @@ use std::sync::Arc;
 
 use crate::model::{ContentBlock, Message, Role, StreamEvent, ToolCall, ToolResult, Usage};
 use crate::provider::{BoxFuture, ChatRequest, LlmProvider, ProviderError, ToolSpec};
-use crate::router::{CallPreset, ResolvedRoute};
+use crate::router::{CallPreset, ResolvedRoute, Router, RouterError};
 
 /// Executa uma chamada de tool solicitada pelo modelo e devolve a observação.
 ///
@@ -70,12 +70,15 @@ pub struct SessionOutcome {
 pub enum SessionError {
     /// O provider devolveu um erro.
     Provider(ProviderError),
+    /// O Router não conseguiu resolver uma `task-class` pedida (ex.: `"compact"`, MT-36).
+    Router(RouterError),
 }
 
 impl core::fmt::Display for SessionError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::Provider(e) => write!(f, "erro do provider: {e}"),
+            Self::Router(e) => write!(f, "erro de roteamento: {e}"),
         }
     }
 }
@@ -150,6 +153,66 @@ fn extract_tool_calls(message: &Message) -> Vec<ToolCall> {
         .collect()
 }
 
+/// Concatena os blocos de texto de uma mensagem (usado para extrair o
+/// resumo de texto puro da resposta de compactação, MT-36).
+fn extract_text(message: &Message) -> String {
+    message
+        .content
+        .iter()
+        .filter_map(|block| match block {
+            ContentBlock::Text { text } => Some(text.clone()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Renderiza o histórico como transcript de texto simples para o prompt de
+/// compactação (MT-36) — não é um formato de fio de provider nenhum, só uma
+/// representação legível o bastante para o modelo resumir.
+fn render_transcript(messages: &[Message]) -> String {
+    messages
+        .iter()
+        .map(|message| {
+            let papel = match message.role {
+                Role::System => "sistema",
+                Role::User => "usuário",
+                Role::Assistant => "assistente",
+                Role::Tool => "tool",
+            };
+            let conteudo = message
+                .content
+                .iter()
+                .map(|block| match block {
+                    ContentBlock::Text { text } => text.clone(),
+                    ContentBlock::ToolCall(chamada) => {
+                        format!(
+                            "[chamou a tool '{}' com {}]",
+                            chamada.name, chamada.arguments
+                        )
+                    }
+                    ContentBlock::ToolResult(resultado) => {
+                        if resultado.is_error {
+                            format!(
+                                "[erro da tool ({}): {}]",
+                                resultado.call_id, resultado.content
+                            )
+                        } else {
+                            format!(
+                                "[resultado da tool ({}): {}]",
+                                resultado.call_id, resultado.content
+                            )
+                        }
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            format!("{papel}: {conteudo}")
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
 /// Uma sessão do agent loop: histórico de mensagens + provider + executor de
 /// tools + orçamento de tokens.
 pub struct Session {
@@ -204,6 +267,50 @@ impl Session {
         self.provider = route.provider;
         self.model = route.model;
         self.preset = route.preset;
+    }
+
+    /// Compacta o histórico acumulado num único resumo (MT-36, ADR-0016):
+    /// resolve a `task-class` `"compact"` via `router`, pede um resumo em uma
+    /// chamada de chat simples (sem tools, sem streaming) e substitui
+    /// `self.messages` inteiro por uma única mensagem de sistema com o
+    /// resumo. Histórico vazio é um no-op.
+    ///
+    /// Disparo é sempre explícito — este método nunca é chamado
+    /// automaticamente pelo loop (ADR-0016); quem decide quando compactar é
+    /// quem chama (ex.: comando `/compact` do REPL, MT-37).
+    ///
+    /// # Errors
+    ///
+    /// Devolve [`SessionError::Router`] se a `task-class` `"compact"` não
+    /// resolver, ou [`SessionError::Provider`] se a chamada de compactação
+    /// falhar — em qualquer um dos dois casos, `self.messages` permanece
+    /// intocado (tudo-ou-nada).
+    pub async fn compact(&mut self, router: &Router) -> Result<(), SessionError> {
+        if self.messages.is_empty() {
+            return Ok(());
+        }
+
+        let route = router.resolve("compact").map_err(SessionError::Router)?;
+        let instrucao = format!(
+            "Resuma de forma concisa a conversa abaixo, preservando decisões, fatos e \
+             qualquer estado necessário para continuar o trabalho. Responda apenas com \
+             o resumo, sem comentários adicionais.\n\n{}",
+            render_transcript(&self.messages)
+        );
+
+        let mut request = ChatRequest::new(route.model.clone(), vec![Message::user(instrucao)]);
+        request.max_tokens = route.preset.max_tokens;
+        request.temperature = route.preset.temperature;
+        request.top_p = route.preset.top_p;
+
+        let resposta = route
+            .provider
+            .chat(request)
+            .await
+            .map_err(SessionError::Provider)?;
+
+        self.messages = vec![Message::system(extract_text(&resposta.message))];
+        Ok(())
     }
 
     /// Histórico de mensagens acumulado até aqui.
@@ -700,5 +807,120 @@ mod tests {
         assert_eq!(requisicoes[0].temperature, None);
         assert_eq!(requisicoes[1].model, "modelo-novo");
         assert_eq!(requisicoes[1].temperature, Some(0.9));
+    }
+
+    /// Router de teste com a `task-class` `"compact"` já registrada para o
+    /// mesmo provider mock (MT-36).
+    fn router_com_compact(provider: Arc<MockProvider>) -> Router {
+        use crate::config::privacy::EgressClass;
+        use crate::router::{RouteEntry, RouteTarget};
+
+        let mut router = Router::new(EgressClass::LocalOnly);
+        router.register_provider(provider);
+        router.set_route(
+            "compact",
+            RouteEntry {
+                candidates: vec![RouteTarget::new(
+                    "mock",
+                    "modelo-compact",
+                    EgressClass::LocalOnly,
+                )],
+                preset: CallPreset::default(),
+            },
+        );
+        router
+    }
+
+    #[tokio::test]
+    async fn compact_bem_sucedida_substitui_historico_por_um_unico_resumo() {
+        let mock = Arc::new(MockProvider::new("mock"));
+        mock.enqueue_chat(Ok(resposta_final("primeira resposta", Usage::default())));
+        let executor = Arc::new(CountingExecutor::default());
+        let mut session = Session::new(route(mock.clone()), executor, TokenBudget::new(10_000));
+        session.push_user_message("pergunta original");
+        session.run().await.expect("turno deve completar");
+
+        mock.enqueue_chat(Ok(resposta_final("resumo da conversa", Usage::default())));
+        let router = router_com_compact(mock.clone());
+        session
+            .compact(&router)
+            .await
+            .expect("compactação deve funcionar");
+
+        assert_eq!(session.messages().len(), 1);
+        assert_eq!(session.messages()[0].role, Role::System);
+        assert_eq!(
+            session.messages()[0].content,
+            vec![ContentBlock::Text {
+                text: "resumo da conversa".into()
+            }]
+        );
+    }
+
+    #[tokio::test]
+    async fn compact_com_falha_do_provider_preserva_historico_original() {
+        let mock = Arc::new(MockProvider::new("mock"));
+        mock.enqueue_chat(Ok(resposta_final("primeira resposta", Usage::default())));
+        let executor = Arc::new(CountingExecutor::default());
+        let mut session = Session::new(route(mock.clone()), executor, TokenBudget::new(10_000));
+        session.push_user_message("pergunta original");
+        session.run().await.expect("turno deve completar");
+        let historico_antes = session.messages().to_vec();
+
+        // Nenhuma resposta enfileirada para a chamada de compactação: o mock
+        // devolve erro "sem resposta enfileirada".
+        let router = router_com_compact(mock.clone());
+        let erro = session
+            .compact(&router)
+            .await
+            .expect_err("deve falhar sem resposta enfileirada");
+
+        assert!(matches!(erro, SessionError::Provider(_)));
+        assert_eq!(session.messages(), historico_antes.as_slice());
+    }
+
+    #[tokio::test]
+    async fn compact_sem_task_class_registrada_e_erro_de_router_sem_chamar_o_provider() {
+        let mock = Arc::new(MockProvider::new("mock"));
+        mock.enqueue_chat(Ok(resposta_final("primeira resposta", Usage::default())));
+        let executor = Arc::new(CountingExecutor::default());
+        let mut session = Session::new(route(mock.clone()), executor, TokenBudget::new(10_000));
+        session.push_user_message("pergunta original");
+        session.run().await.expect("turno deve completar");
+        let historico_antes = session.messages().to_vec();
+
+        let router = Router::new(crate::config::privacy::EgressClass::LocalOnly); // sem rota "compact"
+        let erro = session
+            .compact(&router)
+            .await
+            .expect_err("task-class desconhecida deve falhar");
+
+        assert!(matches!(erro, SessionError::Router(_)));
+        assert_eq!(session.messages(), historico_antes.as_slice());
+        assert_eq!(
+            mock.chat_requests().len(),
+            1,
+            "nenhuma chamada de compactação deveria ter sido feita"
+        );
+    }
+
+    #[tokio::test]
+    async fn compact_com_historico_vazio_e_no_op() {
+        let mock = Arc::new(MockProvider::new("mock"));
+        let executor = Arc::new(CountingExecutor::default());
+        let mut session = Session::new(route(mock.clone()), executor, TokenBudget::new(10_000));
+
+        let router = router_com_compact(mock.clone());
+        session
+            .compact(&router)
+            .await
+            .expect("histórico vazio deve ser no-op, não erro");
+
+        assert!(session.messages().is_empty());
+        assert_eq!(
+            mock.chat_requests().len(),
+            0,
+            "nenhuma chamada deveria ter sido feita para histórico vazio"
+        );
     }
 }
