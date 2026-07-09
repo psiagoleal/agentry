@@ -172,6 +172,20 @@ contexto (ver skill `micro-ticket-planner`). Ordem pensada para que o **transpor
 - **Fora de escopo:** revisão pré-execução (antes de tool-call); UI/CLI.
 - **Depende de:** MT-34 · ADR-0015.
 
+### MT-36: `Session::compact` — mecanismo de compactação de histórico
+- **Objetivo:** `Session` ganha `compact` (assinatura exata a definir na implementação), que resolve a `task-class` `"compact"` via Router, faz uma chamada de chat simples (sem tools, sem streaming) pedindo um resumo do histórico atual, e substitui `self.messages` inteiro por uma única mensagem de sistema com o resumo; falha do provider preserva o histórico original intacto (tudo-ou-nada).
+- **Arquivos no escopo:** `crates/core/src/session/mod.rs`.
+- **Critério de aceite:** testes — compactação bem-sucedida (mock) substitui o histórico por uma única mensagem de sistema; falha do provider preserva `messages` original intocado; a chamada usa a `task-class` `"compact"` resolvida pelo Router, não um caminho de chamada próprio.
+- **Fora de escopo:** superfície de interação (MT-37); disparo automático por limiar; compactação parcial (preservar últimas mensagens verbatim).
+- **Depende de:** MT-09, MT-31 · ADR-0016.
+
+### MT-37: Comando `/compact` no REPL
+- **Objetivo:** novo comando de barra `/compact` que chama `Session::compact` (MT-36) e ecoa confirmação (ou erro) ao usuário, no mesmo estilo dos comandos existentes (`/model`, `/temperature` etc., MT-14).
+- **Arquivos no escopo:** `crates/cli/src/repl.rs`.
+- **Critério de aceite:** teste de integração — `/compact` reduz o histórico a uma mensagem de sistema (mock devolvendo o resumo); histórico vazio ou erro do provider durante a compactação não derruba o REPL.
+- **Fora de escopo:** TUI (v0.3); disparo automático.
+- **Depende de:** MT-36 · ADR-0016.
+
 ### MT-14: CLI streaming (one-shot + REPL) com override de parâmetros
 - **Objetivo:** interface de linha que roda o loop, exibe stream/diffs e prompts de permissão; expõe `RuntimeOverride` (MT-33) por **flags na invocação one-shot** (ex.: `--model`, `--temperature`, `--reasoning`) e por **comandos no REPL** (ex.: `/model`, `/temperature`, `/reasoning`, no estilo do `/model` do Claude Code), com eco de confirmação da mudança.
 - **Arquivos no escopo:** `crates/cli/src/main.rs`, `crates/cli/src/repl.rs`.
@@ -320,4 +334,5 @@ MT-01 → MT-02 → MT-03 ─┐
                                                        MT-22 (após MT-08, independente)
                                                        MT-23 → MT-24 (independente)
                                                   └ MT-34 → MT-35 (após MT-09/31, independente do MT-14)
+                                                  └ MT-36 → MT-37 (após MT-09/31, independente do MT-14)
 ```
