@@ -1,12 +1,14 @@
 // Caminho relativo: crates/core/src/context/mod.rs
-//! Extração de contexto do repositório (Fase 6, ADR-0010): repo-map estilo
-//! Aider via `tree-sitter`, sem vector DB — complementa (não substitui) o
-//! RAG semântico do ADR-0011.
+//! Extração de contexto do repositório (Fase 6): repo-map estilo Aider via
+//! `tree-sitter` (ADR-0010) e *grounding* via LSP (ADR-0013) — ambos
+//! complementam, não substituem, o RAG semântico do ADR-0011.
 //!
-//! [`ast`] traz a extração de símbolos (MT-18); [`repo_map::graph`] o grafo
-//! de referências entre arquivos (MT-19). Ranking de relevância (MT-20) e a
-//! tool `repo_map` exposta ao agent loop (MT-21) chegam nos micro-tickets
-//! seguintes.
+//! [`ast`] traz a extração de símbolos (MT-18); [`repo_map`] o grafo de
+//! referências (MT-19), o ranking estilo PageRank (MT-20) e — em
+//! `crates/core/src/tools/repo_map.rs` — a tool exposta ao agent loop
+//! (MT-21). [`lsp`] traz o cliente LSP mínimo (MT-23); a tool de leitura
+//! (hover/definição/referências) chega no MT-24.
 
 pub mod ast;
+pub mod lsp;
 pub mod repo_map;

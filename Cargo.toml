@@ -32,6 +32,14 @@ tree-sitter-python = "0.25"
 # Já dependência transitiva do tree-sitter (QueryCursor::matches devolve um
 # StreamingIterator); tornada direta só para trazer o trait ao escopo.
 streaming-iterator = "0.1"
+# Cliente LSP mínimo (MT-23/ADR-0013): lsp-types traz os tipos do protocolo;
+# lsp-server traz o framing JSON-RPC (Message::read/write, genéricos sobre
+# BufRead/Write — reaproveitado no lado cliente, não só servidor).
+# Maturidade verificada (ADR-0013): lsp-types (MIT, 28M+ downloads) é
+# dependência direta do rust-analyzer, ativo; lsp-server (Apache-2.0, 12M+
+# downloads) é o próprio crate de framing do rust-analyzer.
+lsp-types = "0.97"
+lsp-server = "0.8"
 
 # Lints compartilhados do workspace (qualidade desde o bootstrap).
 [workspace.lints.clippy]
