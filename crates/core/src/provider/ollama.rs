@@ -21,6 +21,15 @@
 //! frequentes de `task-class`. Ambos são constantes documentadas nesta v0.1 — exposição
 //! via `settings-schema` fica para quando houver demanda real de ajuste por perfil
 //! (mesmo padrão de outros defaults de provider, ex. `DEFAULT_MAX_TOKENS` do MT-16).
+//!
+//! **Saída estruturada para tool-calling (MT-22, ADR-0012):** quando `tools` não
+//! está vazio e [`OllamaProvider::structured_output`] está ativo (*default*: `true`,
+//! ajustável via [`OllamaProvider::with_structured_output`]), o campo `format` da API
+//! do Ollama recebe um JSON Schema combinado das `tools` — um `oneOf` de
+//! `{name: <const>, arguments: <input_schema da tool>}`, restringindo a geração da
+//! porção de tool-call ao formato esperado. Fiação da flag com o `settings-schema`
+//! (`providers.ollama.structured_output`) fica para quando o restante do
+//! `settings-schema` de providers existir — mesmo adiamento já aplicado ao MT-17/MT-16.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -51,16 +60,29 @@ const DEFAULT_KEEP_ALIVE: &str = "30m";
 pub struct OllamaProvider {
     transport: Arc<Transport>,
     base_url: String,
+    /// Saída estruturada (MT-22, ADR-0012) — *default* `true`.
+    structured_output: bool,
 }
 
 impl OllamaProvider {
-    /// Cria um adapter apontando para `base_url` (ex.: `http://localhost:11434`).
+    /// Cria um adapter apontando para `base_url` (ex.: `http://localhost:11434`),
+    /// com saída estruturada ativada por padrão (ver [`Self::with_structured_output`]).
     #[must_use]
     pub fn new(transport: Arc<Transport>, base_url: impl Into<String>) -> Self {
         Self {
             transport,
             base_url: base_url.into(),
+            structured_output: true,
         }
+    }
+
+    /// Ativa/desativa a saída estruturada (`format`) para tool-calling
+    /// (MT-22, ADR-0012) — desligar pode ser necessário para depuração ou
+    /// modelos/versões do Ollama que não suportem bem o recurso.
+    #[must_use]
+    pub fn with_structured_output(mut self, structured_output: bool) -> Self {
+        self.structured_output = structured_output;
+        self
     }
 
     fn chat_url(&self) -> String {
@@ -95,6 +117,10 @@ struct OllamaRequest<'a> {
     think: Option<bool>,
     /// Enviado em toda chamada (MT-17, ADR-0009) — nunca omitido.
     keep_alive: &'static str,
+    /// JSON Schema combinado das `tools` (MT-22, ADR-0012) — presente só
+    /// quando há `tools` **e** a saída estruturada está ativa.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    format: Option<serde_json::Value>,
 }
 
 #[derive(Serialize, Default)]
@@ -229,6 +255,28 @@ fn tool_spec_to_ollama(spec: &ToolSpec) -> OllamaTool {
     }
 }
 
+/// Constrói o JSON Schema combinado das `tools` para o campo `format`
+/// (MT-22, ADR-0012): um `oneOf` de objetos `{name: <const>, arguments:
+/// <input_schema da tool>}` — representa "uma destas chamadas de tool",
+/// restringindo a geração da porção de tool-call ao formato esperado.
+fn combined_tools_format(tools: &[ToolSpec]) -> serde_json::Value {
+    let alternativas: Vec<serde_json::Value> = tools
+        .iter()
+        .map(|spec| {
+            serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "name": { "const": spec.name },
+                    "arguments": spec.input_schema,
+                },
+                "required": ["name", "arguments"],
+            })
+        })
+        .collect();
+
+    serde_json::json!({ "oneOf": alternativas })
+}
+
 /// Converte a mensagem final do Ollama em [`Message`] de domínio,
 /// sintetizando um `id` sequencial para cada `tool_call` — o Ollama não
 /// devolve identificador próprio para chamadas de tool.
@@ -252,7 +300,16 @@ fn ollama_message_to_domain(msg: &OllamaMessage) -> Message {
     }
 }
 
-fn build_request<'a>(request: &'a ChatRequest, stream: bool) -> OllamaRequest<'a> {
+fn build_request<'a>(
+    request: &'a ChatRequest,
+    stream: bool,
+    structured_output: bool,
+) -> OllamaRequest<'a> {
+    let format = if structured_output && !request.tools.is_empty() {
+        Some(combined_tools_format(&request.tools))
+    } else {
+        None
+    };
     OllamaRequest {
         model: &request.model,
         messages: request.messages.iter().map(message_to_ollama).collect(),
@@ -261,6 +318,7 @@ fn build_request<'a>(request: &'a ChatRequest, stream: bool) -> OllamaRequest<'a
         options: OllamaOptions::from_request(request),
         think: request.reasoning,
         keep_alive: DEFAULT_KEEP_ALIVE,
+        format,
     }
 }
 
@@ -282,7 +340,7 @@ impl LlmProvider for OllamaProvider {
     fn chat(&self, request: ChatRequest) -> BoxFuture<'_, Result<ChatResponse, ProviderError>> {
         Box::pin(async move {
             let timeout = timeout_for(&request);
-            let body = serde_json::to_value(build_request(&request, false))
+            let body = serde_json::to_value(build_request(&request, false, self.structured_output))
                 .expect("OllamaRequest sempre serializável");
             let resposta = self
                 .transport
@@ -309,7 +367,7 @@ impl LlmProvider for OllamaProvider {
     ) -> BoxFuture<'_, Result<ChatStream, ProviderError>> {
         Box::pin(async move {
             let timeout = timeout_for(&request);
-            let body = serde_json::to_value(build_request(&request, true))
+            let body = serde_json::to_value(build_request(&request, true, self.structured_output))
                 .expect("OllamaRequest sempre serializável");
             let mut linhas = self
                 .transport
@@ -587,7 +645,7 @@ mod tests {
         request.top_p = Some(0.8);
         request.max_tokens = Some(100);
 
-        let ollama_request = build_request(&request, false);
+        let ollama_request = build_request(&request, false, true);
         let json = serde_json::to_value(&ollama_request).expect("deve serializar");
 
         // Compara contra o mesmo caminho f32→f64 do serde_json, evitando
@@ -600,7 +658,7 @@ mod tests {
     #[test]
     fn build_request_omite_options_sem_nenhum_parametro() {
         let request = ChatRequest::new("modelo-x", vec![Message::user("oi")]);
-        let ollama_request = build_request(&request, false);
+        let ollama_request = build_request(&request, false, true);
         let json = serde_json::to_value(&ollama_request).expect("deve serializar");
 
         assert!(
@@ -614,7 +672,7 @@ mod tests {
         let mut request = ChatRequest::new("modelo-x", vec![Message::user("oi")]);
         request.reasoning = Some(true);
 
-        let ollama_request = build_request(&request, false);
+        let ollama_request = build_request(&request, false, true);
         let json = serde_json::to_value(&ollama_request).expect("deve serializar");
 
         assert_eq!(json["think"], true);
@@ -623,7 +681,7 @@ mod tests {
     #[test]
     fn build_request_omite_think_sem_reasoning_definido() {
         let request = ChatRequest::new("modelo-x", vec![Message::user("oi")]);
-        let ollama_request = build_request(&request, false);
+        let ollama_request = build_request(&request, false, true);
         let json = serde_json::to_value(&ollama_request).expect("deve serializar");
 
         assert!(
@@ -635,10 +693,132 @@ mod tests {
     #[test]
     fn build_request_sempre_envia_keep_alive() {
         let request = ChatRequest::new("modelo-x", vec![Message::user("oi")]);
-        let ollama_request = build_request(&request, false);
+        let ollama_request = build_request(&request, false, true);
         let json = serde_json::to_value(&ollama_request).expect("deve serializar");
 
         assert_eq!(json["keep_alive"], DEFAULT_KEEP_ALIVE);
+    }
+
+    fn tool_spec_de_teste() -> ToolSpec {
+        ToolSpec {
+            name: "fs_read".into(),
+            description: "lê um arquivo".into(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": { "path": { "type": "string" } },
+                "required": ["path"]
+            }),
+        }
+    }
+
+    #[test]
+    fn build_request_inclui_format_quando_ha_tools_e_saida_estruturada_ativa() {
+        let mut request = ChatRequest::new("modelo-x", vec![Message::user("oi")]);
+        request.tools = vec![tool_spec_de_teste()];
+
+        let ollama_request = build_request(&request, false, true);
+        let json = serde_json::to_value(&ollama_request).expect("deve serializar");
+
+        let alternativas = json["format"]["oneOf"]
+            .as_array()
+            .expect("format.oneOf deve ser um array");
+        assert_eq!(alternativas.len(), 1);
+        assert_eq!(alternativas[0]["properties"]["name"]["const"], "fs_read");
+        assert_eq!(
+            alternativas[0]["properties"]["arguments"]["required"][0],
+            "path"
+        );
+    }
+
+    #[test]
+    fn build_request_omite_format_sem_tools() {
+        let request = ChatRequest::new("modelo-x", vec![Message::user("oi")]);
+        let ollama_request = build_request(&request, false, true);
+        let json = serde_json::to_value(&ollama_request).expect("deve serializar");
+
+        assert!(
+            json.get("format").is_none(),
+            "format não deveria aparecer sem tools, mesmo com saída estruturada ativa"
+        );
+    }
+
+    #[test]
+    fn build_request_omite_format_quando_saida_estruturada_desativada() {
+        let mut request = ChatRequest::new("modelo-x", vec![Message::user("oi")]);
+        request.tools = vec![tool_spec_de_teste()];
+
+        let ollama_request = build_request(&request, false, false);
+        let json = serde_json::to_value(&ollama_request).expect("deve serializar");
+
+        assert!(
+            json.get("format").is_none(),
+            "format não deveria aparecer com a flag desativada, mesmo havendo tools"
+        );
+    }
+
+    #[tokio::test]
+    async fn chat_com_tools_envia_format_via_transporte_respeitando_a_flag() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        async fn requisicao_capturada(structured_output: bool) -> String {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+                .await
+                .expect("bind em porta efêmera deve funcionar");
+            let addr = listener
+                .local_addr()
+                .expect("socket deve ter endereço local");
+            let corpo_capturado = Arc::new(std::sync::Mutex::new(String::new()));
+            let alvo = Arc::clone(&corpo_capturado);
+
+            tokio::spawn(async move {
+                if let Ok((mut socket, _)) = listener.accept().await {
+                    let mut buf = [0u8; 4096];
+                    if let Ok(n) = socket.read(&mut buf).await {
+                        *alvo.lock().expect("mutex não deve envenenar") =
+                            String::from_utf8_lossy(&buf[..n]).into_owned();
+                    }
+                    let resposta_json =
+                        r#"{"message":{"role":"assistant","content":"ok"},"done":true}"#;
+                    let resposta = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\
+                         Content-Length: {}\r\nConnection: close\r\n\r\n{}",
+                        resposta_json.len(),
+                        resposta_json
+                    );
+                    let _ = socket.write_all(resposta.as_bytes()).await;
+                    let _ = socket.shutdown().await;
+                }
+            });
+
+            let provider =
+                OllamaProvider::new(transport_local_only(addr), format!("http://{addr}"))
+                    .with_structured_output(structured_output);
+
+            let mut request = ChatRequest::new("llama3.1:8b", vec![Message::user("oi")]);
+            request.tools = vec![tool_spec_de_teste()];
+            provider
+                .chat(request)
+                .await
+                .expect("chat deve funcionar via Transporte");
+
+            let resultado = corpo_capturado
+                .lock()
+                .expect("mutex não deve envenenar")
+                .clone();
+            resultado
+        }
+
+        let com_estruturada = requisicao_capturada(true).await;
+        assert!(
+            com_estruturada.contains("\"format\":{\"oneOf\""),
+            "esperava format no corpo com saída estruturada ativa; recebido:\n{com_estruturada}"
+        );
+
+        let sem_estruturada = requisicao_capturada(false).await;
+        assert!(
+            !sem_estruturada.contains("\"format\""),
+            "não esperava format no corpo com a flag desativada; recebido:\n{sem_estruturada}"
+        );
     }
 
     #[test]
