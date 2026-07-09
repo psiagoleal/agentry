@@ -2,8 +2,9 @@
 //! REPL interativo (MT-14): lê linhas, trata comandos `/model`,
 //! `/temperature`, `/top_p`, `/system`, `/max_tokens`, `/reasoning` como
 //! override de **sessão** (ADR-0014/MT-33) — persiste para os turnos
-//! seguintes até ser trocado de novo — e qualquer outra linha como mensagem
-//! de usuário.
+//! seguintes até ser trocado de novo — `/compact` (MT-37, ADR-0016) para
+//! compactar o histórico da sessão via `Session::compact` — e qualquer
+//! outra linha como mensagem de usuário.
 //!
 //! Genérico sobre `Read`/`Write` (não amarrado a `stdin`/`stdout` reais) para
 //! ser testável com buffers em memória.
@@ -151,6 +152,13 @@ pub async fn run_repl<R: BufRead, W: Write>(
         if linha == "/exit" || linha == "/quit" {
             break;
         }
+        if linha == "/compact" {
+            match session.compact(router).await {
+                Ok(()) => writeln!(output, "sessão compactada").map_err(|e| e.to_string())?,
+                Err(erro) => writeln!(output, "erro: {erro}").map_err(|e| e.to_string())?,
+            }
+            continue;
+        }
 
         if let Some(comando) = linha.strip_prefix('/') {
             match aplicar_comando(comando, &mut session_override) {
@@ -182,7 +190,7 @@ pub async fn run_repl<R: BufRead, W: Write>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use agentry_core::model::{StreamEvent, ToolCall, ToolResult, Usage};
+    use agentry_core::model::{Message, Role, StreamEvent, ToolCall, ToolResult, Usage};
     use agentry_core::provider::mock::MockProvider;
     use agentry_core::session::{TokenBudget, ToolExecutor};
     use std::io::Cursor;
@@ -337,6 +345,113 @@ mod tests {
         .await
         .expect("deve encerrar limpo");
 
+        assert_eq!(mock.chat_requests().len(), 0);
+    }
+
+    /// Registra a `task-class` `"compact"` sobre o mesmo mock/modelo já
+    /// registrado por [`router_com_ollama`] (MT-37).
+    fn com_task_class_compact(mut router: Router, modelo: &str) -> Router {
+        router.set_route(
+            "compact",
+            RouteEntry {
+                candidates: vec![RouteTarget::new(PROVIDER, modelo, EgressClass::LocalOnly)],
+                preset: CallPreset::default(),
+            },
+        );
+        router
+    }
+
+    #[tokio::test]
+    async fn comando_compact_reduz_historico_a_uma_unica_mensagem_de_sistema() {
+        let mock = Arc::new(MockProvider::new(PROVIDER));
+        mock.enqueue_stream(roteiro_de_resposta("resposta original"));
+        mock.enqueue_chat(Ok(agentry_core::provider::ChatResponse {
+            message: Message::assistant("resumo da conversa"),
+            usage: Usage::default(),
+        }));
+
+        let mut router =
+            com_task_class_compact(router_com_ollama(mock.clone(), "modelo-x"), "modelo-x");
+        let rota = router.resolve(TASK_CLASS).expect("deve resolver");
+        let mut session = Session::new(rota, Arc::new(NoopExecutor), TokenBudget::new(100_000));
+
+        let entrada = "mensagem original\n/compact\n/exit\n";
+        let mut saida = Vec::new();
+
+        run_repl(
+            Cursor::new(entrada.as_bytes()),
+            &mut saida,
+            &mut session,
+            &mut router,
+            &CallPreset::default(),
+            RuntimeOverride::default(),
+        )
+        .await
+        .expect("repl deve rodar sem erro");
+
+        assert_eq!(session.messages().len(), 1);
+        assert_eq!(session.messages()[0].role, Role::System);
+
+        let saida_texto = String::from_utf8(saida).unwrap();
+        assert!(saida_texto.contains("compactada"));
+    }
+
+    #[tokio::test]
+    async fn comando_compact_com_erro_nao_derruba_o_repl() {
+        let mock = Arc::new(MockProvider::new(PROVIDER));
+        mock.enqueue_stream(roteiro_de_resposta("resposta original"));
+        // Nenhuma resposta enfileirada para a chamada de compactação: falha.
+
+        let mut router =
+            com_task_class_compact(router_com_ollama(mock.clone(), "modelo-x"), "modelo-x");
+        let rota = router.resolve(TASK_CLASS).expect("deve resolver");
+        let mut session = Session::new(rota, Arc::new(NoopExecutor), TokenBudget::new(100_000));
+
+        let entrada = "mensagem original\n/compact\n/exit\n";
+        let mut saida = Vec::new();
+
+        run_repl(
+            Cursor::new(entrada.as_bytes()),
+            &mut saida,
+            &mut session,
+            &mut router,
+            &CallPreset::default(),
+            RuntimeOverride::default(),
+        )
+        .await
+        .expect("erro de compactação não deve derrubar o repl");
+
+        // Tudo-ou-nada: histórico da primeira mensagem (user + assistant)
+        // permanece intocado.
+        assert_eq!(session.messages().len(), 2);
+
+        let saida_texto = String::from_utf8(saida).unwrap();
+        assert!(saida_texto.contains("erro:"));
+    }
+
+    #[tokio::test]
+    async fn comando_compact_com_historico_vazio_nao_falha() {
+        let mock = Arc::new(MockProvider::new(PROVIDER));
+        let mut router =
+            com_task_class_compact(router_com_ollama(mock.clone(), "modelo-x"), "modelo-x");
+        let rota = router.resolve(TASK_CLASS).expect("deve resolver");
+        let mut session = Session::new(rota, Arc::new(NoopExecutor), TokenBudget::new(100_000));
+
+        let entrada = "/compact\n/exit\n";
+        let mut saida = Vec::new();
+
+        run_repl(
+            Cursor::new(entrada.as_bytes()),
+            &mut saida,
+            &mut session,
+            &mut router,
+            &CallPreset::default(),
+            RuntimeOverride::default(),
+        )
+        .await
+        .expect("histórico vazio não deve causar erro");
+
+        assert!(session.messages().is_empty());
         assert_eq!(mock.chat_requests().len(), 0);
     }
 }
