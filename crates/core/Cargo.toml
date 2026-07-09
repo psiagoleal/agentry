@@ -21,6 +21,10 @@ serde_json = { workspace = true }
 tokio = { workspace = true, features = ["sync", "rt", "process"] }
 reqwest = { workspace = true }
 ignore = { workspace = true }
+tree-sitter = { workspace = true }
+tree-sitter-rust = { workspace = true }
+tree-sitter-python = { workspace = true }
+streaming-iterator = { workspace = true }
 
 [dev-dependencies]
 # "net"/"io-util": servidor HTTP mínimo de teste do MT-07 (sem lib de mock nova).

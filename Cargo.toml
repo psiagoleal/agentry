@@ -23,6 +23,15 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 # de reimplementar globs/negação/precedência na mão (MT-12).
 ignore = "0.4"
 clap = { version = "4", features = ["derive"] }
+# Extração de símbolos AST-aware (repo-map, MT-18/ADR-0010). Gramáticas por
+# linguagem adotadas individualmente, cada uma vetada por maturidade/licença
+# (ADR-0004) — não há adoção em lote.
+tree-sitter = "0.26"
+tree-sitter-rust = "0.24"
+tree-sitter-python = "0.25"
+# Já dependência transitiva do tree-sitter (QueryCursor::matches devolve um
+# StreamingIterator); tornada direta só para trazer o trait ao escopo.
+streaming-iterator = "0.1"
 
 # Lints compartilhados do workspace (qualidade desde o bootstrap).
 [workspace.lints.clippy]
