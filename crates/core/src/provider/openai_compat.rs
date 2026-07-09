@@ -348,7 +348,7 @@ impl LlmProvider for OpenAiCompatProvider {
                 .expect("OpenAiRequest sempre serializável");
             let resposta = self
                 .transport
-                .post_json(&self.chat_url(), "chat", &body)
+                .post_json(&self.chat_url(), "chat", &body, None)
                 .await
                 .map_err(map_transport_error)?;
 
@@ -376,7 +376,10 @@ impl LlmProvider for OpenAiCompatProvider {
                 .expect("OpenAiRequest sempre serializável");
             let mut linhas = self
                 .transport
-                .post_json_lines(&self.chat_url(), "chat_stream", &body)
+                // Sem timeout adaptativo: o sinal de troca de modelo do ADR-0009/MT-17
+                // é escopo só do provider local (Ollama) — endpoints gerenciados
+                // não sofrem com cold load de modelo.
+                .post_json_lines(&self.chat_url(), "chat_stream", &body, None)
                 .await
                 .map_err(map_transport_error)?;
 

@@ -389,7 +389,9 @@ impl LlmProvider for AnthropicProvider {
                 .expect("AnthropicRequest sempre serializável");
             let resposta = self
                 .transport
-                .post_json(&self.messages_url(), "chat", &body)
+                // Sem timeout adaptativo: escopo do ADR-0009/MT-17 é só o
+                // provider local (Ollama) — a API gerenciada não sofre cold load.
+                .post_json(&self.messages_url(), "chat", &body, None)
                 .await
                 .map_err(map_transport_error)?;
 
@@ -412,7 +414,7 @@ impl LlmProvider for AnthropicProvider {
                 .expect("AnthropicRequest sempre serializável");
             let mut linhas = self
                 .transport
-                .post_json_lines(&self.messages_url(), "chat_stream", &body)
+                .post_json_lines(&self.messages_url(), "chat_stream", &body, None)
                 .await
                 .map_err(map_transport_error)?;
 

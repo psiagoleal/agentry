@@ -13,9 +13,18 @@
 //! disponível e registrado — uma tarefa marcada sensível (classe ativa
 //! `local-only`) nunca alcança um candidato que exija `cloud-ok`, porque o
 //! candidato é descartado antes de qualquer checagem de disponibilidade.
+//!
+//! O Router também rastreia, por provider, o último modelo resolvido e
+//! sinaliza troca de modelo (`ResolvedRoute::is_model_switch`, MT-17,
+//! ADR-0009) — usado pelo adapter Ollama para escolher timeout frio/quente e
+//! decidir `keep_alive`, já que só o Router sabe com antecedência qual
+//! `(provider, modelo)` a próxima chamada vai usar. O rastreio é otimista
+//! (assume que toda resolução será de fato usada) e exige `Mutex` porque
+//! `resolve`/`resolve_with_override` continuam recebendo `&self` — o Router
+//! é compartilhado (via `Arc`) entre chamadas potencialmente concorrentes.
 
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use crate::config::privacy::EgressClass;
 use crate::provider::LlmProvider;
@@ -162,10 +171,19 @@ pub struct ResolvedRoute {
     pub model: String,
     /// Preset de parâmetros de chamada da `task-class` resolvida.
     pub preset: CallPreset,
+    /// Indica se esta resolução implica **troca de modelo** no provider
+    /// (MT-17, ADR-0009) em relação à última resolução para o mesmo
+    /// provider — só o Router sabe disso com antecedência. `false` quando a
+    /// rota é construída diretamente via [`Self::new`] (fora do Router,
+    /// tipicamente em teste); use [`Self::with_model_switch`] para simular o
+    /// sinal ligado.
+    pub is_model_switch: bool,
 }
 
 impl ResolvedRoute {
-    /// Cria uma rota já resolvida (normalmente devolvida por [`Router::resolve`]).
+    /// Cria uma rota já resolvida (normalmente devolvida por [`Router::resolve`]),
+    /// com `is_model_switch: false` — quem precisa simular uma troca de
+    /// modelo em teste usa [`Self::with_model_switch`].
     #[must_use]
     pub fn new(
         provider: Arc<dyn LlmProvider>,
@@ -176,7 +194,16 @@ impl ResolvedRoute {
             provider,
             model: model.into(),
             preset,
+            is_model_switch: false,
         }
+    }
+
+    /// Sobrescreve [`Self::is_model_switch`] — usado por testes que
+    /// precisam simular uma troca de modelo sem passar pelo Router.
+    #[must_use]
+    pub fn with_model_switch(mut self, is_model_switch: bool) -> Self {
+        self.is_model_switch = is_model_switch;
+        self
     }
 }
 
@@ -187,6 +214,7 @@ impl core::fmt::Debug for ResolvedRoute {
             .field("provider", &self.provider.name())
             .field("model", &self.model)
             .field("preset", &self.preset)
+            .field("is_model_switch", &self.is_model_switch)
             .finish()
     }
 }
@@ -197,6 +225,10 @@ pub struct Router {
     routes: HashMap<String, RouteEntry>,
     providers: HashMap<String, Arc<dyn LlmProvider>>,
     egress_class: EgressClass,
+    /// Último modelo resolvido por provider (MT-17, ADR-0009) — rastreio
+    /// otimista usado só para sinalizar `is_model_switch`; não afeta a
+    /// decisão de roteamento em si.
+    last_model: Mutex<HashMap<String, String>>,
 }
 
 impl Router {
@@ -207,6 +239,7 @@ impl Router {
             routes: HashMap::new(),
             providers: HashMap::new(),
             egress_class,
+            last_model: Mutex::new(HashMap::new()),
         }
     }
 
@@ -293,10 +326,12 @@ impl Router {
                     max_tokens: overrides.max_tokens.or(entry.preset.max_tokens),
                     reasoning: overrides.reasoning.or(entry.preset.reasoning),
                 };
+                let is_model_switch = self.mark_resolved(&candidate.provider, &candidate.model);
                 return Ok(ResolvedRoute {
                     provider: Arc::clone(provider),
                     model: candidate.model.clone(),
                     preset,
+                    is_model_switch,
                 });
             }
         }
@@ -304,6 +339,20 @@ impl Router {
         Err(RouterError::NoAvailableRoute {
             task_class: task_class.to_string(),
         })
+    }
+
+    /// Registra `model` como o último modelo resolvido para `provider` e
+    /// devolve se isso representa uma **troca** em relação ao valor anterior
+    /// (MT-17, ADR-0009). Rastreio otimista: assume que toda resolução será
+    /// de fato usada para uma chamada.
+    fn mark_resolved(&self, provider: &str, model: &str) -> bool {
+        let mut last_model = self
+            .last_model
+            .lock()
+            .expect("mutex do Router não deve envenenar");
+        let trocou = last_model.get(provider).map(String::as_str) != Some(model);
+        last_model.insert(provider.to_string(), model.to_string());
+        trocou
     }
 }
 
@@ -620,6 +669,125 @@ mod tests {
             efetivo.model,
             Some("modelo-da-sessao".into()),
             "ausente na chamada única cai na sessão"
+        );
+    }
+
+    #[test]
+    fn is_model_switch_e_true_na_primeira_resolucao_do_provider() {
+        let mut router = router_com_providers(EgressClass::LocalOnly, &["ollama"]);
+        router.set_route(
+            "chat",
+            RouteEntry {
+                candidates: vec![RouteTarget::new(
+                    "ollama",
+                    "llama3.1:8b",
+                    EgressClass::LocalOnly,
+                )],
+                preset: CallPreset::default(),
+            },
+        );
+
+        let rota = router.resolve("chat").expect("deve resolver");
+        assert!(
+            rota.is_model_switch,
+            "primeira resolução do provider deve sinalizar troca"
+        );
+    }
+
+    #[test]
+    fn is_model_switch_e_false_ao_resolver_o_mesmo_modelo_de_novo() {
+        let mut router = router_com_providers(EgressClass::LocalOnly, &["ollama"]);
+        router.set_route(
+            "chat",
+            RouteEntry {
+                candidates: vec![RouteTarget::new(
+                    "ollama",
+                    "llama3.1:8b",
+                    EgressClass::LocalOnly,
+                )],
+                preset: CallPreset::default(),
+            },
+        );
+
+        router.resolve("chat").expect("primeira resolução");
+        let segunda = router.resolve("chat").expect("segunda resolução");
+        assert!(
+            !segunda.is_model_switch,
+            "mesmo modelo do mesmo provider não deve sinalizar troca"
+        );
+    }
+
+    #[test]
+    fn is_model_switch_e_true_ao_trocar_de_modelo_no_mesmo_provider() {
+        let mut router = router_com_providers(EgressClass::LocalOnly, &["ollama"]);
+        router.set_route(
+            "chat",
+            RouteEntry {
+                candidates: vec![RouteTarget::new(
+                    "ollama",
+                    "llama3.1:8b",
+                    EgressClass::LocalOnly,
+                )],
+                preset: CallPreset::default(),
+            },
+        );
+        router.resolve("chat").expect("primeira resolução");
+
+        router.set_route(
+            "outra-task",
+            RouteEntry {
+                candidates: vec![RouteTarget::new(
+                    "ollama",
+                    "qwen2.5-coder:14b",
+                    EgressClass::LocalOnly,
+                )],
+                preset: CallPreset::default(),
+            },
+        );
+        let rota = router.resolve("outra-task").expect("deve resolver");
+        assert!(
+            rota.is_model_switch,
+            "modelo diferente no mesmo provider deve sinalizar troca"
+        );
+    }
+
+    #[test]
+    fn is_model_switch_e_rastreado_por_provider_independentemente() {
+        let mut router =
+            router_com_providers(EgressClass::LocalOnly, &["ollama", "outro-provider"]);
+        router.set_route(
+            "chat-a",
+            RouteEntry {
+                candidates: vec![RouteTarget::new(
+                    "ollama",
+                    "modelo-x",
+                    EgressClass::LocalOnly,
+                )],
+                preset: CallPreset::default(),
+            },
+        );
+        router.set_route(
+            "chat-b",
+            RouteEntry {
+                candidates: vec![RouteTarget::new(
+                    "outro-provider",
+                    "modelo-x",
+                    EgressClass::LocalOnly,
+                )],
+                preset: CallPreset::default(),
+            },
+        );
+
+        router
+            .resolve("chat-a")
+            .expect("primeira resolução do provider ollama");
+        let rota_b = router
+            .resolve("chat-b")
+            .expect("primeira resolução do outro provider");
+        assert!(
+            rota_b.is_model_switch,
+            "primeira resolução de um provider diferente também é troca, mesmo que outro \
+             provider já tenha visto esse mesmo nome de modelo"
         );
     }
 }

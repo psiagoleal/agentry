@@ -219,6 +219,10 @@ pub struct Session {
     provider: Arc<dyn LlmProvider>,
     model: String,
     preset: CallPreset,
+    /// Sinal de troca de modelo da última rota aplicada (MT-17, ADR-0009) —
+    /// repassado ao `ChatRequest` do próximo turno; só o adapter Ollama
+    /// consome hoje.
+    is_model_switch: bool,
     tools: Vec<ToolSpec>,
     executor: Arc<dyn ToolExecutor>,
     messages: Vec<Message>,
@@ -234,6 +238,7 @@ impl Session {
             provider: route.provider,
             model: route.model,
             preset: route.preset,
+            is_model_switch: route.is_model_switch,
             tools: Vec::new(),
             executor,
             messages: Vec::new(),
@@ -267,6 +272,7 @@ impl Session {
         self.provider = route.provider;
         self.model = route.model;
         self.preset = route.preset;
+        self.is_model_switch = route.is_model_switch;
     }
 
     /// Compacta o histórico acumulado num único resumo (MT-36, ADR-0016):
@@ -302,6 +308,7 @@ impl Session {
         request.max_tokens = route.preset.max_tokens;
         request.temperature = route.preset.temperature;
         request.top_p = route.preset.top_p;
+        request.is_model_switch = route.is_model_switch;
 
         let resposta = route
             .provider
@@ -340,6 +347,7 @@ impl Session {
             temperature: self.preset.temperature,
             top_p: self.preset.top_p,
             reasoning: self.preset.reasoning,
+            is_model_switch: self.is_model_switch,
         }
     }
 

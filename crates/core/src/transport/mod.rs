@@ -22,8 +22,17 @@
 //! bruto**, sem conhecer o formato de nenhum provider — a interpretação de
 //! cada linha (NDJSON, SSE etc.) é responsabilidade do adapter, mantendo o
 //! transporte agnóstico de provider (fora de escopo do MT-07).
+//!
+//! Ambos os métodos aceitam um **timeout por chamada** (MT-17, ADR-0009),
+//! via a API nativa do `reqwest` (`.timeout()` no builder da requisição);
+//! `None` cai no timeout *default* do `Client` construído internamente. O
+//! caso de uso motivador é a troca de modelo em provider local (Ollama): o
+//! Router (MT-09) sabe, antes de qualquer chamada, se a resolução atual
+//! implica um *cold load* — só o Transporte pode aplicar o timeout, e só o
+//! Router sabe qual usar, então o valor sempre entra de fora.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use tokio::sync::mpsc;
 
@@ -159,18 +168,23 @@ impl Transport {
     /// Devolve [`TransportError::InvalidUrl`] se `url` não puder ser
     /// interpretada ou não tiver host; [`TransportError::Blocked`] se a
     /// allowlist recusar o destino; [`TransportError::Http`] se a chamada de
-    /// rede falhar ou devolver status de erro.
+    /// rede falhar, estourar `timeout` (quando `Some`) ou devolver status de
+    /// erro.
     pub async fn post_json(
         &self,
         url: &str,
         task: &str,
         body: &serde_json::Value,
+        timeout: Option<Duration>,
     ) -> Result<serde_json::Value, TransportError> {
         let parsed = self.authorize(url, task)?;
 
         let mut requisicao = self.client.post(parsed).json(body);
         for (nome, valor) in &self.default_headers {
             requisicao = requisicao.header(nome, valor);
+        }
+        if let Some(timeout) = timeout {
+            requisicao = requisicao.timeout(timeout);
         }
         let resposta = requisicao
             .send()
@@ -203,18 +217,25 @@ impl Transport {
     ///
     /// Mesmos casos de [`Self::post_json`]; erros que ocorrem depois de a
     /// conexão ser aberta chegam como um item `Err` no canal devolvido, em
-    /// vez de no `Result` externo.
+    /// vez de no `Result` externo. `timeout`, quando `Some`, cobre a
+    /// requisição inteira — conexão **e** leitura do corpo em streaming, não
+    /// só o tempo até o primeiro byte; quem escolhe o valor (Router, MT-17)
+    /// deve considerar isso ao decidir o timeout "frio" de troca de modelo.
     pub async fn post_json_lines(
         &self,
         url: &str,
         task: &str,
         body: &serde_json::Value,
+        timeout: Option<Duration>,
     ) -> Result<mpsc::Receiver<Result<String, TransportError>>, TransportError> {
         let parsed = self.authorize(url, task)?;
 
         let mut requisicao = self.client.post(parsed).json(body);
         for (nome, valor) in &self.default_headers {
             requisicao = requisicao.header(nome, valor);
+        }
+        if let Some(timeout) = timeout {
+            requisicao = requisicao.timeout(timeout);
         }
         let mut resposta = requisicao
             .send()
@@ -354,7 +375,12 @@ mod tests {
 
         let url = format!("http://{addr}/chat");
         let resposta = transport
-            .post_json(&url, "chat de teste", &serde_json::json!({"oi": "mundo"}))
+            .post_json(
+                &url,
+                "chat de teste",
+                &serde_json::json!({"oi": "mundo"}),
+                None,
+            )
             .await
             .expect("chamada permitida deve passar");
 
@@ -389,7 +415,12 @@ mod tests {
 
         let url = format!("http://{addr}/chat");
         let erro = transport
-            .post_json(&url, "chat de teste", &serde_json::json!({"oi": "mundo"}))
+            .post_json(
+                &url,
+                "chat de teste",
+                &serde_json::json!({"oi": "mundo"}),
+                None,
+            )
             .await
             .expect_err("chamada bloqueada deve abortar");
 
@@ -412,7 +443,12 @@ mod tests {
         let transport = Transport::new(allowlist, EgressClass::CloudOk, None, sink);
 
         let erro = transport
-            .post_json("http://127.0.0.1:9/chat", "tarefa", &serde_json::json!({}))
+            .post_json(
+                "http://127.0.0.1:9/chat",
+                "tarefa",
+                &serde_json::json!({}),
+                None,
+            )
             .await
             .expect_err("host não cadastrado deve abortar");
         assert!(matches!(
@@ -435,7 +471,7 @@ mod tests {
 
         let url = format!("http://{addr}/chat");
         let mut linhas = transport
-            .post_json_lines(&url, "stream de teste", &serde_json::json!({}))
+            .post_json_lines(&url, "stream de teste", &serde_json::json!({}), None)
             .await
             .expect("stream permitido deve abrir");
 
@@ -444,6 +480,89 @@ mod tests {
             recebidas.push(linha.expect("mock não produz erro de transporte"));
         }
         assert_eq!(recebidas, vec!["{\"a\":1}", "{\"a\":2}", "{\"a\":3}"]);
+    }
+
+    /// Como [`start_mock_server`], mas só responde depois de `atraso` — usado
+    /// para provar que o timeout por chamada (MT-17, ADR-0009) é aplicado de
+    /// verdade.
+    async fn start_mock_server_lento(
+        response_body: &'static str,
+        atraso: std::time::Duration,
+    ) -> std::net::SocketAddr {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind em porta efêmera deve funcionar");
+        let addr = listener
+            .local_addr()
+            .expect("socket deve ter endereço local");
+
+        tokio::spawn(async move {
+            if let Ok((mut socket, _)) = listener.accept().await {
+                let mut buf = [0u8; 1024];
+                let _ = socket.read(&mut buf).await;
+                tokio::time::sleep(atraso).await;
+                let resposta = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\
+                     Content-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    response_body.len(),
+                    response_body
+                );
+                let _ = socket.write_all(resposta.as_bytes()).await;
+                let _ = socket.shutdown().await;
+            }
+        });
+
+        addr
+    }
+
+    #[tokio::test]
+    async fn timeout_curto_aborta_chamada_lenta() {
+        let addr = start_mock_server_lento(r#"{"ok":true}"#, Duration::from_millis(300)).await;
+        let allowlist = Allowlist::new(vec![AllowlistEntry::new(
+            addr.ip().to_string(),
+            EgressClass::CloudOk,
+        )]);
+        let sink = Arc::new(AuditCollector::default());
+        let transport = Transport::new(allowlist, EgressClass::CloudOk, None, sink);
+
+        let url = format!("http://{addr}/chat");
+        let erro = transport
+            .post_json(
+                &url,
+                "chat de teste",
+                &serde_json::json!({}),
+                Some(Duration::from_millis(30)),
+            )
+            .await
+            .expect_err("timeout curto deve abortar a chamada lenta");
+
+        assert!(matches!(erro, TransportError::Http(_)));
+    }
+
+    #[tokio::test]
+    async fn timeout_longo_permite_chamada_lenta_terminar() {
+        let addr = start_mock_server_lento(r#"{"ok":true}"#, Duration::from_millis(50)).await;
+        let allowlist = Allowlist::new(vec![AllowlistEntry::new(
+            addr.ip().to_string(),
+            EgressClass::CloudOk,
+        )]);
+        let sink = Arc::new(AuditCollector::default());
+        let transport = Transport::new(allowlist, EgressClass::CloudOk, None, sink);
+
+        let url = format!("http://{addr}/chat");
+        let resposta = transport
+            .post_json(
+                &url,
+                "chat de teste",
+                &serde_json::json!({}),
+                Some(Duration::from_secs(5)),
+            )
+            .await
+            .expect("timeout longo deve permitir a chamada terminar");
+
+        assert_eq!(resposta, serde_json::json!({"ok": true}));
     }
 
     /// Como [`start_mock_server`], mas também captura os bytes brutos da
@@ -501,7 +620,7 @@ mod tests {
 
         let url = format!("http://{addr}/chat");
         transport
-            .post_json(&url, "chat de teste", &serde_json::json!({}))
+            .post_json(&url, "chat de teste", &serde_json::json!({}), None)
             .await
             .expect("chamada permitida deve passar");
 

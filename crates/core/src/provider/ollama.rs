@@ -11,8 +11,19 @@
 //! O formato de fio do Ollama (`OllamaMessage`, `OllamaToolCall` etc.) é
 //! interno a este módulo — os tipos de domínio (`crate::model`) nunca vazam
 //! o formato de um provider específico (MT-02).
+//!
+//! **Timeout adaptativo + `keep_alive` (MT-17, ADR-0009):** `ChatRequest::is_model_switch`
+//! (propagado pelo Router via `Session`) decide entre [`DEFAULT_TIMEOUT_COLD`] (troca
+//! de modelo — o Ollama precisa fazer um *cold load*, que pode ser bem mais lento que
+//! uma inferência já aquecida) e [`DEFAULT_TIMEOUT_WARM`] (mesmo modelo); o
+//! `keep_alive` (mais generoso que o *default* do próprio Ollama) é enviado em toda
+//! chamada para reduzir descarregamento desnecessário do modelo entre trocas
+//! frequentes de `task-class`. Ambos são constantes documentadas nesta v0.1 — exposição
+//! via `settings-schema` fica para quando houver demanda real de ajuste por perfil
+//! (mesmo padrão de outros defaults de provider, ex. `DEFAULT_MAX_TOKENS` do MT-16).
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
@@ -22,6 +33,19 @@ use crate::provider::{
     LlmProvider, ProviderError, ToolSpec,
 };
 use crate::transport::{Transport, TransportError};
+
+/// Timeout para chamadas ao mesmo modelo já carregado (MT-17, ADR-0009) —
+/// generoso o bastante para inferência local, mas falha rápido numa conexão
+/// genuinamente travada.
+const DEFAULT_TIMEOUT_WARM: Duration = Duration::from_secs(30);
+/// Timeout para chamadas que implicam troca de modelo — carregar um modelo
+/// de 8B–30B do disco pode levar bem mais que uma inferência já aquecida
+/// (MT-17, ADR-0009).
+const DEFAULT_TIMEOUT_COLD: Duration = Duration::from_secs(300);
+/// `keep_alive` enviado em toda chamada (MT-17, ADR-0009) — mais generoso
+/// que o *default* do próprio Ollama (5m), para reduzir descarregamento
+/// desnecessário do modelo entre trocas frequentes de `task-class`.
+const DEFAULT_KEEP_ALIVE: &str = "30m";
 
 /// Adapter para a API de chat do Ollama.
 pub struct OllamaProvider {
@@ -44,6 +68,16 @@ impl OllamaProvider {
     }
 }
 
+/// Timeout adaptativo para a chamada (MT-17, ADR-0009): [`DEFAULT_TIMEOUT_COLD`]
+/// se a resolução implica troca de modelo, [`DEFAULT_TIMEOUT_WARM`] caso contrário.
+fn timeout_for(request: &ChatRequest) -> Duration {
+    if request.is_model_switch {
+        DEFAULT_TIMEOUT_COLD
+    } else {
+        DEFAULT_TIMEOUT_WARM
+    }
+}
+
 // ---- Formato de fio da API Ollama (interno; não confundir com `crate::model`) ----
 
 #[derive(Serialize)]
@@ -59,6 +93,8 @@ struct OllamaRequest<'a> {
     /// nível superior na API do Ollama, fora de `options`.
     #[serde(skip_serializing_if = "Option::is_none")]
     think: Option<bool>,
+    /// Enviado em toda chamada (MT-17, ADR-0009) — nunca omitido.
+    keep_alive: &'static str,
 }
 
 #[derive(Serialize, Default)]
@@ -224,6 +260,7 @@ fn build_request<'a>(request: &'a ChatRequest, stream: bool) -> OllamaRequest<'a
         tools: request.tools.iter().map(tool_spec_to_ollama).collect(),
         options: OllamaOptions::from_request(request),
         think: request.reasoning,
+        keep_alive: DEFAULT_KEEP_ALIVE,
     }
 }
 
@@ -244,11 +281,12 @@ impl LlmProvider for OllamaProvider {
 
     fn chat(&self, request: ChatRequest) -> BoxFuture<'_, Result<ChatResponse, ProviderError>> {
         Box::pin(async move {
+            let timeout = timeout_for(&request);
             let body = serde_json::to_value(build_request(&request, false))
                 .expect("OllamaRequest sempre serializável");
             let resposta = self
                 .transport
-                .post_json(&self.chat_url(), "chat", &body)
+                .post_json(&self.chat_url(), "chat", &body, Some(timeout))
                 .await
                 .map_err(map_transport_error)?;
 
@@ -270,11 +308,12 @@ impl LlmProvider for OllamaProvider {
         request: ChatRequest,
     ) -> BoxFuture<'_, Result<ChatStream, ProviderError>> {
         Box::pin(async move {
+            let timeout = timeout_for(&request);
             let body = serde_json::to_value(build_request(&request, true))
                 .expect("OllamaRequest sempre serializável");
             let mut linhas = self
                 .transport
-                .post_json_lines(&self.chat_url(), "chat_stream", &body)
+                .post_json_lines(&self.chat_url(), "chat_stream", &body, Some(timeout))
                 .await
                 .map_err(map_transport_error)?;
 
@@ -590,6 +629,96 @@ mod tests {
         assert!(
             json.get("think").is_none(),
             "think não deveria aparecer sem reasoning definido"
+        );
+    }
+
+    #[test]
+    fn build_request_sempre_envia_keep_alive() {
+        let request = ChatRequest::new("modelo-x", vec![Message::user("oi")]);
+        let ollama_request = build_request(&request, false);
+        let json = serde_json::to_value(&ollama_request).expect("deve serializar");
+
+        assert_eq!(json["keep_alive"], DEFAULT_KEEP_ALIVE);
+    }
+
+    #[test]
+    fn timeout_for_escolhe_quente_sem_troca_de_modelo() {
+        let request = ChatRequest::new("modelo-x", vec![Message::user("oi")]);
+        assert_eq!(timeout_for(&request), DEFAULT_TIMEOUT_WARM);
+    }
+
+    #[test]
+    fn timeout_for_escolhe_frio_com_troca_de_modelo() {
+        let mut request = ChatRequest::new("modelo-x", vec![Message::user("oi")]);
+        request.is_model_switch = true;
+        assert_eq!(timeout_for(&request), DEFAULT_TIMEOUT_COLD);
+    }
+
+    #[tokio::test]
+    async fn chat_com_troca_de_modelo_envia_keep_alive_via_transporte() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind em porta efêmera deve funcionar");
+        let addr = listener
+            .local_addr()
+            .expect("socket deve ter endereço local");
+        let corpo_capturado = Arc::new(std::sync::Mutex::new(String::new()));
+        let alvo = Arc::clone(&corpo_capturado);
+
+        tokio::spawn(async move {
+            if let Ok((mut socket, _)) = listener.accept().await {
+                let mut buf = [0u8; 4096];
+                if let Ok(n) = socket.read(&mut buf).await {
+                    *alvo.lock().expect("mutex não deve envenenar") =
+                        String::from_utf8_lossy(&buf[..n]).into_owned();
+                }
+                let resposta_json =
+                    r#"{"message":{"role":"assistant","content":"ok"},"done":true}"#;
+                let resposta = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\
+                     Content-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    resposta_json.len(),
+                    resposta_json
+                );
+                let _ = socket.write_all(resposta.as_bytes()).await;
+                let _ = socket.shutdown().await;
+            }
+        });
+
+        struct NoopSink;
+        impl crate::transport::AuditSink for NoopSink {
+            fn record(&self, _entry: crate::egress::audit::AuditEntry) {}
+        }
+        let allowlist = crate::egress::allowlist::Allowlist::new(vec![
+            crate::egress::allowlist::AllowlistEntry::new(
+                addr.ip().to_string(),
+                crate::config::privacy::EgressClass::LocalOnly,
+            ),
+        ]);
+        let transport = Arc::new(Transport::new(
+            allowlist,
+            crate::config::privacy::EgressClass::LocalOnly,
+            None,
+            Arc::new(NoopSink),
+        ));
+        let provider = OllamaProvider::new(transport, format!("http://{addr}"));
+
+        let mut request = ChatRequest::new("llama3.1:8b", vec![Message::user("oi")]);
+        request.is_model_switch = true;
+        provider
+            .chat(request)
+            .await
+            .expect("chat deve funcionar via Transporte");
+
+        let requisicao_bruta = corpo_capturado
+            .lock()
+            .expect("mutex não deve envenenar")
+            .clone();
+        assert!(
+            requisicao_bruta.contains(&format!("\"keep_alive\":\"{DEFAULT_KEEP_ALIVE}\"")),
+            "esperava keep_alive no corpo da requisição; recebido:\n{requisicao_bruta}"
         );
     }
 }

@@ -72,6 +72,13 @@ pub struct ChatRequest {
     /// adapter traduz para seu mecanismo nativo (Ollama: campo `think`).
     #[serde(default)]
     pub reasoning: Option<bool>,
+    /// Sinaliza que esta chamada implica troca de modelo no provider (MT-17,
+    /// ADR-0009) — propagado de [`crate::router::ResolvedRoute::is_model_switch`]
+    /// via [`crate::session::Session`]; só o adapter Ollama consome hoje,
+    /// para escolher timeout frio/quente. `false` por padrão em
+    /// [`Self::new`] (uso em teste/fora do Router).
+    #[serde(default)]
+    pub is_model_switch: bool,
 }
 
 impl ChatRequest {
@@ -86,6 +93,7 @@ impl ChatRequest {
             temperature: None,
             top_p: None,
             reasoning: None,
+            is_model_switch: false,
         }
     }
 }
