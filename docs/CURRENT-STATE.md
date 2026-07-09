@@ -9,8 +9,8 @@
 
 - **Data:** 2026-07-09
 - **Branch:** `main`
-- **Commit:** `5c75f26`
-- **Fase:** Fase 5 fechada (MT-01..MT-16). ADR-0016 (compactação de sessão, MT-36/37) e ADR-0009 (timeout adaptativo/keep_alive, MT-17) totalmente implementados, fora da sequência de fases. Fase 6 (ADR-0010..0013) iniciada — MT-18 concluído.
+- **Commit:** `73b0a2b`
+- **Fase:** Fase 5 fechada (MT-01..MT-16). ADR-0016 (compactação de sessão, MT-36/37) e ADR-0009 (timeout adaptativo/keep_alive, MT-17) totalmente implementados, fora da sequência de fases. Fase 6 (ADR-0010..0013) em andamento — MT-18/19 concluídos.
 
 ## Metas cumpridas / Em andamento / Próximo passo
 
@@ -53,10 +53,11 @@
 - [x] **MT-37** — comando `/compact` no REPL (`crates/cli/src/repl.rs`): chama `Session::compact` (MT-36) e ecoa confirmação/erro; tratado como caso especial antes do dispatch genérico de `aplicar_comando` (precisa de `session`+`router` assíncronos, não só mutar `RuntimeOverride`). 3 testes novos, 11 testes na CLI + 141 no core, fmt/clippy limpos, `cargo build --release` verde, smoke-test manual do binário (`/compact` com histórico vazio não falha) (`96a90b4`). **ADR-0016 (MT-36/37) totalmente implementado.**
 - [x] **MT-17** — timeout adaptativo + `keep_alive` (ADR-0009): `Router` rastreia (via `Mutex`, já que `resolve`/`resolve_with_override` continuam `&self`) o último modelo resolvido por provider e sinaliza troca em `ResolvedRoute::is_model_switch` (rastreio otimista, não afeta a decisão de roteamento). `Transport::post_json`/`post_json_lines` aceitam timeout por chamada (`.timeout()` nativo do `reqwest`; `None` cai no *default* do `Client`). `OllamaProvider` usa `is_model_switch` (propagado de `ResolvedRoute` via `Session`/`ChatRequest`) para escolher entre timeout frio (`300s`, troca de modelo) e quente (`30s`, mesmo modelo), e envia `keep_alive` (`"30m"`) em toda chamada, sem exceção. **Escopo maior que o declarado** (`router/mod.rs`, `transport/mod.rs`, `provider/ollama.rs`): mudar a assinatura de `post_json`/`post_json_lines` obrigou atualizar os call-sites de `openai_compat.rs`/`anthropic.rs` (passam `None` — sem tratamento especial, como o próprio ADR-0009 já previa) e `ChatRequest` (`provider/mod.rs`) precisou do campo `is_model_switch` para o sinal atravessar de `Session` até o adapter sem duplicar a detecção de troca fora do Router (proibido pelo ADR). Exposição via `settings-schema` deliberadamente adiada (mesmo padrão dos defaults do MT-16) — sem entrada no `exchange-log` nesta v0.1. 10 testes novos, 151 testes no core + 11 na CLI, fmt/clippy limpos, `cargo build --release` verde (`178bd30`).
 - [x] **MT-18** — `crates/core/src/context/ast.rs`: `extract_symbols` reaproveita a *tags query* (`TAGS_QUERY`) que cada gramática `tree-sitter` já publica — mesma convenção do repo-map do Aider e da busca de símbolos do GitHub — em vez de reimplementar a detecção de símbolo nó a nó por linguagem; cobre as captures `definition.function`/`.method`/`.class`, deixando `definition.module`/`reference.call` etc. (já presentes na mesma query) para quando o grafo de referências (MT-19) precisar delas. **Descoberta durante a implementação:** a *tags query* do Rust casa o mesmo `fn` dentro de `impl` duas vezes (`definition.method` específico + `definition.function` genérico) — `merge_symbol` deduplica por `range`, preferindo a classificação mais específica; a do Python não distingue método de função solta (assimetria real entre gramáticas, documentada no código). Dependências novas, cada uma vetada individualmente (ADR-0004): `tree-sitter` (MIT, 27M+ downloads), `tree-sitter-rust` (MIT, 13.6M), `tree-sitter-python` (MIT, 10.7M), `streaming-iterator` (Apache-2.0, 31M+ — já transitiva do `tree-sitter`). 4 testes novos, 155 testes no core + 11 na CLI, fmt/clippy limpos, `cargo build --release` verde (`5c75f26`).
+- [x] **MT-19** — `crates/core/src/context/repo_map/graph.rs`: `build_reference_graph` roda a mesma *tags query* do MT-18, mas com parse+query próprio (não reaproveita `ast::extract_symbols`) extraindo tanto `definition.*` (sem o filtro função/classe/método — uma referência pode apontar para constante/trait/macro definida em outro arquivo) quanto `reference.*` (chamada de função/método, implementação de trait). Aresta dirigida `A -> B` por referência em `A` que casa com um nome definido em `B`, peso = contagem; **sem auto-referência** (não ajuda a decidir relevância entre arquivos, propósito do grafo que o MT-20 vai rankear). 5 testes novos (peso correto entre dois arquivos; sem auto-referência; nome desconhecido não gera aresta; mesmo mecanismo funciona para Python; arquivos sem relação não geram grafo), 160 testes no core + 11 na CLI, fmt/clippy limpos, `cargo build --release` verde (`73b0a2b`).
 
 **Em andamento:** nada pendente no turno.
 
-**Próximo passo:** **MT-19** — grafo de referências entre símbolos/arquivos (`crates/core/src/context/repo_map/graph.rs`), a partir dos símbolos extraídos pelo MT-18. **Pendências independentes em aberto:** MT-34/35 (ADR-0015, Reviewer).
+**Próximo passo:** **MT-20** — ranking de relevância estilo PageRank sobre o grafo (`crates/core/src/context/repo_map/rank.rs`), dado um conjunto de arquivos/símbolos "semente". **Pendências independentes em aberto:** MT-34/35 (ADR-0015, Reviewer).
 
 ## Impedimentos abertos
 
@@ -70,6 +71,7 @@
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-09 | `73b0a2b` | MT-19: grafo de referências entre arquivos (ADR-0010) | MT-19 |
 | 2026-07-09 | `5c75f26` | MT-18: extração de símbolos AST-aware via tree-sitter (ADR-0010) | MT-18 |
 | 2026-07-09 | `178bd30` | MT-17: timeout adaptativo + keep_alive (ADR-0009) | MT-17 |
 | 2026-07-09 | `96a90b4` | MT-37: comando /compact no REPL; ADR-0016 totalmente implementado | MT-37 |
