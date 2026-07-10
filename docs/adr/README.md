@@ -23,3 +23,4 @@ Registros de decisões estruturais (ver skill `adr-writer`). Use
 | [0014](0014-override-runtime-de-parametros-de-chamada.md) | Override runtime de parâmetros de chamada (sessão + invocação única) | Proposed |
 | [0015](0015-reviewer-auditoria-semantica-por-task-class.md) | Reviewer — auditoria semântica de tarefas via `task-class` dedicada | Proposed |
 | [0016](0016-compactacao-de-historico-de-sessao.md) | Compactação de histórico de sessão (`Session::compact`) | Proposed |
+| [0017](0017-diretorio-de-estado-local-do-agente.md) | Diretório de estado local por projeto (`.agentry/`) para memória, histórico e índices | Proposed |

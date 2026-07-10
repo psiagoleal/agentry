@@ -309,7 +309,7 @@ LSP-grounding em paralelo (independentes entre si e do repo-map), RAG semântico
 - **Arquivos no escopo:** `crates/core/src/context/rag/incremental.rs`.
 - **Critério de aceite:** teste — alterar um arquivo dispara reindexação só dele; arquivos não alterados não são reprocessados.
 - **Fora de escopo:** tool exposta ao agent loop (MT-30).
-- **Depende de:** MT-26, MT-27 · ADR-0011.
+- **Depende de:** MT-26, MT-27, MT-38 · ADR-0011.
 
 ### MT-30: Tool `code_search` (RAG semântico) exposta ao agent loop
 - **Objetivo:** expor a busca híbrida (MT-28) como `Tool` (MT-11).
@@ -317,6 +317,13 @@ LSP-grounding em paralelo (independentes entre si e do repo-map), RAG semântico
 - **Critério de aceite:** testes — tool respeita o gate de permissão (MT-11); respeita a flag `context.semantic_rag.enabled` (*default* `true`) — desligada, a tool não é registrada nem a indexação roda.
 - **Fora de escopo:** UI/CLI de configuração.
 - **Depende de:** MT-11, MT-28, MT-29 · ADR-0011.
+
+### MT-38: Diretório de estado local (`.agentry/`) — resolução de raiz + auto-exclusão
+- **Objetivo:** função que resolve a raiz do estado local (busca ascendente por `.git`, *fallback* pro cwd) e garante `.agentry/.gitignore` (conteúdo `*`) na primeira escrita.
+- **Arquivos no escopo:** `crates/core/src/state_dir.rs` (novo).
+- **Critério de aceite:** teste — diretório temporário com `.git` resolve a raiz correta; sem `.git` em nenhum ancestral, cai no cwd; `.agentry/.gitignore` criado com `*`; idempotente (rodar duas vezes não duplica/quebra).
+- **Fora de escopo:** uso concreto por qualquer subsistema (índices RAG, sessão, audit log) — cada um decide como consumir isto em seu próprio ticket.
+- **Depende de:** ADR-0017.
 
 ---
 
@@ -331,6 +338,7 @@ MT-01 → MT-02 → MT-03 ─┐
                                                        MT-18 → MT-19 → MT-20 → MT-21
                                                        MT-18 → MT-25 → MT-26 ┐
                                                                     → MT-27 ┴→ MT-28 → MT-29 → MT-30
+                                                       MT-38 (após ADR-0017, independente; MT-29 depende dele)
                                                        MT-22 (após MT-08, independente)
                                                        MT-23 → MT-24 (independente)
                                                   └ MT-34 → MT-35 (após MT-09/31, independente do MT-14)
