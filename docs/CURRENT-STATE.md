@@ -7,10 +7,10 @@
 
 ## Último turno
 
-- **Data:** 2026-07-09
+- **Data:** 2026-07-10
 - **Branch:** `main`
-- **Commit:** `5f623c6`
-- **Fase:** Fase 5 fechada (MT-01..MT-16). ADR-0016 (compactação de sessão, MT-36/37) e ADR-0009 (timeout adaptativo/keep_alive, MT-17) totalmente implementados, fora da sequência de fases. ADR-0010 (repo-map) e ADR-0013 (grounding via LSP) totalmente implementados. Fase 6 seguindo com MT-22 (ADR-0012), MT-25 e MT-26 (ADR-0011, chunking AST-aware + índice lexical — 1º e 2º tickets do RAG semântico) concluídos.
+- **Commit:** `632c114`
+- **Fase:** Fase 5 fechada (MT-01..MT-16). ADR-0016 (compactação de sessão, MT-36/37) e ADR-0009 (timeout adaptativo/keep_alive, MT-17) totalmente implementados, fora da sequência de fases. ADR-0010 (repo-map) e ADR-0013 (grounding via LSP) totalmente implementados. Fase 6 seguindo com MT-22 (ADR-0012), MT-25/26/27 (ADR-0011, chunking AST-aware + índice lexical + índice semântico — 1º, 2º e 3º tickets do RAG semântico) concluídos.
 
 ## Metas cumpridas / Em andamento / Próximo passo
 
@@ -62,9 +62,15 @@
 - [x] **MT-25** — `crates/core/src/context/rag/chunk.rs`: `chunk_file` reaproveita `ast::extract_symbols` (MT-18) — não duplica a detecção de função/classe/método — para gerar um `Chunk` (arquivo, símbolo, tipo, *range*, texto) por símbolo extraído; o texto do chunk é sempre `source[range]` exato, nunca truncado/partido no meio (ao contrário de chunking por tamanho fixo de token). **Comportamento documentado, não bug:** chunks podem se sobrepor quando um símbolo está aninhado dentro de outro (ex.: `fn` dentro de `fn`) — ambos viram chunks independentes, multi-granularidade deliberada. 4 testes novos (metadados corretos e texto completo em Rust; idem em Python; símbolo aninhado produz chunk próprio contido no chunk externo; fonte vazia não produz chunks), 183 testes na lib do core + 4 de integração + 11 na CLI, fmt/clippy limpos, `cargo build --release` verde (`45395fd`).
 - [x] **MT-26** — `crates/core/src/context/rag/lexical_index.rs`: `LexicalIndex` indexa os chunks do MT-25 via `tantivy` (`Index::create_in_ram` — embutido, sem servidor externo/ponte FFI, ADR-0011); schema com `file`/`kind` exatos (`STRING`), `symbol`/`text` tokenizados (`TEXT`, BM25) e `range_start`/`range_end`, todos `STORED` para reconstruir o `Chunk` original a partir de um hit. `search()` usa `QueryParser` sobre `symbol`+`text` com boost 2x em `symbol` — consulta por identificador exato rankeia o chunk correspondente acima de ocorrências incidentais do termo no corpo de outros chunks. **Descoberta durante a implementação:** `TopDocs` (tantivy 0.26) não implementa `Collector` diretamente — precisa de `.order_by_score()`; pego pelo primeiro `cargo build` (E0277), confirmado no próprio rustdoc do crate. Dependência nova vetada por maturidade (ADR-0011, já verificada ao fechar o ADR): `tantivy` (MIT, 15M+ downloads, nativo em Rust). 4 testes novos (identificador exato no topo; consulta sem correspondência; limite restringe resultados; chunk reconstruído preserva todos os metadados), 187 testes na lib do core + 4 de integração + 11 na CLI, fmt/clippy limpos, `cargo build --release` verde (`5f623c6`).
 
+- [x] **MT-27** — `crates/core/src/context/rag/semantic_index.rs`: `SemanticIndex::build` chama `LlmProvider::embeddings` (MT-03) uma vez com o texto de todos os chunks (MT-25) e indexa os vetores resultantes numa tabela `lancedb` sobre `memory://` (embutido, sem servidor externo, mesma filosofia do índice lexical do MT-26); schema Arrow com colunas escalares (file/symbol/kind/range_start/range_end/text) + `vector` (`FixedSizeList<Float32>`), todas reconstituídas de volta em `Chunk` num hit de busca. `search()` roda k-NN via `nearest_to` **sem** criar um índice ANN — desnecessário/inadequado em escala pequena; o `lancedb` cai em busca exata por varredura sem índice construído. `chunks` vazio não é erro (mesmo padrão do MT-21/25): índice sem tabela por trás, busca sempre responde lista vazia. `kind_to_str`/`kind_from_str` (MT-26) promovidos de `lexical_index.rs` para `rag/mod.rs` (`pub(super)`) — reaproveitados por este módulo também, em vez de duplicar a conversão de `SymbolKind`. **Descoberta relevante:** `lance-encoding` (dependência transitiva do `lancedb`) exige o binário `protoc` no `PATH` em tempo de build — não estava disponível no ambiente nem, previsivelmente, nos runners do GitHub Actions; CI (`.github/workflows/ci.yml`) atualizado para instalar `protobuf-compiler`/`protobuf`/`protoc` via gerenciador de pacote nativo de cada SO da matriz (apt/brew/choco) tanto no job de lint quanto no de build-test, em vez de depender de uma Action de terceiro (`arduino/setup-protoc`, sem push desde 2024). Dependências novas vetadas por maturidade (ADR-0011, já verificada ao fechar o ADR): `lancedb` (Apache-2.0, 639K+ downloads, nativo em Rust sobre Arrow). 5 testes novos (vizinho mais próximo no topo; limite restringe resultados; chunks vazio não é erro; contagem de vetores inconsistente é erro; chunk reconstruído preserva todos os metadados), 192 testes na lib do core + 4 de integração + 11 na CLI, fmt/clippy limpos, `cargo build --release` verde (`632c114`).
+
 **Em andamento:** nada pendente no turno.
 
-**Próximo passo:** **MT-27** — índice semântico (embeddings + `lancedb`) sobre os chunks (`crates/core/src/context/rag/semantic_index.rs`), via `LlmProvider::embeddings` (MT-03) já existente. **Pendências independentes em aberto na Fase 6:** MT-28..30 (busca híbrida, indexação incremental, tool `code_search`, ADR-0011). **Fora da Fase 6:** MT-34/35 (ADR-0015, Reviewer).
+**Próximo passo:** **MT-28** — busca híbrida + *reranking* (`crates/core/src/context/rag/hybrid_search.rs`), combinando o índice lexical (MT-26) e semântico (MT-27) e reordenando o top-K com um *reranker* cross-encoder. **Pendências independentes em aberto na Fase 6:** MT-29/30 (indexação incremental, tool `code_search`, ADR-0011). **Fora da Fase 6:** MT-34/35 (ADR-0015, Reviewer).
+
+## Impedimentos de ambiente (não são bugs do código)
+
+- **`protoc` não vem pré-instalado no ambiente de desenvolvimento local** (nem, presumivelmente, nos runners padrão do GitHub Actions) — exigido pelo build script de `lance-encoding` (transitiva do `lancedb`, MT-27). CI já corrigido; ambientes de desenvolvimento locais precisam instalar `protobuf-compiler` (Debian/Ubuntu), `protobuf` (Homebrew) ou equivalente antes de rodar `cargo build`/`cargo test` neste crate.
 
 ## Impedimentos abertos
 
@@ -79,6 +85,7 @@
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-10 | `632c114` | MT-27: índice semântico (embeddings + lancedb) sobre os chunks (ADR-0011) | MT-27 |
 | 2026-07-09 | `5f623c6` | MT-26: índice lexical (tantivy/BM25) sobre os chunks (ADR-0011) | MT-26 |
 | 2026-07-09 | `45395fd` | MT-25: chunking AST-aware para RAG (ADR-0011) | MT-25 |
 | 2026-07-09 | `0438bfd` | MT-24: tools lsp_hover/lsp_definition; fecha a trilha LSP (ADR-0013) | MT-24 |
