@@ -159,3 +159,34 @@ Ambos rodam a sequência completa (`fmt --check` → `clippy` → `test` →
 `build --release`), verificam `protoc` antes de começar (com uma mensagem
 de erro clara se faltar) e param no primeiro passo que falhar — mesmo
 comportamento do CI, para reproduzir localmente um problema visto lá.
+
+## Teste de usabilidade (primeira configuração + primeiro uso)
+
+`cargo test` valida lógica interna; **não** valida a experiência de quem
+acabou de clonar o repositório e nunca rodou o `agentry` antes — mensagens
+de erro, passos do README, o que acontece se o Ollama não estiver rodando
+ou o modelo ainda não tiver sido puxado. Para isso:
+
+- `scripts/usability-test.sh` (Linux/macOS) — `./scripts/usability-test.sh`
+- `scripts/usability-test.ps1` (Windows) —
+  `.\scripts\usability-test.ps1`
+
+Ambos simulam, em sequência: (1) build do binário do zero; (2) `--help`
+sem nada configurado; (3) Ollama ausente/inacessível — deve dar erro
+tratado, nunca *panic*; (4) verificação se o modelo *default*
+(`llama3.1:8b`) já foi puxado; (5) uma tarefa *one-shot* simples de
+verdade, se o Ollama e o modelo estiverem disponíveis. Aceitam
+`--model`/`--ollama-host` (`-Modelo`/`-OllamaHost` no PowerShell) para
+testar contra outro modelo/instância.
+
+**Exige um Ollama real** — os cenários 4/5 são pulados (não falham) se
+nenhum Ollama estiver acessível no host informado; rode numa máquina que
+já tenha o Ollama (ou um container equivalente) para exercitar o teste
+completo.
+
+> Achado real desta sessão: a mensagem de erro útil (`erro: erro do
+> provider: ...`) vem **depois** de uma linha `[audit] AuditEntry { ... }`
+> (o *dump* de Debug do audit log, `StderrAuditSink` em
+> `crates/cli/src/main.rs`) — que polui a saída de stderr para quem só quer
+> entender por que a tarefa falhou. Não corrigido ainda (fora do escopo
+> deste guia); registrado aqui para não se perder.
