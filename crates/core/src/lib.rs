@@ -8,10 +8,10 @@
 //! MT-05/06), [`transport`] (transporte HTTP único sobre `reqwest`, MT-07),
 //! [`router`] (Router / Policy Engine, MT-09), [`session`] (agent loop ReAct
 //! mínimo, MT-10), [`tools`] (Tool Registry + gate de permissão
-//! `allow`/`ask`/`deny`, MT-11) e [`context`] (extração de contexto do
-//! repositório — repo-map via `tree-sitter`, MT-18, ADR-0010). Os demais —
-//! grafo de referências, ranking, RAG semântico — entram nos micro-tickets
-//! seguintes do roadmap (`docs/roadmap-v0.1.md`).
+//! `allow`/`ask`/`deny`, MT-11), [`context`] (extração de contexto do
+//! repositório — repo-map via `tree-sitter` e RAG semântico local,
+//! MT-18..28, ADR-0010/0011) e [`state_dir`] (diretório de estado local
+//! por projeto, MT-38, ADR-0017).
 
 pub mod config;
 pub mod context;
@@ -20,6 +20,7 @@ pub mod model;
 pub mod provider;
 pub mod router;
 pub mod session;
+pub mod state_dir;
 pub mod tools;
 pub mod transport;
 
