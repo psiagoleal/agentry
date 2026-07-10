@@ -9,8 +9,8 @@
 
 - **Data:** 2026-07-10
 - **Branch:** `main`
-- **Commit:** `328a0d1`
-- **Fase:** Fase 5 fechada (MT-01..MT-16). ADR-0016 (compactação de sessão, MT-36/37) e ADR-0009 (timeout adaptativo/keep_alive, MT-17) totalmente implementados, fora da sequência de fases. ADR-0010 (repo-map) e ADR-0013 (grounding via LSP) totalmente implementados. Fase 6 seguindo com MT-22 (ADR-0012), MT-25/26/27/28 (ADR-0011, chunking AST-aware + índice lexical + índice semântico + busca híbrida — 1º ao 4º tickets do RAG semântico) concluídos. ADR-0017 (diretório de estado local `.agentry/`) totalmente implementada (MT-38).
+- **Commit:** `efcbe2d`
+- **Fase:** Fase 5 fechada (MT-01..MT-16). ADR-0016 (compactação de sessão, MT-36/37) e ADR-0009 (timeout adaptativo/keep_alive, MT-17) totalmente implementados, fora da sequência de fases. ADR-0010 (repo-map) e ADR-0013 (grounding via LSP) totalmente implementados. Fase 6 seguindo com MT-22 (ADR-0012), MT-25/26/27/28/29 (ADR-0011, chunking AST-aware + índice lexical + índice semântico + busca híbrida + indexação incremental — 1º ao 5º tickets do RAG semântico) concluídos. ADR-0017 (diretório de estado local `.agentry/`) totalmente implementada (MT-38).
 
 ## Metas cumpridas / Em andamento / Próximo passo
 
@@ -70,9 +70,11 @@
 
 - [x] **MT-38** — `crates/core/src/state_dir.rs` (novo módulo de topo do core): `resolve_root` sobe a partir do cwd procurando `.git` (arquivo ou diretório — cobre *worktrees*) em cada ancestral, mesma técnica de descoberta do próprio git; sem `.git` em nenhum ancestral, devolve o próprio `start` (nunca a raiz do sistema de arquivos). `ensure_state_dir` cria `<raiz>/.agentry/` e, só se ainda não existir, `.agentry/.gitignore` com conteúdo `*` — idempotente por construção (`create_dir_all` + escrita condicional à ausência do arquivo), nunca sobrescreve uma customização do usuário. Nenhum subsistema (índices RAG, sessão, audit log) foi ligado a este diretório ainda — fora de escopo, conforme a própria ADR-0017 já previa. 5 testes novos (raiz com `.git` diretório; raiz com `.git` arquivo/worktree; sem `.git` cai no start; `.gitignore` criado com `*`; chamada repetida não sobrescreve customização), 203 testes na lib do core + 4 de integração + 11 na CLI, fmt/clippy limpos, `cargo build --release` verde. Nenhuma dependência nova (`328a0d1`). **ADR-0017 totalmente implementada.**
 
+- [x] **MT-29** — `crates/core/src/context/rag/incremental.rs`: `IncrementalIndexer::reindex` compara um hash de conteúdo (`std::hash::DefaultHasher` — não `git diff`, que exigiria um binário `git` no `PATH` e não cobre repositórios ainda não inicializados, ADR-0017) de cada `ArquivoFonte` contra um manifesto persistido (`<estado>/index/manifest.json`, dentro do diretório que o MT-38 já resolve/cria); conteúdo igual reaproveita os chunks já indexados, conteúdo novo/diferente reprocessa via `chunk_file` (MT-25) só aquele arquivo. Arquivos que somem do conjunto atual são removidos do manifesto. Manifesto ausente ou corrompido **não é erro** (cai para vazio, reprocessando tudo — pior caso é o comportamento pré-MT-29, não uma indexação que falha); falha ao **escrever** o manifesto atualizado é erro (a próxima chamada perderia o benefício incremental silenciosamente, proibido pelo ADR-0011). `ChunkPersistido` é uma representação própria de serialização (`Chunk` não ganha `Serialize`/`Deserialize`) — mesmo padrão já usado por `lexical_index.rs`/`semantic_index.rs`; `kind_to_str`/`kind_from_str` (MT-26) reaproveitados de novo. 5 testes novos (primeira chamada reprocessa tudo; segunda chamada com tudo inalterado não reprocessa nada; alterar um arquivo dispara reindexação só dele — critério de aceite literal do ticket; arquivo removido some do manifesto; manifesto corrompido não é erro), 208 testes na lib do core + 4 de integração + 11 na CLI, fmt/clippy limpos, `cargo build --release` verde. Nenhuma dependência nova (`efcbe2d`).
+
 **Em andamento:** nada pendente no turno.
 
-**Próximo passo:** **MT-29** — indexação incremental (`crates/core/src/context/rag/incremental.rs`), reembedando/reindexando só arquivos alterados, agora com `state_dir::ensure_state_dir` (MT-38) disponível para persistir o que já foi indexado entre invocações de processo. **Pendências independentes em aberto na Fase 6:** MT-30 (tool `code_search`). **Fora da Fase 6:** MT-34/35 (ADR-0015, Reviewer).
+**Próximo passo:** **MT-30** — tool `code_search` (`crates/core/src/tools/code_search.rs`), expondo a busca híbrida (MT-28) ao agent loop (MT-11) — respeitando o gate de permissão e a flag `context.semantic_rag.enabled`, fecha a trilha do RAG semântico (MT-25..30, ADR-0011). **Fora da Fase 6:** MT-34/35 (ADR-0015, Reviewer).
 
 ## Impedimentos de ambiente (não são bugs do código)
 
@@ -91,6 +93,7 @@
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-10 | `efcbe2d` | MT-29: indexação incremental (manifesto hash+chunks) (ADR-0011) | MT-29 |
 | 2026-07-10 | `328a0d1` | MT-38: diretório de estado local (.agentry/) + auto-exclusão do git; ADR-0017 completa | MT-38 |
 | 2026-07-10 | `0f8279c` | MT-28: busca híbrida (RRF) + reranking via LlmProvider::chat (ADR-0011) | MT-28 |
 | 2026-07-10 | `2e8890c` | ADR-0017: diretório de estado local (.agentry/) para memória/histórico/índices; MT-38 adicionado | — |
