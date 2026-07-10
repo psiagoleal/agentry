@@ -197,7 +197,7 @@ async fn main() {
 
     if let Some(tarefa) = args.tarefa {
         session.push_user_message(tarefa);
-        streaming::stream_to_writer(&mut session, io::stdout())
+        streaming::stream_to_writer(&mut session, io::stdout(), &router)
             .await
             .unwrap_or_else(|erro| {
                 eprintln!("erro: {erro}");

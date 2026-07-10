@@ -182,7 +182,7 @@ pub async fn run_repl<R: BufRead, W: Write>(
         }
 
         session.push_user_message(linha);
-        stream_to_writer(session, &mut output).await?;
+        stream_to_writer(session, &mut output, router).await?;
     }
     Ok(())
 }

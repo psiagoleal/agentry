@@ -21,11 +21,13 @@
 pub mod reviewer;
 
 use std::collections::HashMap;
+use std::ops::ControlFlow;
 use std::sync::Arc;
 
 use crate::model::{ContentBlock, Message, Role, StreamEvent, ToolCall, ToolResult, Usage};
 use crate::provider::{BoxFuture, ChatRequest, LlmProvider, ProviderError, ToolSpec};
 use crate::router::{CallPreset, ResolvedRoute, Router, RouterError};
+use reviewer::{AuditKind, ReviewResult, ReviewerError, Veredito};
 
 /// Executa uma chamada de tool solicitada pelo modelo e devolve a observação.
 ///
@@ -62,7 +64,7 @@ pub enum StopReason {
 }
 
 /// Resultado de rodar o loop até encerrar.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SessionOutcome {
     /// Por que o loop parou.
     pub reason: StopReason,
@@ -70,6 +72,30 @@ pub struct SessionOutcome {
     pub usage: Usage,
     /// Número de turnos (chamadas ao provider) executados.
     pub turns: u32,
+    /// Vereditos do Reviewer (MT-34/35, ADR-0015) — vazio quando nenhuma
+    /// auditoria está habilitada para a sessão (*default*). Uma falha
+    /// persistente (veredito `Fail` em modo `Blocking` mesmo após esgotar
+    /// o teto de retentativas) aparece aqui, nunca suprimida.
+    pub reviews: Vec<ReviewResult>,
+}
+
+/// Modo de disparo de uma auditoria habilitada (MT-35, ADR-0015).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReviewMode {
+    /// O veredito é anexado a [`SessionOutcome::reviews`] — nunca bloqueia
+    /// a resposta de chegar ao usuário.
+    Advisory,
+    /// Um veredito `Fail` gera um turno corretivo (notas como observação),
+    /// até [`Session::with_reviews`]'s `retry_limit` retentativas; esgotado
+    /// o teto, a falha persistente é exposta, nunca suprimida.
+    Blocking,
+}
+
+/// Auditoria habilitada para a sessão: tipo + modo de disparo.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ReviewConfig {
+    pub kind: AuditKind,
+    pub mode: ReviewMode,
 }
 
 /// Erros do agent loop.
@@ -79,6 +105,8 @@ pub enum SessionError {
     Provider(ProviderError),
     /// O Router não conseguiu resolver uma `task-class` pedida (ex.: `"compact"`, MT-36).
     Router(RouterError),
+    /// O Reviewer (MT-34/35) falhou ao rodar uma auditoria habilitada.
+    Reviewer(ReviewerError),
 }
 
 impl core::fmt::Display for SessionError {
@@ -86,6 +114,7 @@ impl core::fmt::Display for SessionError {
         match self {
             Self::Provider(e) => write!(f, "erro do provider: {e}"),
             Self::Router(e) => write!(f, "erro de roteamento: {e}"),
+            Self::Reviewer(e) => write!(f, "erro do reviewer: {e}"),
         }
     }
 }
@@ -220,6 +249,12 @@ pub struct Session {
     executor: Arc<dyn ToolExecutor>,
     messages: Vec<Message>,
     budget: TokenBudget,
+    /// Auditorias do Reviewer habilitadas (MT-34/35, ADR-0015) — vazio por
+    /// padrão ("desligado por padrão", diferente do pacote ADR-0010..0013).
+    reviews: Vec<ReviewConfig>,
+    /// Teto de retentativas para vereditos `Fail` em modo `Blocking` (mesma
+    /// disciplina de limite do [`TokenBudget`] — nunca loopar indefinidamente).
+    review_retry_limit: u32,
 }
 
 impl Session {
@@ -236,6 +271,8 @@ impl Session {
             executor,
             messages: Vec::new(),
             budget,
+            reviews: Vec::new(),
+            review_retry_limit: 0,
         }
     }
 
@@ -243,6 +280,17 @@ impl Session {
     #[must_use]
     pub fn with_tools(mut self, tools: Vec<ToolSpec>) -> Self {
         self.tools = tools;
+        self
+    }
+
+    /// Habilita auditorias do Reviewer (MT-34/35, ADR-0015) para esta
+    /// sessão — *default* vazio (nenhuma auditoria roda). `retry_limit` é
+    /// o teto de retentativas para vereditos `Fail` em modo
+    /// [`ReviewMode::Blocking`].
+    #[must_use]
+    pub fn with_reviews(mut self, reviews: Vec<ReviewConfig>, retry_limit: u32) -> Self {
+        self.reviews = reviews;
+        self.review_retry_limit = retry_limit;
         self
     }
 
@@ -368,6 +416,7 @@ impl Session {
                 reason: StopReason::BudgetExceeded,
                 usage: *consumed,
                 turns,
+                reviews: Vec::new(),
             });
         }
 
@@ -376,6 +425,7 @@ impl Session {
                 reason: StopReason::Done,
                 usage: *consumed,
                 turns,
+                reviews: Vec::new(),
             });
         }
 
@@ -392,15 +442,86 @@ impl Session {
         None
     }
 
+    /// Depois que [`Self::after_response`] sinaliza [`StopReason::Done`],
+    /// roda as auditorias habilitadas (MT-35, ADR-0015) e decide se o loop
+    /// deve parar (`Break`, com os vereditos anexados a `outcome.reviews`)
+    /// ou continuar por mais um turno (`Continue`, com uma observação
+    /// corretiva no histórico) — só quando um veredito `Fail` em modo
+    /// [`ReviewMode::Blocking`] ainda tem retentativa disponível.
+    /// `self.reviews` vazio devolve `Break` imediatamente, sem tocar
+    /// `router` — nenhuma auditoria roda se não habilitada.
+    async fn revisar_ou_continuar(
+        &mut self,
+        mut outcome: SessionOutcome,
+        router: &Router,
+        tentativas: &mut u32,
+    ) -> Result<ControlFlow<SessionOutcome>, SessionError> {
+        if self.reviews.is_empty() {
+            return Ok(ControlFlow::Break(outcome));
+        }
+
+        let artefato = self
+            .messages
+            .last()
+            .map(Message::text_content)
+            .unwrap_or_default();
+        let instrucao_original = self
+            .messages
+            .iter()
+            .find(|m| m.role == Role::User)
+            .map(Message::text_content)
+            .unwrap_or_default();
+
+        let mut resultados = Vec::with_capacity(self.reviews.len());
+        for config in self.reviews.clone() {
+            let resultado = reviewer::review(config.kind, router, &instrucao_original, &artefato)
+                .await
+                .map_err(SessionError::Reviewer)?;
+            resultados.push(resultado);
+        }
+
+        let reprovacao_bloqueante =
+            self.reviews
+                .iter()
+                .zip(&resultados)
+                .any(|(config, resultado)| {
+                    config.mode == ReviewMode::Blocking && resultado.veredito == Veredito::Fail
+                });
+
+        outcome.reviews = resultados.clone();
+
+        if !reprovacao_bloqueante || *tentativas >= self.review_retry_limit {
+            return Ok(ControlFlow::Break(outcome));
+        }
+
+        *tentativas += 1;
+        let notas = resultados
+            .iter()
+            .filter(|r| r.veredito == Veredito::Fail)
+            .map(|r| r.notas.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        self.messages.push(Message::user(format!(
+            "A revisão automática reprovou o resultado anterior. Ajuste considerando: {notas}"
+        )));
+
+        Ok(ControlFlow::Continue(()))
+    }
+
     /// Roda o loop (não-streaming) até obter uma resposta final ou estourar
-    /// o orçamento de tokens.
+    /// o orçamento de tokens. `router` é usado só se houver auditorias do
+    /// Reviewer habilitadas (MT-35, ADR-0015) — resolve a `task-class` de
+    /// cada uma, diferente da `task-class` principal já resolvida na
+    /// construção da sessão.
     ///
     /// # Errors
     ///
-    /// Devolve [`SessionError::Provider`] se o provider falhar em qualquer turno.
-    pub async fn run(&mut self) -> Result<SessionOutcome, SessionError> {
+    /// Devolve [`SessionError::Provider`] se o provider falhar em qualquer
+    /// turno; [`SessionError::Reviewer`] se uma auditoria habilitada falhar.
+    pub async fn run(&mut self, router: &Router) -> Result<SessionOutcome, SessionError> {
         let mut consumed = Usage::default();
         let mut turns = 0u32;
+        let mut tentativas_de_revisao = 0u32;
         loop {
             turns += 1;
             let request = self.build_request();
@@ -409,11 +530,23 @@ impl Session {
                 .chat(request)
                 .await
                 .map_err(SessionError::Provider)?;
-            if let Some(outcome) = self
+            let Some(outcome) = self
                 .after_response(response.message, response.usage, &mut consumed, turns)
                 .await
-            {
+            else {
+                continue;
+            };
+
+            if outcome.reason != StopReason::Done {
                 return Ok(outcome);
+            }
+
+            match self
+                .revisar_ou_continuar(outcome, router, &mut tentativas_de_revisao)
+                .await?
+            {
+                ControlFlow::Break(outcome_final) => return Ok(outcome_final),
+                ControlFlow::Continue(()) => continue,
             }
         }
     }
@@ -421,20 +554,25 @@ impl Session {
     /// Roda o loop com streaming: `on_event` é chamado para cada
     /// [`StreamEvent`] recebido em cada turno (ex.: para exibir texto
     /// incrementalmente numa CLI), e os eventos são agregados na mensagem
-    /// final do turno antes de decidir tool-calls/orçamento, igual a [`Self::run`].
+    /// final do turno antes de decidir tool-calls/orçamento, igual a
+    /// [`Self::run`]. `router` tem o mesmo papel de [`Self::run`] — só usado
+    /// se houver auditorias do Reviewer habilitadas (MT-35, ADR-0015).
     ///
     /// # Errors
     ///
-    /// Devolve [`SessionError::Provider`] se o provider falhar em qualquer turno.
+    /// Devolve [`SessionError::Provider`] se o provider falhar em qualquer
+    /// turno; [`SessionError::Reviewer`] se uma auditoria habilitada falhar.
     pub async fn run_streaming<F>(
         &mut self,
         mut on_event: F,
+        router: &Router,
     ) -> Result<SessionOutcome, SessionError>
     where
         F: FnMut(&StreamEvent),
     {
         let mut consumed = Usage::default();
         let mut turns = 0u32;
+        let mut tentativas_de_revisao = 0u32;
         loop {
             turns += 1;
             let request = self.build_request();
@@ -452,11 +590,23 @@ impl Session {
             }
             let (message, turn_usage) = aggregator.into_message();
 
-            if let Some(outcome) = self
+            let Some(outcome) = self
                 .after_response(message, turn_usage, &mut consumed, turns)
                 .await
-            {
+            else {
+                continue;
+            };
+
+            if outcome.reason != StopReason::Done {
                 return Ok(outcome);
+            }
+
+            match self
+                .revisar_ou_continuar(outcome, router, &mut tentativas_de_revisao)
+                .await?
+            {
+                ControlFlow::Break(outcome_final) => return Ok(outcome_final),
+                ControlFlow::Continue(()) => continue,
             }
         }
     }
@@ -514,6 +664,16 @@ mod tests {
         ResolvedRoute::new(provider, "modelo-x", CallPreset::default())
     }
 
+    /// Router de teste sem nenhuma rota registrada — usado por testes cujo
+    /// `Session` não tem nenhuma auditoria do Reviewer habilitada (MT-35):
+    /// `revisar_ou_continuar` nunca toca `router` quando `self.reviews` está
+    /// vazio, então um Router "vazio" é seguro mesmo passado para `run`/
+    /// `run_streaming`.
+    fn router_vazio() -> Router {
+        use crate::config::privacy::EgressClass;
+        Router::new(EgressClass::LocalOnly)
+    }
+
     #[tokio::test]
     async fn ciclo_completo_de_tool_call_termina_com_resposta_final() {
         let mock = Arc::new(MockProvider::new("mock"));
@@ -541,7 +701,10 @@ mod tests {
         );
         session.push_user_message("leia o arquivo");
 
-        let outcome = session.run().await.expect("loop deve completar");
+        let outcome = session
+            .run(&router_vazio())
+            .await
+            .expect("loop deve completar");
 
         assert_eq!(outcome.reason, StopReason::Done);
         assert_eq!(outcome.turns, 2);
@@ -599,7 +762,10 @@ mod tests {
         let mut session = Session::new(route(mock), executor.clone(), TokenBudget::new(1000));
         session.push_user_message("faça duas coisas");
 
-        let outcome = session.run().await.expect("loop deve completar");
+        let outcome = session
+            .run(&router_vazio())
+            .await
+            .expect("loop deve completar");
         assert_eq!(outcome.reason, StopReason::Done);
         assert_eq!(executor.chamadas.load(Ordering::SeqCst), 2);
     }
@@ -624,7 +790,7 @@ mod tests {
         session.push_user_message("tarefa longa");
 
         let outcome = session
-            .run()
+            .run(&router_vazio())
             .await
             .expect("loop deve encerrar no orçamento");
 
@@ -676,7 +842,7 @@ mod tests {
 
         let mut eventos_recebidos = 0usize;
         let outcome = session
-            .run_streaming(|_evento| eventos_recebidos += 1)
+            .run_streaming(|_evento| eventos_recebidos += 1, &router_vazio())
             .await
             .expect("loop de streaming deve completar");
 
@@ -708,13 +874,181 @@ mod tests {
         session.push_user_message("oi");
 
         let erro = session
-            .run()
+            .run(&router_vazio())
             .await
             .expect_err("erro do provider deve propagar");
         assert_eq!(
             erro,
             SessionError::Provider(ProviderError::Network("fora do ar".into()))
         );
+    }
+
+    /// Router de teste com uma `task-class` de auditoria registrada para
+    /// `mock_revisor` (MT-35) — separado do provider principal da sessão,
+    /// para deixar claro que a auditoria pode rodar num provider/modelo
+    /// diferente da tarefa original (ADR-0015).
+    fn router_com_review(mock_revisor: Arc<MockProvider>, task_class: &str) -> Router {
+        use crate::config::privacy::EgressClass;
+        use crate::router::{RouteEntry, RouteTarget};
+
+        let mut router = Router::new(EgressClass::LocalOnly);
+        router.register_provider(mock_revisor);
+        router.set_route(
+            task_class,
+            RouteEntry {
+                candidates: vec![RouteTarget::new(
+                    "mock-revisor",
+                    "modelo-revisor",
+                    EgressClass::LocalOnly,
+                )],
+                preset: CallPreset::default(),
+            },
+        );
+        router
+    }
+
+    fn resposta_com_veredito(verdict: &str, notes: &str) -> crate::provider::ChatResponse {
+        crate::provider::ChatResponse {
+            message: Message {
+                role: Role::Assistant,
+                content: vec![ContentBlock::ToolCall(ToolCall {
+                    id: "call-review".into(),
+                    name: "submit_review".into(),
+                    arguments: serde_json::json!({ "verdict": verdict, "notes": notes }),
+                })],
+            },
+            usage: Usage::default(),
+        }
+    }
+
+    #[tokio::test]
+    async fn advisory_com_veredito_fail_nao_bloqueia_a_resposta() {
+        let mock_principal = Arc::new(MockProvider::new("mock-principal"));
+        mock_principal.enqueue_chat(Ok(resposta_final("resultado final", Usage::default())));
+        let mock_revisor = Arc::new(MockProvider::new("mock-revisor"));
+        mock_revisor.enqueue_chat(Ok(resposta_com_veredito("fail", "tem um bug")));
+        let router = router_com_review(mock_revisor, "review-security");
+
+        let executor = Arc::new(CountingExecutor::default());
+        let mut session = Session::new(
+            route(mock_principal.clone()),
+            executor,
+            TokenBudget::new(10_000),
+        )
+        .with_reviews(
+            vec![ReviewConfig {
+                kind: AuditKind::Security,
+                mode: ReviewMode::Advisory,
+            }],
+            0,
+        );
+        session.push_user_message("implemente a função soma");
+
+        let outcome = session.run(&router).await.expect("loop deve completar");
+
+        assert_eq!(outcome.reason, StopReason::Done);
+        assert_eq!(outcome.reviews.len(), 1);
+        assert_eq!(outcome.reviews[0].veredito, Veredito::Fail);
+        assert_eq!(outcome.reviews[0].notas, "tem um bug");
+        assert_eq!(
+            mock_principal.chat_requests().len(),
+            1,
+            "advisory nunca dispara turno corretivo"
+        );
+    }
+
+    #[tokio::test]
+    async fn blocking_reprovado_dispara_retry_ate_o_teto_e_desiste() {
+        let mock_principal = Arc::new(MockProvider::new("mock-principal"));
+        let mock_revisor = Arc::new(MockProvider::new("mock-revisor"));
+        for _ in 0..3 {
+            mock_principal.enqueue_chat(Ok(resposta_final("resultado", Usage::default())));
+            mock_revisor.enqueue_chat(Ok(resposta_com_veredito("fail", "ainda com bug")));
+        }
+        let router = router_com_review(mock_revisor, "review-correctness");
+
+        let executor = Arc::new(CountingExecutor::default());
+        let mut session = Session::new(
+            route(mock_principal.clone()),
+            executor,
+            TokenBudget::new(10_000),
+        )
+        .with_reviews(
+            vec![ReviewConfig {
+                kind: AuditKind::Correctness,
+                mode: ReviewMode::Blocking,
+            }],
+            2, // teto: 2 retentativas além da primeira tentativa
+        );
+        session.push_user_message("implemente a função soma");
+
+        let outcome = session.run(&router).await.expect("loop deve completar");
+
+        assert_eq!(
+            outcome.reason,
+            StopReason::Done,
+            "a falha persistente não impede o loop de terminar"
+        );
+        assert_eq!(outcome.turns, 3, "1 tentativa inicial + 2 retentativas");
+        assert_eq!(
+            mock_principal.chat_requests().len(),
+            3,
+            "cada retentativa gera um novo turno da tarefa principal"
+        );
+        assert_eq!(outcome.reviews.len(), 1);
+        assert_eq!(
+            outcome.reviews[0].veredito,
+            Veredito::Fail,
+            "falha persistente após esgotar o teto é exposta, nunca suprimida"
+        );
+    }
+
+    #[tokio::test]
+    async fn blocking_aprovado_na_primeira_tentativa_nao_gera_retry() {
+        let mock_principal = Arc::new(MockProvider::new("mock-principal"));
+        mock_principal.enqueue_chat(Ok(resposta_final("resultado", Usage::default())));
+        let mock_revisor = Arc::new(MockProvider::new("mock-revisor"));
+        mock_revisor.enqueue_chat(Ok(resposta_com_veredito("pass", "tudo certo")));
+        let router = router_com_review(mock_revisor, "review-security");
+
+        let executor = Arc::new(CountingExecutor::default());
+        let mut session = Session::new(
+            route(mock_principal.clone()),
+            executor,
+            TokenBudget::new(10_000),
+        )
+        .with_reviews(
+            vec![ReviewConfig {
+                kind: AuditKind::Security,
+                mode: ReviewMode::Blocking,
+            }],
+            5,
+        );
+        session.push_user_message("implemente a função soma");
+
+        let outcome = session.run(&router).await.expect("loop deve completar");
+
+        assert_eq!(outcome.turns, 1);
+        assert_eq!(mock_principal.chat_requests().len(), 1);
+        assert_eq!(outcome.reviews[0].veredito, Veredito::Pass);
+    }
+
+    #[tokio::test]
+    async fn nenhuma_auditoria_habilitada_nao_chama_o_reviewer() {
+        let mock = Arc::new(MockProvider::new("mock"));
+        mock.enqueue_chat(Ok(resposta_final("resultado", Usage::default())));
+        let executor = Arc::new(CountingExecutor::default());
+        // Sem with_reviews — reviews fica vazio (default). Um router sem
+        // nenhuma rota registrada (nem "review-*") provaria, se o Reviewer
+        // fosse chamado por engano, um SessionError::Reviewer(Router(_)).
+        let router = router_vazio();
+
+        let mut session = Session::new(route(mock), executor, TokenBudget::new(10_000));
+        session.push_user_message("implemente a função soma");
+
+        let outcome = session.run(&router).await.expect("loop deve completar");
+
+        assert!(outcome.reviews.is_empty());
     }
 
     #[tokio::test]
@@ -733,7 +1067,10 @@ mod tests {
         let mut session = Session::new(route, executor, TokenBudget::new(1000));
         session.push_user_message("oi");
 
-        session.run().await.expect("loop deve completar");
+        session
+            .run(&router_vazio())
+            .await
+            .expect("loop deve completar");
 
         let requisicoes = mock.chat_requests();
         assert_eq!(requisicoes.len(), 1);
@@ -762,10 +1099,16 @@ mod tests {
         );
 
         session.push_user_message("primeira pergunta");
-        session.run().await.expect("primeiro turno deve completar");
+        session
+            .run(&router_vazio())
+            .await
+            .expect("primeiro turno deve completar");
 
         session.push_user_message("segunda pergunta");
-        session.run().await.expect("segundo turno deve completar");
+        session
+            .run(&router_vazio())
+            .await
+            .expect("segundo turno deve completar");
 
         let historico = session.messages();
         let mensagens_de_sistema = historico.iter().filter(|m| m.role == Role::System).count();
@@ -789,7 +1132,10 @@ mod tests {
             TokenBudget::new(10_000),
         );
         session.push_user_message("primeira pergunta");
-        session.run().await.expect("primeiro turno deve completar");
+        session
+            .run(&router_vazio())
+            .await
+            .expect("primeiro turno deve completar");
 
         let novo_preset = CallPreset {
             temperature: Some(0.9),
@@ -797,7 +1143,10 @@ mod tests {
         };
         session.apply_route(ResolvedRoute::new(mock.clone(), "modelo-novo", novo_preset));
         session.push_user_message("segunda pergunta");
-        session.run().await.expect("segundo turno deve completar");
+        session
+            .run(&router_vazio())
+            .await
+            .expect("segundo turno deve completar");
 
         // Histórico preservado através da troca de rota.
         assert_eq!(session.messages().len(), 4);
@@ -839,7 +1188,10 @@ mod tests {
         let executor = Arc::new(CountingExecutor::default());
         let mut session = Session::new(route(mock.clone()), executor, TokenBudget::new(10_000));
         session.push_user_message("pergunta original");
-        session.run().await.expect("turno deve completar");
+        session
+            .run(&router_vazio())
+            .await
+            .expect("turno deve completar");
 
         mock.enqueue_chat(Ok(resposta_final("resumo da conversa", Usage::default())));
         let router = router_com_compact(mock.clone());
@@ -865,7 +1217,10 @@ mod tests {
         let executor = Arc::new(CountingExecutor::default());
         let mut session = Session::new(route(mock.clone()), executor, TokenBudget::new(10_000));
         session.push_user_message("pergunta original");
-        session.run().await.expect("turno deve completar");
+        session
+            .run(&router_vazio())
+            .await
+            .expect("turno deve completar");
         let historico_antes = session.messages().to_vec();
 
         // Nenhuma resposta enfileirada para a chamada de compactação: o mock
@@ -887,7 +1242,10 @@ mod tests {
         let executor = Arc::new(CountingExecutor::default());
         let mut session = Session::new(route(mock.clone()), executor, TokenBudget::new(10_000));
         session.push_user_message("pergunta original");
-        session.run().await.expect("turno deve completar");
+        session
+            .run(&router_vazio())
+            .await
+            .expect("turno deve completar");
         let historico_antes = session.messages().to_vec();
 
         let router = Router::new(crate::config::privacy::EgressClass::LocalOnly); // sem rota "compact"

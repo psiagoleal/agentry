@@ -6,10 +6,14 @@
 use std::io::Write;
 
 use agentry_core::model::StreamEvent;
+use agentry_core::router::Router;
 use agentry_core::session::{Session, SessionError, SessionOutcome};
 
 /// Roda a sessão em modo streaming, escrevendo cada [`StreamEvent::TextDelta`]
 /// em `output` assim que chega, e uma quebra de linha ao final do turno.
+/// `router` é repassado a [`Session::run_streaming`] — só usado de fato se a
+/// sessão tiver alguma auditoria do Reviewer habilitada (MT-35, ADR-0015);
+/// nenhuma flag/comando de CLI liga isso ainda (fora de escopo do MT-35).
 ///
 /// # Errors
 ///
@@ -17,14 +21,18 @@ use agentry_core::session::{Session, SessionError, SessionOutcome};
 pub async fn stream_to_writer<W: Write>(
     session: &mut Session,
     mut output: W,
+    router: &Router,
 ) -> Result<SessionOutcome, String> {
     let outcome = session
-        .run_streaming(|evento| {
-            if let StreamEvent::TextDelta { text } = evento {
-                let _ = write!(output, "{text}");
-                let _ = output.flush();
-            }
-        })
+        .run_streaming(
+            |evento| {
+                if let StreamEvent::TextDelta { text } = evento {
+                    let _ = write!(output, "{text}");
+                    let _ = output.flush();
+                }
+            },
+            router,
+        )
         .await
         .map_err(|e: SessionError| e.to_string())?;
     writeln!(output).map_err(|e| e.to_string())?;
@@ -34,6 +42,7 @@ pub async fn stream_to_writer<W: Write>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use agentry_core::config::privacy::EgressClass;
     use agentry_core::model::{ToolCall, ToolResult, Usage};
     use agentry_core::provider::{mock::MockProvider, BoxFuture};
     use agentry_core::router::{CallPreset, ResolvedRoute};
@@ -73,7 +82,8 @@ mod tests {
         session.push_user_message("oi");
 
         let mut saida = Vec::new();
-        let outcome = stream_to_writer(&mut session, &mut saida)
+        let router = Router::new(EgressClass::LocalOnly);
+        let outcome = stream_to_writer(&mut session, &mut saida, &router)
             .await
             .expect("deve completar");
 

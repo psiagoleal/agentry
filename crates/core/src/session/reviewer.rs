@@ -85,7 +85,7 @@ pub struct ReviewResult {
 /// si, e sim uma falha de infraestrutura (roteamento, provider) ou uma
 /// resposta do modelo que não segue o protocolo esperado (sem chamar
 /// `submit_review`, ou com um `verdict` fora de `pass`/`fail`).
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ReviewerError {
     Router(RouterError),
     Provider(ProviderError),
