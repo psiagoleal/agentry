@@ -4,11 +4,14 @@
 //! (MT-12); [`shell`] traz a tool de shell sob permissão (MT-13, com sua
 //! própria política *default-deny*, mais restritiva que o gate genérico);
 //! [`repo_map`] expõe o repo-map estilo Aider (MT-19/20) como tool (MT-21);
-//! [`lsp`] expõe *grounding* via LSP (hover/definição, MT-23) como tool (MT-24).
-//! **`ask` nunca bloqueia esperando um humano** — sinaliza devolvendo a
-//! [`ToolCall`] pendente; quem interage com o usuário (a CLI, MT-14) decide
-//! o que fazer com esse sinal.
+//! [`lsp`] expõe *grounding* via LSP (hover/definição, MT-23) como tool
+//! (MT-24); [`code_search`] expõe a busca híbrida do RAG semântico
+//! (MT-26..28) como tool, com indexação incremental (MT-29) por trás
+//! (MT-30). **`ask` nunca bloqueia esperando um humano** — sinaliza
+//! devolvendo a [`ToolCall`] pendente; quem interage com o usuário (a
+//! CLI, MT-14) decide o que fazer com esse sinal.
 
+pub mod code_search;
 pub mod fs;
 pub mod lsp;
 pub mod permission;
