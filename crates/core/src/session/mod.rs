@@ -12,6 +12,13 @@
 //! Execução real de tools (fs, shell) ainda não existe — chega nos MT-11+.
 //! Aqui só o contrato [`ToolExecutor`] que o loop consome, dyn-compatible via
 //! [`BoxFuture`] no mesmo padrão de [`LlmProvider`] (MT-03), sem `async-trait`.
+//!
+//! [`reviewer`] traz o Reviewer — auditoria semântica pós-`Done` via
+//! `task-class` dedicada (MT-34, ADR-0015); a integração ao loop
+//! (`run`/`run_streaming`, modos `advisory`/`blocking` com retry limitado)
+//! é o MT-35.
+
+pub mod reviewer;
 
 use std::collections::HashMap;
 use std::sync::Arc;
