@@ -9,8 +9,8 @@
 
 - **Data:** 2026-07-10
 - **Branch:** `main`
-- **Commit:** `efcbe2d`
-- **Fase:** Fase 5 fechada (MT-01..MT-16). ADR-0016 (compactação de sessão, MT-36/37) e ADR-0009 (timeout adaptativo/keep_alive, MT-17) totalmente implementados, fora da sequência de fases. ADR-0010 (repo-map) e ADR-0013 (grounding via LSP) totalmente implementados. Fase 6 seguindo com MT-22 (ADR-0012), MT-25/26/27/28/29 (ADR-0011, chunking AST-aware + índice lexical + índice semântico + busca híbrida + indexação incremental — 1º ao 5º tickets do RAG semântico) concluídos. ADR-0017 (diretório de estado local `.agentry/`) totalmente implementada (MT-38).
+- **Commit:** `009b46f`
+- **Fase:** **Fase 6 fechada** (MT-18..30 — repo-map/ADR-0010, saída estruturada/ADR-0012, LSP-grounding/ADR-0013, RAG semântico/ADR-0011 completos). Fase 5 fechada (MT-01..MT-16). ADR-0016 (MT-36/37), ADR-0009 (MT-17) e ADR-0017 (MT-38) totalmente implementados, fora da sequência de fases. **Único item aberto em todo o roadmap v0.1: MT-34/35 (ADR-0015, Reviewer).**
 
 ## Metas cumpridas / Em andamento / Próximo passo
 
@@ -72,9 +72,11 @@
 
 - [x] **MT-29** — `crates/core/src/context/rag/incremental.rs`: `IncrementalIndexer::reindex` compara um hash de conteúdo (`std::hash::DefaultHasher` — não `git diff`, que exigiria um binário `git` no `PATH` e não cobre repositórios ainda não inicializados, ADR-0017) de cada `ArquivoFonte` contra um manifesto persistido (`<estado>/index/manifest.json`, dentro do diretório que o MT-38 já resolve/cria); conteúdo igual reaproveita os chunks já indexados, conteúdo novo/diferente reprocessa via `chunk_file` (MT-25) só aquele arquivo. Arquivos que somem do conjunto atual são removidos do manifesto. Manifesto ausente ou corrompido **não é erro** (cai para vazio, reprocessando tudo — pior caso é o comportamento pré-MT-29, não uma indexação que falha); falha ao **escrever** o manifesto atualizado é erro (a próxima chamada perderia o benefício incremental silenciosamente, proibido pelo ADR-0011). `ChunkPersistido` é uma representação própria de serialização (`Chunk` não ganha `Serialize`/`Deserialize`) — mesmo padrão já usado por `lexical_index.rs`/`semantic_index.rs`; `kind_to_str`/`kind_from_str` (MT-26) reaproveitados de novo. 5 testes novos (primeira chamada reprocessa tudo; segunda chamada com tudo inalterado não reprocessa nada; alterar um arquivo dispara reindexação só dele — critério de aceite literal do ticket; arquivo removido some do manifesto; manifesto corrompido não é erro), 208 testes na lib do core + 4 de integração + 11 na CLI, fmt/clippy limpos, `cargo build --release` verde. Nenhuma dependência nova (`efcbe2d`).
 
+- [x] **MT-30** — `crates/core/src/tools/code_search.rs`: `CodeSearchTool`/`CodeSearchSession` expõem a busca híbrida (MT-28) como `Tool` (MT-11), fechando a trilha inteira do RAG semântico (MT-25..30, ADR-0011) e, com ela, **a Fase 6 inteira**. `CodeSearchSession` mantém os índices lexical (MT-26) e semântico (MT-27) em cache (`tokio::sync::Mutex` — não `std::sync::Mutex`, precisa segurar o *lock* através de um `.await` ao reconstruir o índice semântico) entre chamadas, reconstruídos só quando `IncrementalIndexer::reindex` (MT-29) reporta que algum arquivo mudou; sem mudança nenhuma, a chamada reaproveita os índices prontos e só chama `LlmProvider::embeddings` uma vez (para a consulta em si) — é isso que dá ao MT-29 um efeito prático real dentro de uma sessão, não só um número em um teste isolado. **Limitação conhecida, documentada no módulo:** quando algo muda, o índice semântico reembeda todos os chunks atuais, não só os do arquivo alterado — `SemanticIndex::build` (MT-27) não tem uma API de inserção incremental de vetores; fica para quando houver demanda real. Duplica deliberadamente (não reaproveita) o laço de `WalkBuilder` de `tools/repo_map.rs` (MT-21) — documentado no próprio módulo como decisão, não descuido. `register_code_search_tool` respeita `context.semantic_rag.enabled` (ADR-0011, *default* `true`), mesmo mecanismo do MT-21/24. 7 testes novos (gate de permissão; flag ligada/desligada; busca devolve resultados formatados e reordenados pelo reranking; segunda chamada sem mudanças não reconstrói os índices — prova o cache; query vazia é erro tratado; sem arquivos suportados não é erro), 215 testes na lib do core + 4 de integração + 11 na CLI, fmt/clippy limpos, `cargo build --release` verde. Nenhuma dependência nova (`009b46f`).
+
 **Em andamento:** nada pendente no turno.
 
-**Próximo passo:** **MT-30** — tool `code_search` (`crates/core/src/tools/code_search.rs`), expondo a busca híbrida (MT-28) ao agent loop (MT-11) — respeitando o gate de permissão e a flag `context.semantic_rag.enabled`, fecha a trilha do RAG semântico (MT-25..30, ADR-0011). **Fora da Fase 6:** MT-34/35 (ADR-0015, Reviewer).
+**Próximo passo:** **MT-34/35** (ADR-0015, Reviewer — auditoria semântica de tarefas via `task-class` dedicada) são o único item aberto em todo o roadmap v0.1. Sem eles, a v0.1 está funcionalmente completa.
 
 ## Impedimentos de ambiente (não são bugs do código)
 
@@ -93,6 +95,7 @@
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-10 | `009b46f` | MT-30: tool code_search; fecha o RAG semântico (ADR-0011) e a Fase 6 inteira | MT-30 |
 | 2026-07-10 | `efcbe2d` | MT-29: indexação incremental (manifesto hash+chunks) (ADR-0011) | MT-29 |
 | 2026-07-10 | `328a0d1` | MT-38: diretório de estado local (.agentry/) + auto-exclusão do git; ADR-0017 completa | MT-38 |
 | 2026-07-10 | `0f8279c` | MT-28: busca híbrida (RRF) + reranking via LlmProvider::chat (ADR-0011) | MT-28 |
