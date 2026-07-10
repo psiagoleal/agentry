@@ -17,6 +17,13 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+      # protoc: exigido pelo build script de lance-encoding (dependência
+      # transitiva do lancedb, MT-27/ADR-0011) — sem ele, nem o clippy
+      # compila o crate. Instalado via gerenciador de pacote nativo do SO,
+      # não uma Action de terceiro (mesma preferência do ADR-0011 por
+      # dependências nativas/sem ponte externa).
+      - name: Instala protoc
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
       - name: Formatação (rustfmt)
         run: cargo fmt --all -- --check
       - name: Lint (clippy)
@@ -32,6 +39,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      # protoc: exigido pelo build script de lance-encoding (dependência
+      # transitiva do lancedb, MT-27/ADR-0011) — instalado via gerenciador
+      # de pacote nativo de cada SO da matriz (ADR-0005), sem depender de
+      # uma Action de terceiro.
+      - name: Instala protoc (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+      - name: Instala protoc (macOS)
+        if: runner.os == 'macOS'
+        run: brew install protobuf
+      - name: Instala protoc (Windows)
+        if: runner.os == 'Windows'
+        run: choco install protoc -y
       - name: Testes
         run: cargo test --all --verbose
       - name: Build release

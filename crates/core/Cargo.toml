@@ -28,6 +28,10 @@ streaming-iterator = { workspace = true }
 lsp-types = { workspace = true }
 lsp-server = { workspace = true }
 tantivy = { workspace = true }
+lancedb = { workspace = true }
+arrow-array = { workspace = true }
+arrow-schema = { workspace = true }
+futures = { workspace = true }
 
 [dev-dependencies]
 # "net"/"io-util": servidor HTTP mínimo de teste do MT-07 (sem lib de mock nova).

@@ -8,9 +8,9 @@
 //! `crates/core/src/tools/repo_map.rs` — a tool exposta ao agent loop
 //! (MT-21). [`lsp`] traz o cliente LSP mínimo (MT-23) e — em
 //! `crates/core/src/tools/lsp.rs` — as tools de leitura (MT-24). [`rag`]
-//! traz o chunking AST-aware (MT-25) e o índice lexical BM25 (MT-26);
-//! índice semântico (MT-27) e busca híbrida (MT-28) chegam nos
-//! micro-tickets seguintes.
+//! traz o chunking AST-aware (MT-25), o índice lexical BM25 (MT-26) e o
+//! índice semântico via embeddings (MT-27); busca híbrida (MT-28) chega
+//! no próximo micro-ticket.
 
 pub mod ast;
 pub mod lsp;

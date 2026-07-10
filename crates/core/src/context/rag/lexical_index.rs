@@ -15,7 +15,7 @@ use tantivy::schema::{Field, Schema, Value, STORED, STRING, TEXT};
 use tantivy::{doc, Index, IndexReader, IndexWriter, TantivyDocument};
 
 use super::chunk::Chunk;
-use crate::context::ast::SymbolKind;
+use super::{kind_from_str, kind_to_str};
 
 /// Erros do índice lexical — todos indicam falha interna do `tantivy`
 /// (schema/consulta malformados, escrita no índice), não um problema nos
@@ -36,22 +36,6 @@ impl std::fmt::Display for LexicalIndexError {
 }
 
 impl std::error::Error for LexicalIndexError {}
-
-fn kind_to_str(kind: SymbolKind) -> &'static str {
-    match kind {
-        SymbolKind::Function => "function",
-        SymbolKind::Method => "method",
-        SymbolKind::Class => "class",
-    }
-}
-
-fn kind_from_str(kind: &str) -> SymbolKind {
-    match kind {
-        "method" => SymbolKind::Method,
-        "class" => SymbolKind::Class,
-        _ => SymbolKind::Function,
-    }
-}
 
 struct Campos {
     file: Field,
@@ -205,7 +189,7 @@ impl LexicalIndex {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::context::ast::Language;
+    use crate::context::ast::{Language, SymbolKind};
     use crate::context::rag::chunk::chunk_file;
 
     fn chunks_de_exemplo() -> Vec<Chunk> {

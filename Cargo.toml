@@ -46,6 +46,20 @@ lsp-server = "0.8"
 # Maturidade verificada (ADR-0011, 2026-07-08): 15.523 estrelas, 15M+
 # downloads no crates.io, MIT, push recente.
 tantivy = "0.26"
+# Índice semântico sobre os chunks do RAG (MT-27/ADR-0011): vector DB
+# embutida/in-process, nativa em Rust (Lance, sobre Arrow), sem servidor
+# externo nem ponte FFI.
+# Maturidade verificada (ADR-0011, 2026-07-08): 10.826 estrelas, 639K+
+# downloads no crates.io, Apache-2.0, push recente.
+lancedb = "0.31"
+# Representação columnar (Arrow) exigida pela API do lancedb — já
+# dependência transitiva dele; tornada direta só para construir/ler
+# RecordBatch nesta camada.
+arrow-array = "58"
+arrow-schema = "58"
+# TryStreamExt::try_collect — o resultado de uma consulta do lancedb é um
+# stream assíncrono de RecordBatch, não um Vec pronto.
+futures = "0.3"
 
 # Lints compartilhados do workspace (qualidade desde o bootstrap).
 [workspace.lints.clippy]
