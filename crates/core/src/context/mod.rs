@@ -9,8 +9,8 @@
 //! (MT-21). [`lsp`] traz o cliente LSP mínimo (MT-23) e — em
 //! `crates/core/src/tools/lsp.rs` — as tools de leitura (MT-24). [`rag`]
 //! traz o chunking AST-aware (MT-25), o índice lexical BM25 (MT-26), o
-//! índice semântico via embeddings (MT-27) e a busca híbrida com
-//! *reranking* (MT-28).
+//! índice semântico via embeddings (MT-27), a busca híbrida com
+//! *reranking* (MT-28) e a indexação incremental (MT-29).
 
 pub mod ast;
 pub mod lsp;
