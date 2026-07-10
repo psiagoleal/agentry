@@ -153,20 +153,6 @@ fn extract_tool_calls(message: &Message) -> Vec<ToolCall> {
         .collect()
 }
 
-/// Concatena os blocos de texto de uma mensagem (usado para extrair o
-/// resumo de texto puro da resposta de compactação, MT-36).
-fn extract_text(message: &Message) -> String {
-    message
-        .content
-        .iter()
-        .filter_map(|block| match block {
-            ContentBlock::Text { text } => Some(text.clone()),
-            _ => None,
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
 /// Renderiza o histórico como transcript de texto simples para o prompt de
 /// compactação (MT-36) — não é um formato de fio de provider nenhum, só uma
 /// representação legível o bastante para o modelo resumir.
@@ -316,7 +302,7 @@ impl Session {
             .await
             .map_err(SessionError::Provider)?;
 
-        self.messages = vec![Message::system(extract_text(&resposta.message))];
+        self.messages = vec![Message::system(resposta.message.text_content())];
         Ok(())
     }
 

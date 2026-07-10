@@ -102,6 +102,22 @@ impl Message {
     pub fn assistant(text: impl Into<String>) -> Self {
         Self::text(Role::Assistant, text)
     }
+
+    /// Concatena os blocos [`ContentBlock::Text`] da mensagem, ignorando
+    /// tool-calls/tool-results — usado sempre que se precisa só do texto
+    /// puro de uma resposta (resumo de compactação, MT-36; resposta de
+    /// reranking, MT-28).
+    #[must_use]
+    pub fn text_content(&self) -> String {
+        self.content
+            .iter()
+            .filter_map(|block| match block {
+                ContentBlock::Text { text } => Some(text.clone()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
 }
 
 /// Contagem de tokens consumidos em uma interação.

@@ -1,13 +1,14 @@
 // Caminho relativo: crates/core/src/context/rag/mod.rs
 //! RAG semântico local para código (Fase 6, ADR-0011): chunking AST-aware
-//! ([`chunk`], MT-25), índice lexical BM25 ([`lexical_index`], MT-26) e
-//! índice semântico via embeddings ([`semantic_index`], MT-27). Busca
-//! híbrida com *reranking* (MT-28) chega no próximo micro-ticket —
-//! complementa (não substitui) o repo-map do ADR-0010.
+//! ([`chunk`], MT-25), índice lexical BM25 ([`lexical_index`], MT-26),
+//! índice semântico via embeddings ([`semantic_index`], MT-27) e busca
+//! híbrida com *reranking* ([`hybrid_search`], MT-28) — complementa (não
+//! substitui) o repo-map do ADR-0010.
 
 use crate::context::ast::SymbolKind;
 
 pub mod chunk;
+pub mod hybrid_search;
 pub mod lexical_index;
 pub mod semantic_index;
 
