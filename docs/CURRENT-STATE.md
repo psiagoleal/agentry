@@ -9,8 +9,8 @@
 
 - **Data:** 2026-07-10
 - **Branch:** `main`
-- **Commit:** `0f8279c`
-- **Fase:** Fase 5 fechada (MT-01..MT-16). ADR-0016 (compactação de sessão, MT-36/37) e ADR-0009 (timeout adaptativo/keep_alive, MT-17) totalmente implementados, fora da sequência de fases. ADR-0010 (repo-map) e ADR-0013 (grounding via LSP) totalmente implementados. Fase 6 seguindo com MT-22 (ADR-0012), MT-25/26/27/28 (ADR-0011, chunking AST-aware + índice lexical + índice semântico + busca híbrida — 1º ao 4º tickets do RAG semântico) concluídos. ADR-0017 registrada (diretório de estado local `.agentry/`), MT-38 adicionado à Fase 6.
+- **Commit:** `328a0d1`
+- **Fase:** Fase 5 fechada (MT-01..MT-16). ADR-0016 (compactação de sessão, MT-36/37) e ADR-0009 (timeout adaptativo/keep_alive, MT-17) totalmente implementados, fora da sequência de fases. ADR-0010 (repo-map) e ADR-0013 (grounding via LSP) totalmente implementados. Fase 6 seguindo com MT-22 (ADR-0012), MT-25/26/27/28 (ADR-0011, chunking AST-aware + índice lexical + índice semântico + busca híbrida — 1º ao 4º tickets do RAG semântico) concluídos. ADR-0017 (diretório de estado local `.agentry/`) totalmente implementada (MT-38).
 
 ## Metas cumpridas / Em andamento / Próximo passo
 
@@ -68,9 +68,11 @@
 
 - [x] **MT-28** — `crates/core/src/context/rag/hybrid_search.rs`: `fuse` combina os índices lexical (MT-26) e semântico (MT-27) via *reciprocal rank fusion* (constante de suavização 60) — um chunk presente nas duas listas acumula as duas contribuições, podendo superar um chunk isoladamente melhor rankeado numa única lista, exatamente o comportamento exigido pelo critério de aceite (resultado combinado reflete os dois sinais). `rerank` reordena via uma chamada de chat pedindo ao modelo um array JSON dos índices em ordem de relevância — reaproveita `LlmProvider::chat` (MT-03) diretamente, nenhuma API nova de reranking (ADR-0011); resposta que não for um array JSON válido/completo é erro (`RerankParse`), nunca mascarado; 0/1 chunk não chama o provider. `hybrid_search` compõe o pipeline completo. **Escopo maior que o declarado:** promovi `Message::text_content()` (`crates/core/src/model/mod.rs`) a partir do `extract_text` privado que já existia em `session/mod.rs` (MT-36) — reranking precisa da mesma extração de texto puro de uma resposta de chat; evitei duplicar a lógica pela segunda vez no pacote. 6 testes novos (fusão reflete os dois sinais; fuse respeita limite; reranking reordena caso conhecido; resposta malformada é erro tratado; 0/1 chunk não chama o provider; pipeline completo funde e reordena), 198 testes na lib do core + 4 de integração + 11 na CLI, fmt/clippy limpos, `cargo build --release` verde. Nenhuma dependência nova (`0f8279c`).
 
+- [x] **MT-38** — `crates/core/src/state_dir.rs` (novo módulo de topo do core): `resolve_root` sobe a partir do cwd procurando `.git` (arquivo ou diretório — cobre *worktrees*) em cada ancestral, mesma técnica de descoberta do próprio git; sem `.git` em nenhum ancestral, devolve o próprio `start` (nunca a raiz do sistema de arquivos). `ensure_state_dir` cria `<raiz>/.agentry/` e, só se ainda não existir, `.agentry/.gitignore` com conteúdo `*` — idempotente por construção (`create_dir_all` + escrita condicional à ausência do arquivo), nunca sobrescreve uma customização do usuário. Nenhum subsistema (índices RAG, sessão, audit log) foi ligado a este diretório ainda — fora de escopo, conforme a própria ADR-0017 já previa. 5 testes novos (raiz com `.git` diretório; raiz com `.git` arquivo/worktree; sem `.git` cai no start; `.gitignore` criado com `*`; chamada repetida não sobrescreve customização), 203 testes na lib do core + 4 de integração + 11 na CLI, fmt/clippy limpos, `cargo build --release` verde. Nenhuma dependência nova (`328a0d1`). **ADR-0017 totalmente implementada.**
+
 **Em andamento:** nada pendente no turno.
 
-**Próximo passo:** **MT-29** — indexação incremental (`crates/core/src/context/rag/incremental.rs`), reembedando/reindexando só arquivos alterados. **Pendências independentes em aberto na Fase 6:** MT-30 (tool `code_search`), MT-38 (diretório de estado local, ADR-0017 — MT-29 depende dele). **Fora da Fase 6:** MT-34/35 (ADR-0015, Reviewer).
+**Próximo passo:** **MT-29** — indexação incremental (`crates/core/src/context/rag/incremental.rs`), reembedando/reindexando só arquivos alterados, agora com `state_dir::ensure_state_dir` (MT-38) disponível para persistir o que já foi indexado entre invocações de processo. **Pendências independentes em aberto na Fase 6:** MT-30 (tool `code_search`). **Fora da Fase 6:** MT-34/35 (ADR-0015, Reviewer).
 
 ## Impedimentos de ambiente (não são bugs do código)
 
@@ -89,6 +91,7 @@
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-10 | `328a0d1` | MT-38: diretório de estado local (.agentry/) + auto-exclusão do git; ADR-0017 completa | MT-38 |
 | 2026-07-10 | `0f8279c` | MT-28: busca híbrida (RRF) + reranking via LlmProvider::chat (ADR-0011) | MT-28 |
 | 2026-07-10 | `2e8890c` | ADR-0017: diretório de estado local (.agentry/) para memória/histórico/índices; MT-38 adicionado | — |
 | 2026-07-10 | `632c114` | MT-27: índice semântico (embeddings + lancedb) sobre os chunks (ADR-0011) | MT-27 |
