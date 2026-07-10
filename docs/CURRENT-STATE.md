@@ -9,8 +9,8 @@
 
 - **Data:** 2026-07-10
 - **Branch:** `main`
-- **Commit:** `632c114`
-- **Fase:** Fase 5 fechada (MT-01..MT-16). ADR-0016 (compactação de sessão, MT-36/37) e ADR-0009 (timeout adaptativo/keep_alive, MT-17) totalmente implementados, fora da sequência de fases. ADR-0010 (repo-map) e ADR-0013 (grounding via LSP) totalmente implementados. Fase 6 seguindo com MT-22 (ADR-0012), MT-25/26/27 (ADR-0011, chunking AST-aware + índice lexical + índice semântico — 1º, 2º e 3º tickets do RAG semântico) concluídos.
+- **Commit:** `2e8890c`
+- **Fase:** Fase 5 fechada (MT-01..MT-16). ADR-0016 (compactação de sessão, MT-36/37) e ADR-0009 (timeout adaptativo/keep_alive, MT-17) totalmente implementados, fora da sequência de fases. ADR-0010 (repo-map) e ADR-0013 (grounding via LSP) totalmente implementados. Fase 6 seguindo com MT-22 (ADR-0012), MT-25/26/27 (ADR-0011, chunking AST-aware + índice lexical + índice semântico — 1º, 2º e 3º tickets do RAG semântico) concluídos. ADR-0017 registrada (diretório de estado local `.agentry/`), MT-38 adicionado à Fase 6.
 
 ## Metas cumpridas / Em andamento / Próximo passo
 
@@ -64,9 +64,11 @@
 
 - [x] **MT-27** — `crates/core/src/context/rag/semantic_index.rs`: `SemanticIndex::build` chama `LlmProvider::embeddings` (MT-03) uma vez com o texto de todos os chunks (MT-25) e indexa os vetores resultantes numa tabela `lancedb` sobre `memory://` (embutido, sem servidor externo, mesma filosofia do índice lexical do MT-26); schema Arrow com colunas escalares (file/symbol/kind/range_start/range_end/text) + `vector` (`FixedSizeList<Float32>`), todas reconstituídas de volta em `Chunk` num hit de busca. `search()` roda k-NN via `nearest_to` **sem** criar um índice ANN — desnecessário/inadequado em escala pequena; o `lancedb` cai em busca exata por varredura sem índice construído. `chunks` vazio não é erro (mesmo padrão do MT-21/25): índice sem tabela por trás, busca sempre responde lista vazia. `kind_to_str`/`kind_from_str` (MT-26) promovidos de `lexical_index.rs` para `rag/mod.rs` (`pub(super)`) — reaproveitados por este módulo também, em vez de duplicar a conversão de `SymbolKind`. **Descoberta relevante:** `lance-encoding` (dependência transitiva do `lancedb`) exige o binário `protoc` no `PATH` em tempo de build — não estava disponível no ambiente nem, previsivelmente, nos runners do GitHub Actions; CI (`.github/workflows/ci.yml`) atualizado para instalar `protobuf-compiler`/`protobuf`/`protoc` via gerenciador de pacote nativo de cada SO da matriz (apt/brew/choco) tanto no job de lint quanto no de build-test, em vez de depender de uma Action de terceiro (`arduino/setup-protoc`, sem push desde 2024). Dependências novas vetadas por maturidade (ADR-0011, já verificada ao fechar o ADR): `lancedb` (Apache-2.0, 639K+ downloads, nativo em Rust sobre Arrow). 5 testes novos (vizinho mais próximo no topo; limite restringe resultados; chunks vazio não é erro; contagem de vetores inconsistente é erro; chunk reconstruído preserva todos os metadados), 192 testes na lib do core + 4 de integração + 11 na CLI, fmt/clippy limpos, `cargo build --release` verde (`632c114`).
 
+- [x] **ADR-0017** (Proposed) — diretório de estado local por projeto (`.agentry/`) para memória, histórico e índices: lacuna real auditada — hoje o `agentry` não persiste nada em disco (audit log é stderr-only, `Session` é `Vec<Message>` em memória, os índices RAG do MT-26/27 recomeçam do zero a cada processo); sem decidir onde persistir, o MT-29 (indexação incremental) não teria como fazer sentido entre invocações de processo. Decisão, motivada explicitamente pelo usuário (padrão comum de agentes de codificação, inclusive esta própria sessão do Claude Code, quebra ao renomear/mover/copiar o projeto por chavear o estado no caminho absoluto): raiz `<raiz>/.agentry/` (primeiro ancestral do cwd com `.git`, *fallback* pro cwd) — nunca diretório global do usuário — com auto-exclusão via `.agentry/.gitignore` próprio (conteúdo `*`), nunca tocando no `.gitignore` do projeto; como as tools de leitura já existentes (MT-12/MT-21) respeitam `.gitignore` via a crate `ignore`, `.agentry/` já sai de graça de qualquer varredura de repo-map/RAG. Layout reservado (`.agentry/index/`, `.agentry/session/`, `.agentry/audit.log`) mas **não implementado** por esta ADR — cada subsistema decide quando/como consumir em seu próprio ticket. Micro-ticket **MT-38** adicionado à Fase 6 (resolução de raiz + gitignore próprio); **MT-29** passa a depender também de MT-38 (`2e8890c`).
+
 **Em andamento:** nada pendente no turno.
 
-**Próximo passo:** **MT-28** — busca híbrida + *reranking* (`crates/core/src/context/rag/hybrid_search.rs`), combinando o índice lexical (MT-26) e semântico (MT-27) e reordenando o top-K com um *reranker* cross-encoder. **Pendências independentes em aberto na Fase 6:** MT-29/30 (indexação incremental, tool `code_search`, ADR-0011). **Fora da Fase 6:** MT-34/35 (ADR-0015, Reviewer).
+**Próximo passo:** **MT-28** — busca híbrida + *reranking* (`crates/core/src/context/rag/hybrid_search.rs`), combinando o índice lexical (MT-26) e semântico (MT-27) e reordenando o top-K com um *reranker* cross-encoder. **Pendências independentes em aberto na Fase 6:** MT-29/30 (indexação incremental, tool `code_search`, ADR-0011), MT-38 (diretório de estado local, ADR-0017). **Fora da Fase 6:** MT-34/35 (ADR-0015, Reviewer).
 
 ## Impedimentos de ambiente (não são bugs do código)
 
@@ -85,6 +87,7 @@
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-10 | `2e8890c` | ADR-0017: diretório de estado local (.agentry/) para memória/histórico/índices; MT-38 adicionado | — |
 | 2026-07-10 | `632c114` | MT-27: índice semântico (embeddings + lancedb) sobre os chunks (ADR-0011) | MT-27 |
 | 2026-07-09 | `5f623c6` | MT-26: índice lexical (tantivy/BM25) sobre os chunks (ADR-0011) | MT-26 |
 | 2026-07-09 | `45395fd` | MT-25: chunking AST-aware para RAG (ADR-0011) | MT-25 |
