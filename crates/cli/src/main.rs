@@ -88,12 +88,14 @@ struct Args {
 
 /// Emite cada [`AuditEntry`] de egresso em stderr — suficiente para a v0.1;
 /// persistência estruturada (arquivo/serviço) fica para quando houver
-/// demanda concreta.
+/// demanda concreta. Usa o `Display` de `AuditEntry` (uma linha compacta),
+/// não `{:?}` — o *dump* de `Debug` poluía o stderr (achado real do teste
+/// de usabilidade, `scripts/usability-test.sh`).
 struct StderrAuditSink;
 
 impl AuditSink for StderrAuditSink {
     fn record(&self, entry: AuditEntry) {
-        eprintln!("[audit] {entry:?}");
+        eprintln!("[audit] {entry}");
     }
 }
 

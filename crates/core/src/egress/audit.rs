@@ -113,6 +113,32 @@ impl AuditEntry {
     }
 }
 
+impl std::fmt::Display for AuditEntry {
+    /// Uma linha compacta e legível — não o *dump* de `Debug` (`{entry:?}`),
+    /// que reimprime nomes de campo e chega a `2-3` linhas por chamada de
+    /// egresso, poluindo o stderr de quem só quer ver a resposta/erro da
+    /// tarefa (achado real do teste de usabilidade,
+    /// `scripts/usability-test.sh`). Continua obrigatório pelo ADR-0002
+    /// (audit trail de todo egresso) — só o formato de impressão muda.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{} -> {} ({}",
+            self.task, self.destination, self.egress_class
+        )?;
+        match self.outcome {
+            AuditOutcome::Allowed => write!(f, ", allowed)"),
+            AuditOutcome::Blocked => {
+                write!(f, ", blocked")?;
+                if let Some(reason) = &self.reason {
+                    write!(f, ": {reason}")?;
+                }
+                write!(f, ")")
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -195,6 +221,37 @@ mod tests {
         assert_eq!(
             serde_json::to_value(AuditOutcome::Blocked).unwrap(),
             serde_json::json!("blocked")
+        );
+    }
+
+    #[test]
+    fn display_e_uma_linha_compacta_nao_o_dump_de_debug() {
+        let entrada = AuditEntry::allowed(
+            "http://127.0.0.1:11434/api/chat",
+            None,
+            EgressClass::LocalOnly,
+            "chat_stream",
+        );
+
+        assert_eq!(
+            entrada.to_string(),
+            "chat_stream -> http://127.0.0.1:11434/api/chat (local-only, allowed)"
+        );
+    }
+
+    #[test]
+    fn display_de_entrada_bloqueada_inclui_o_motivo() {
+        let entrada = AuditEntry::blocked(
+            "endpoint.desconhecido",
+            None,
+            EgressClass::LocalOnly,
+            "chat",
+            "host fora da allowlist",
+        );
+
+        assert_eq!(
+            entrada.to_string(),
+            "chat -> endpoint.desconhecido (local-only, blocked: host fora da allowlist)"
         );
     }
 }

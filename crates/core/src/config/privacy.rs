@@ -94,6 +94,20 @@ impl EgressClass {
     }
 }
 
+impl std::fmt::Display for EgressClass {
+    /// Mesmo identificador kebab-case do `privacy-taxonomy:1`
+    /// (`#[serde(rename_all = "kebab-case")]` acima) — uma única
+    /// representação textual, não duas convenções divergentes.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let texto = match self {
+            Self::LocalOnly => "local-only",
+            Self::CloudOptOut => "cloud-opt-out",
+            Self::CloudOk => "cloud-ok",
+        };
+        write!(f, "{texto}")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -166,5 +180,12 @@ mod tests {
             serde_json::to_value(EgressClass::LocalOnly).unwrap(),
             serde_json::json!("local-only")
         );
+    }
+
+    #[test]
+    fn display_usa_o_mesmo_identificador_kebab_case_do_serde() {
+        assert_eq!(EgressClass::LocalOnly.to_string(), "local-only");
+        assert_eq!(EgressClass::CloudOptOut.to_string(), "cloud-opt-out");
+        assert_eq!(EgressClass::CloudOk.to_string(), "cloud-ok");
     }
 }
