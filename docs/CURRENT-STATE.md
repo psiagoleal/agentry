@@ -9,7 +9,7 @@
 
 - **Data:** 2026-07-12
 - **Branch:** `main`
-- **Commit:** `be4f000`
+- **Commit:** `fb99c02`
 - **Fase:** Roadmap v0.1 completo e **fechado/imutável** como registro histórico
   (`docs/roadmap-v0.1.md`, MT-01..38). Iniciada a **Fase 7** (`docs/roadmap-v0.2.md`):
   fechar o loop do `settings-schema:1` com o `ai-coding-agent-profiles`, via ADR-0018 —
@@ -103,6 +103,17 @@
   `cargo build --release` verde. Nenhuma dependência nova (`be4f000`). Trabalho equivalente
   feito **na mesma sessão** do lado `ai-coding-agent-profiles` (ver handoff daquele repo).
 
+- [x] **Fix: `.agentry/.gitignore` não podia se autoignorar** — achado real ao distribuir o
+  mesmo conteúdo pelo `ai-coding-agent-profiles` (ADR-0006 daquele repo): um `.gitignore`
+  com só `*` ignora **a si mesmo**, e `git add .agentry/.gitignore` o descartava em
+  silêncio. `CONTEUDO_GITIGNORE` (`crates/core/src/state_dir.rs`) ganhou uma segunda
+  exceção puramente técnica (`!.gitignore`) — não é um segundo artefato de política, só a
+  mecânica para a exceção de `agentry.settings.json` funcionar de fato. 3 testes
+  atualizados/novos, um deles usando a própria crate `ignore` (`GitignoreBuilder`) para
+  provar diretamente que o arquivo não se autoignora. 230 testes na lib do core (229 + 1) +
+  4 de integração + 11 na CLI, fmt/clippy limpos, `cargo build --release` verde
+  (`fb99c02`).
+
 **Em andamento:** nada pendente no turno.
 
 **Próximo passo:** **MT-39** — `Settings::from_file` (`crates/core/src/config/mod.rs`,
@@ -126,6 +137,7 @@
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-12 | `fb99c02` | fix: .agentry/.gitignore não podia se autoignorar | — |
 | 2026-07-12 | `be4f000` | ADR-0018 (settings-schema) + emenda ADR-0017; roadmap-v0.2.md (Fase 7) | — |
 | 2026-07-12 | `4bd6ee6` | fix: audit log em stderr — Display compacto em vez de dump de Debug | — |
 | 2026-07-10 | `0791411` | docs: README real + teste de usabilidade (primeira config/uso) | — |
