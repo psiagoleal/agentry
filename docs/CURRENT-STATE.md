@@ -9,8 +9,11 @@
 
 - **Data:** 2026-07-12
 - **Branch:** `main`
-- **Commit:** `4bd6ee6`
-- **Fase:** **Roadmap v0.1 completo.** Fase 6 fechada (MT-18..30 — repo-map/ADR-0010, saída estruturada/ADR-0012, LSP-grounding/ADR-0013, RAG semântico/ADR-0011). Fase 5 fechada (MT-01..MT-16). ADR-0016 (MT-36/37), ADR-0009 (MT-17), ADR-0017 (MT-38) e ADR-0015 (MT-34/35, Reviewer) totalmente implementados. **Nenhum item de código do roadmap v0.1 está aberto.** Build final confirmado nos dois SOs (Linux nativo; Windows via cross-compile local com mingw-w64). Pós-roadmap: README real, guia de testes (`docs/testing.md`), scripts de automação (`scripts/test.*`, `scripts/usability-test.*`) e uma correção de usabilidade encontrada ao rodar o teste de usabilidade (audit log poluindo stderr).
+- **Commit:** `be4f000`
+- **Fase:** Roadmap v0.1 completo e **fechado/imutável** como registro histórico
+  (`docs/roadmap-v0.1.md`, MT-01..38). Iniciada a **Fase 7** (`docs/roadmap-v0.2.md`):
+  fechar o loop do `settings-schema:1` com o `ai-coding-agent-profiles`, via ADR-0018 —
+  trabalho feito **nos dois repositórios em paralelo** (`--add-dir ../ai-coding-agent-profiles`).
 
 ## Metas cumpridas / Em andamento / Próximo passo
 
@@ -81,9 +84,30 @@
 - [x] **README real + guia de testes + scripts de automação** — `README.md` era o template genérico do perfil PESSOAL (nunca preenchido para o `agentry` de verdade); reescrito com pré-requisitos/instalação/uso reais. `docs/testing.md` (novo): configuração inicial e comandos de teste por SO, espelhando `.github/workflows/ci.yml`. `scripts/test.sh`/`.ps1` (novos): mesma sequência do CI (fmt/clippy/test/build), local. `scripts/usability-test.sh`/`.ps1` (novos): simulam a primeira configuração e o primeiro uso simples — não lógica interna, a *experiência* de quem acabou de clonar o repo (build do zero, `--help` sem config, Ollama ausente deve dar erro tratado sem *panic*, verificação do modelo *default*, uma tarefa *one-shot* real). Rodado nesta sessão contra um Ollama real (containers do usuário: `llama3.1:8b`/`qwen2.5:7b`/`qwen3.5:2b`) — os 5 cenários passaram, incluindo a tarefa *one-shot* de verdade (`0791411`).
 - [x] **Fix de usabilidade: audit log poluindo stderr** — achado real do `scripts/usability-test.sh`: `StderrAuditSink` (`crates/cli/src/main.rs`) imprimia `{entry:?}` (o *dump* de `Debug` de `AuditEntry`, 2-3 linhas com nomes de campo) a cada chamada de egresso, poluindo a saída de quem só queria ver a resposta/erro da tarefa. `EgressClass` (`crates/core/src/config/privacy.rs`) e `AuditEntry` (`crates/core/src/egress/audit.rs`) ganharam `impl Display` (uma linha compacta, ex.: `chat_stream -> http://127.0.0.1:11434/api/chat (local-only, allowed)`); `StderrAuditSink` passou a usar `{entry}` em vez de `{entry:?}`. O *trail* continua obrigatório pelo ADR-0002 (nenhum campo omitido) — só o formato de impressão mudou. 4 testes novos, 228 testes na lib do core + 4 de integração + 11 na CLI, fmt/clippy limpos, `cargo build --release` verde. Confirmado manualmente contra Ollama real (`4bd6ee6`).
 
+- [x] **ADR-0017 emendada + ADR-0018** — revisão do roadmap pós-v0.1 identificou que todas as
+  seis extensões de `settings-schema` propostas na sessão ficaram com formato "a confirmar
+  com o `profiles`" sem nunca terem sido de fato confirmadas. Investigação direta do
+  `ai-coding-agent-profiles` revelou que o artefato hoje existente
+  (`.claude/settings.json`) é o formato **nativo do Claude Code** (padrões `Bash(...)` em
+  `permissions`), incompatível por design com `agentry::config::Permissions` (nomes exatos
+  de tool). Decisão: artefato próprio, `.agentry/agentry.settings.json` — dentro da mesma
+  pasta da ADR-0017 (MT-38), com uma **exceção nomeada** na auto-exclusão do
+  `.gitignore` (`CONTEUDO_GITIGNORE` em `crates/core/src/state_dir.rs` passa de `"*\n"`
+  para `"*\n!agentry.settings.json\n"` — 2 testes novos, um deles documentação executável da
+  intenção: só uma exceção, nunca um padrão amplo). Primeira fatia de schema congelada
+  (`permissions` + as 4 *flags* booleanas já mecanicamente prontas — repo-map/RAG/LSP/saída
+  estruturada). `docs/interop/exchange-log.md` ganhou a sétima entrada; novo
+  `docs/roadmap-v0.2.md` (Fase 7: MT-39 carregamento do arquivo, MT-40 consumo real das 4
+  flags) — v0.1 permanece fechado/imutável. 6 testes na lib do core (novos+atualizados),
+  229 testes na lib do core + 4 de integração + 11 na CLI, fmt/clippy limpos,
+  `cargo build --release` verde. Nenhuma dependência nova (`be4f000`). Trabalho equivalente
+  feito **na mesma sessão** do lado `ai-coding-agent-profiles` (ver handoff daquele repo).
+
 **Em andamento:** nada pendente no turno.
 
-**Próximo passo:** nenhum ticket de código pendente no roadmap v0.1. Trabalho futuro fica a critério do mantenedor (v0.2, wiring de `settings-schema`/CLI para as flags já mecanicamente prontas — repo-map/LSP/RAG/Reviewer —, persistência do audit log em arquivo, etc.).
+**Próximo passo:** **MT-39** — `Settings::from_file` (`crates/core/src/config/mod.rs`,
+`docs/roadmap-v0.2.md`), carregando `.agentry/agentry.settings.json` de verdade. Depois,
+**MT-40** consome as 4 flags. Sem outro ticket de código pendente do roadmap v0.1.
 
 ## Impedimentos de ambiente (não são bugs do código)
 
@@ -102,6 +126,7 @@
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-12 | `be4f000` | ADR-0018 (settings-schema) + emenda ADR-0017; roadmap-v0.2.md (Fase 7) | — |
 | 2026-07-12 | `4bd6ee6` | fix: audit log em stderr — Display compacto em vez de dump de Debug | — |
 | 2026-07-10 | `0791411` | docs: README real + teste de usabilidade (primeira config/uso) | — |
 | 2026-07-10 | `a4f1efd` | docs(testing): guia de testes Linux/Windows + scripts de automação | — |
