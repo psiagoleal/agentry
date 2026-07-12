@@ -11,23 +11,30 @@
 //! monorepo/subdiretório sem caso especial.
 //!
 //! Na primeira escrita, `.agentry/.gitignore` é criado com o conteúdo `*`
-//! — o diretório se autoexclui do controle de versão sem nunca tocar no
-//! `.gitignore` do projeto (arquivo que o `agentry` não é dono). Como as
-//! tools de leitura já existentes ([`crate::tools::fs`] do MT-12,
-//! [`crate::tools::repo_map`] do MT-21) usam a crate `ignore`, que
-//! respeita `.gitignore` por padrão, `.agentry/` já sai de graça de
-//! qualquer varredura de repo-map/RAG — nenhuma tool precisa de caso
-//! especial para não indexar/ler a própria memória do agente.
+//! mais uma exceção nomeada — o diretório se autoexclui do controle de
+//! versão por padrão, sem nunca tocar no `.gitignore` do projeto (arquivo
+//! que o `agentry` não é dono), mas `agentry.settings.json` (ADR-0018) é
+//! artefato de política, distribuído pelo `ai-coding-agent-profiles`, e
+//! **precisa** ser versionado — daí a exceção. Como as tools de leitura já
+//! existentes ([`crate::tools::fs`] do MT-12, [`crate::tools::repo_map`] do
+//! MT-21) usam a crate `ignore`, que respeita `.gitignore` por padrão, o
+//! resto de `.agentry/` continua saindo de graça de qualquer varredura de
+//! repo-map/RAG — nenhuma tool precisa de caso especial.
 //!
 //! Este módulo só resolve o diretório e garante sua auto-exclusão — o uso
-//! concreto por qualquer subsistema (índices RAG, sessão, audit log) fica
-//! para o ticket de cada um, conforme decidido na ADR-0017.
+//! concreto por qualquer subsistema (índices RAG, sessão, audit log,
+//! configuração) fica para o ticket de cada um, conforme decidido na
+//! ADR-0017 (emendada em 2026-07-12 para a exceção acima) e na ADR-0018.
 
 use std::io;
 use std::path::{Path, PathBuf};
 
 const NOME_DIRETORIO: &str = ".agentry";
-const CONTEUDO_GITIGNORE: &str = "*\n";
+/// `*` ignora tudo em `.agentry/` por padrão; a exceção nomeada é o único
+/// artefato que precisa ser versionado (ADR-0018) — nunca um padrão amplo,
+/// que arriscaria expor estado privado (sessão, índices, audit log) por
+/// engano.
+const CONTEUDO_GITIGNORE: &str = "*\n!agentry.settings.json\n";
 
 /// Resolve a raiz do projeto a partir de `start`: o primeiro ancestral
 /// (incluindo o próprio `start`) que contém `.git` (arquivo ou diretório).
@@ -49,9 +56,10 @@ pub fn resolve_root(start: &Path) -> PathBuf {
 
 /// Garante que `<raiz>/.agentry/` exista (raiz resolvida por
 /// [`resolve_root`] a partir de `start`) e que `.agentry/.gitignore`
-/// tenha o conteúdo `*`, criando-o se ainda não existir. Idempotente:
-/// chamadas repetidas não duplicam nem sobrescrevem um `.gitignore` já
-/// presente (mesmo que customizado pelo usuário).
+/// tenha o conteúdo `*` + exceção nomeada para `agentry.settings.json`
+/// (ADR-0018), criando-o se ainda não existir. Idempotente: chamadas
+/// repetidas não duplicam nem sobrescrevem um `.gitignore` já presente
+/// (mesmo que customizado pelo usuário).
 ///
 /// # Errors
 ///
@@ -139,7 +147,7 @@ mod tests {
     }
 
     #[test]
-    fn ensure_state_dir_cria_o_gitignore_com_conteudo_asterisco() {
+    fn ensure_state_dir_cria_o_gitignore_com_conteudo_asterisco_e_excecao() {
         let dir = TempDir::new();
 
         let estado = ensure_state_dir(dir.path()).expect("deve criar o diretório de estado");
@@ -147,7 +155,31 @@ mod tests {
         assert_eq!(estado, dir.path().join(".agentry"));
         let gitignore = std::fs::read_to_string(estado.join(".gitignore"))
             .expect("deve ter criado o .gitignore");
-        assert_eq!(gitignore, "*\n");
+        assert_eq!(gitignore, "*\n!agentry.settings.json\n");
+    }
+
+    #[test]
+    fn gitignore_nao_cobre_o_artefato_de_configuracao_versionado() {
+        // Documentação executável da intenção da ADR-0018: o único artefato
+        // de .agentry/ que deve escapar da auto-exclusão é
+        // agentry.settings.json — nenhum outro nome de arquivo.
+        let dir = TempDir::new();
+
+        let estado = ensure_state_dir(dir.path()).expect("deve criar o diretório de estado");
+        let gitignore = std::fs::read_to_string(estado.join(".gitignore"))
+            .expect("deve ter criado o .gitignore");
+
+        assert!(
+            gitignore
+                .lines()
+                .any(|linha| linha == "!agentry.settings.json"),
+            "gitignore deve conter uma exceção nomeada exata para agentry.settings.json"
+        );
+        assert_eq!(
+            gitignore.lines().filter(|l| l.starts_with('!')).count(),
+            1,
+            "só deve haver uma exceção — nunca um padrão amplo"
+        );
     }
 
     #[test]

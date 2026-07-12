@@ -180,3 +180,41 @@ reescrever entradas; decisões vinculantes viram ADR (referenciar o ADR aqui).
 - **Status:** ✅ ADR de direção criado no `agentry`; micro-tickets **MT-34/35** adicionados à
   Fase 4 do roadmap. Formato definitivo fica para a implementação, a confirmar com o
   `profiles` antes de congelar.
+
+---
+
+## 2026-07-12 — Sétima extensão ao `settings-schema:1`: fechando o loop, de vez
+
+- **Origem:** `agentry`.
+- **Contexto:** revisão do roadmap pós-v0.1 (completo, MT-01..38): todas as seis extensões
+  anteriores deste log ficaram com o formato de esquema deliberadamente adiado — nenhuma foi
+  de fato confirmada. Investigação do lado `profiles` (repositório lido diretamente) revelou
+  que o artefato hoje existente (`.claude/settings.json` por perfil) é o formato **nativo do
+  Claude Code** — não o `settings-schema:1` que a ADR-0003 supõe consumir. Domínios
+  incompatíveis por design: `agentry::config::Permissions.deny`/`ask` espera nomes exatos de
+  tool; o Claude Code usa padrões `"Bash(git push*)"`. Não havia nada ali sobre roteamento por
+  `task-class`, seleção de provider, ou as flags de contexto (RAG/repo-map/LSP)/Reviewer.
+- **Decisão:** em vez de reinterpretar o artefato nativo do Claude Code, o `agentry` passa a
+  ter um **artefato próprio**: `.agentry/agentry.settings.json` (não `.claude/`) — mesma
+  pasta reservada pela ADR-0017 (MT-38), com uma exceção nomeada na auto-exclusão do
+  `.gitignore` (a ADR-0017 foi emendada em 2026-07-12 para registrar isso). Primeira fatia de
+  schema congelada (permissões + as 4 *flags* booleanas do pacote ADR-0010..0013, hoje
+  hardcoded `true`); as demais extensões pendentes (`task-class` presets, timeout/
+  `keep_alive`, `reasoning`, Reviewer, `guardrails`) continuam adiadas, uma por vez, para
+  quando cada ticket de consumo for implementado — mesmo padrão desta sessão inteira.
+- **ADR criado (`agentry`):**
+  - **ADR-0018** (Proposed) — artefato/local/descoberta/precedência de camadas + primeira
+    fatia de schema. Ver `docs/adr/0018-artefato-e-schema-minimo-de-configuracao-do-agentry.md`.
+- **Trabalho do lado `profiles` (não é pendência — feito na mesma sessão, repos em
+  paralelo):** os três perfis (`empresa`/`externo-confidencial`/`pessoal`) ganham um
+  `.agentry/agentry.settings.json` + `.agentry/.gitignore` *default* próprios;
+  `scripts/setup-profile.sh` ganha uma entrada em `bucket_for()` classificando o arquivo
+  novo como `hybrid_json` (mesma disciplina de `--update` não-destrutivo já usada para
+  `.claude/settings.json`); `docs/interop/SPEC.md` (canônico naquele repo) ganha uma linha
+  na tabela de artefatos. Ver ADR local do `profiles` (`docs/adr/0006-*.md`).
+- **Micro-tickets adicionados:** **MT-39** (`Settings::from_file`, descoberta+parsing do
+  arquivo) e **MT-40** (consumo real das 4 flags em `crates/cli/src/main.rs`) — novo
+  `docs/roadmap-v0.2.md` (v0.1 permanece fechado/imutável como registro histórico).
+- **Status:** ✅ ADR-0018 criada no `agentry`; ADR local + arquivos *default* + script
+  atualizados no `profiles`, mesma sessão. Implementação de MT-39/MT-40 fica para o próximo
+  turno.

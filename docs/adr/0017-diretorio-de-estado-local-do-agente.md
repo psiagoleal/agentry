@@ -3,9 +3,15 @@
 # ADR 0017: Diretório de estado local por projeto (`.agentry/`) para memória, histórico e índices
 
 - **Status:** Proposed
-- **Data:** 2026-07-10
+- **Data:** 2026-07-10 (emendado em 2026-07-12 — ver nota abaixo)
 - **Decisores:** Iago Leal (mantenedor)
 - **Tags:** dados, persistência, portabilidade
+
+> **Nota de revisão (2026-07-12):** a auto-exclusão do git (item 2) ganhou uma exceção — o
+> artefato de configuração do `agentry` (ADR-0018) também vive em `.agentry/`, mas
+> **precisa** ser versionado (é política distribuída pelo `ai-coding-agent-profiles`, não
+> estado privado da máquina). Sem essa exceção, um `.gitignore` cego (`*`) o esconderia do
+> git incondicionalmente.
 
 ## Contexto
 
@@ -52,15 +58,22 @@ está sendo operado**, nunca num diretório global do usuário (`~/.config`, `~/
    do cwd; sem `.git` em nenhum ancestral, `<raiz>` é o próprio cwd. Mesma técnica de
    descoberta de raiz que o próprio git usa — funciona corretamente em monorepo/subdiretório
    sem caso especial.
-2. **Auto-exclusão do git:** na primeira escrita, o `agentry` cria `.agentry/.gitignore` com
-   o conteúdo `*` — o diretório se autoexclui do controle de versão sem nunca tocar no
-   `.gitignore` do projeto (arquivo que o `agentry` não é dono). Como as tools de leitura já
-   existentes (`fs.rs` do MT-12, `repo_map.rs` do MT-21) usam a crate `ignore`, que respeita
-   `.gitignore` por padrão, `.agentry/` já sai de graça de qualquer varredura de repo-map/RAG
-   — nenhuma tool precisa de caso especial para não indexar/ler a própria memória do agente.
+2. **Auto-exclusão do git, com uma exceção nomeada:** na primeira escrita, o `agentry` cria
+   `.agentry/.gitignore` com o conteúdo `*` seguido de uma exceção explícita por nome de
+   arquivo para cada artefato que **deve** ser versionado — hoje só
+   `!agentry.settings.json` (ADR-0018). O diretório continua se autoexcluindo do controle de
+   versão por padrão, sem nunca tocar no `.gitignore` do projeto (arquivo que o `agentry` não
+   é dono); a exceção é sempre por nome de arquivo específico, nunca um padrão amplo que
+   arrisque expor estado privado (sessão, índices, audit log) por engano. Como as tools de
+   leitura já existentes (`fs.rs` do MT-12, `repo_map.rs` do MT-21) usam a crate `ignore`, que
+   respeita `.gitignore` por padrão, o resto de `.agentry/` continua saindo de graça de
+   qualquer varredura de repo-map/RAG — nenhuma tool precisa de caso especial.
 3. **Layout reservado**, criado por quem precisar, não todo de uma vez — esta ADR não
-   implementa nenhum dos três, só reserva o espaço para que tickets futuros não reabram a
-   decisão nem inventem uma raiz paralela:
+   implementa a maioria, só reserva o espaço para que tickets futuros não reabram a decisão
+   nem inventem uma raiz paralela:
+   - `.agentry/agentry.settings.json` — **artefato de política, versionado** (ADR-0018) —
+     única exceção à auto-exclusão do item 2. Distribuído pelo `ai-coding-agent-profiles`,
+     consumido por `Settings::from_file` (MT-39).
    - `.agentry/index/` — índices RAG persistidos (tantivy do MT-26, lancedb do MT-27) —
      substitui `create_in_ram`/`memory://` quando a persistência for implementada.
    - `.agentry/session/` — histórico de sessão persistido, se/quando um ticket futuro
@@ -70,8 +83,9 @@ está sendo operado**, nunca num diretório global do usuário (`~/.config`, `~/
 4. **Portabilidade:** como tudo vive dentro de `<raiz>`, renomear/mover/copiar o diretório do
    projeto preserva memória/histórico automaticamente — não há re-vínculo a fazer, ao
    contrário de um esquema chaveado por caminho absoluto.
-5. Configuração (`Settings`, ADR-0003) permanece fora de escopo desta ADR — resolve por
-   variável de ambiente hoje e continua sendo decisão à parte.
+5. Configuração (`Settings`, ADR-0003) tem sua localização de artefato definida por esta ADR
+   (item 3) — o formato/schema exato é definido separadamente pela ADR-0018, que também
+   decide a precedência de camadas (perfil < arquivo < variável de ambiente).
 
 ## Consequências
 
@@ -95,11 +109,14 @@ está sendo operado**, nunca num diretório global do usuário (`~/.config`, `~/
   localização primária de estado por-projeto; modificar diretamente o `.gitignore` do projeto
   para excluir `.agentry/` — a exclusão é sempre via `.agentry/.gitignore` próprio; expor ou
   sincronizar o conteúdo de `.agentry/` para fora da máquina local por qualquer canal (mantém
-  o espírito do ADR-0002, mesmo sendo uma decisão de disco, não de rede).
+  o espírito do ADR-0002, mesmo sendo uma decisão de disco, não de rede); adicionar uma
+  exceção de auto-exclusão que não seja um nome de arquivo exato (padrões amplos arriscam
+  expor estado privado por engano).
 - **Obrigatório:** resolver a raiz via busca ascendente por `.git`, com *fallback* para o cwd;
-  garantir `.agentry/.gitignore` (conteúdo `*`) antes de qualquer outra escrita no diretório;
-  qualquer novo subsistema de persistência usa um subdiretório próprio dentro da raiz
-  resolvida, nunca uma raiz paralela.
+  garantir `.agentry/.gitignore` (conteúdo `*` + exceções nomeadas, hoje só
+  `agentry.settings.json`) antes de qualquer outra escrita no diretório; qualquer novo
+  subsistema de persistência usa um subdiretório próprio dentro da raiz resolvida, nunca uma
+  raiz paralela.
 
 > Qualquer desvio desta regra viola as diretrizes de conformidade arquitetural do projeto
 > e deve ser reportado para revisão antes de prosseguir.
