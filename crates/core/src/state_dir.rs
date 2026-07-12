@@ -30,11 +30,14 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 const NOME_DIRETORIO: &str = ".agentry";
-/// `*` ignora tudo em `.agentry/` por padrão; a exceção nomeada é o único
-/// artefato que precisa ser versionado (ADR-0018) — nunca um padrão amplo,
-/// que arriscaria expor estado privado (sessão, índices, audit log) por
-/// engano.
-const CONTEUDO_GITIGNORE: &str = "*\n!agentry.settings.json\n";
+/// `*` ignora tudo em `.agentry/` por padrão; `!agentry.settings.json` é o
+/// único artefato que precisa ser versionado (ADR-0018) — nunca um padrão
+/// amplo, que arriscaria expor estado privado (sessão, índices, audit
+/// log) por engano. `!.gitignore` é necessário à parte: sem ela, a regra
+/// `*` se aplica ao próprio arquivo `.gitignore` que a contém, e `git add`
+/// descarta o arquivo em silêncio (achado real ao distribuir o mesmo
+/// conteúdo pelo `ai-coding-agent-profiles`, ADR-0006 daquele repo).
+const CONTEUDO_GITIGNORE: &str = "*\n!agentry.settings.json\n!.gitignore\n";
 
 /// Resolve a raiz do projeto a partir de `start`: o primeiro ancestral
 /// (incluindo o próprio `start`) que contém `.git` (arquivo ou diretório).
@@ -147,7 +150,7 @@ mod tests {
     }
 
     #[test]
-    fn ensure_state_dir_cria_o_gitignore_com_conteudo_asterisco_e_excecao() {
+    fn ensure_state_dir_cria_o_gitignore_com_conteudo_asterisco_e_excecoes() {
         let dir = TempDir::new();
 
         let estado = ensure_state_dir(dir.path()).expect("deve criar o diretório de estado");
@@ -155,30 +158,59 @@ mod tests {
         assert_eq!(estado, dir.path().join(".agentry"));
         let gitignore = std::fs::read_to_string(estado.join(".gitignore"))
             .expect("deve ter criado o .gitignore");
-        assert_eq!(gitignore, "*\n!agentry.settings.json\n");
+        assert_eq!(gitignore, "*\n!agentry.settings.json\n!.gitignore\n");
     }
 
     #[test]
-    fn gitignore_nao_cobre_o_artefato_de_configuracao_versionado() {
-        // Documentação executável da intenção da ADR-0018: o único artefato
-        // de .agentry/ que deve escapar da auto-exclusão é
-        // agentry.settings.json — nenhum outro nome de arquivo.
+    fn gitignore_so_abre_excecao_para_nomes_exatos_conhecidos() {
+        // Documentação executável da intenção da ADR-0018: as únicas
+        // exceções à auto-exclusão de .agentry/ são agentry.settings.json
+        // (artefato versionado) e o próprio .gitignore (sem isso, a regra
+        // "*" se aplicaria a si mesma e `git add` o descartaria em
+        // silêncio — achado real ao distribuir o mesmo conteúdo pelo
+        // ai-coding-agent-profiles). Nenhum padrão amplo.
         let dir = TempDir::new();
 
         let estado = ensure_state_dir(dir.path()).expect("deve criar o diretório de estado");
         let gitignore = std::fs::read_to_string(estado.join(".gitignore"))
             .expect("deve ter criado o .gitignore");
 
-        assert!(
-            gitignore
-                .lines()
-                .any(|linha| linha == "!agentry.settings.json"),
-            "gitignore deve conter uma exceção nomeada exata para agentry.settings.json"
-        );
+        let excecoes: Vec<&str> = gitignore.lines().filter(|l| l.starts_with('!')).collect();
         assert_eq!(
-            gitignore.lines().filter(|l| l.starts_with('!')).count(),
-            1,
-            "só deve haver uma exceção — nunca um padrão amplo"
+            excecoes,
+            vec!["!agentry.settings.json", "!.gitignore"],
+            "só devem existir estas duas exceções nomeadas, nunca um padrão amplo"
+        );
+    }
+
+    #[test]
+    fn gitignore_nao_ignora_a_si_mesmo() {
+        // Prova direta do bug encontrado: sem a exceção !.gitignore, a
+        // regra "*" cobriria o próprio arquivo .gitignore, e um `git add`
+        // no diretório de estado descartaria o arquivo em silêncio.
+        let dir = TempDir::new();
+        let estado = ensure_state_dir(dir.path()).expect("deve criar o diretório de estado");
+        let gitignore_path = estado.join(".gitignore");
+
+        let mut builder = ignore::gitignore::GitignoreBuilder::new(&estado);
+        builder.add(&gitignore_path);
+        let matcher = builder.build().expect("gitignore deve compilar");
+
+        assert!(
+            !matcher.matched(&gitignore_path, false).is_ignore(),
+            ".gitignore não deve se autoignorar"
+        );
+        assert!(
+            !matcher
+                .matched(estado.join("agentry.settings.json"), false)
+                .is_ignore(),
+            "agentry.settings.json não deve ser ignorado"
+        );
+        assert!(
+            matcher
+                .matched(estado.join("index/manifest.json"), false)
+                .is_ignore(),
+            "qualquer outro arquivo de estado continua ignorado"
         );
     }
 

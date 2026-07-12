@@ -60,13 +60,18 @@ está sendo operado**, nunca num diretório global do usuário (`~/.config`, `~/
    sem caso especial.
 2. **Auto-exclusão do git, com uma exceção nomeada:** na primeira escrita, o `agentry` cria
    `.agentry/.gitignore` com o conteúdo `*` seguido de uma exceção explícita por nome de
-   arquivo para cada artefato que **deve** ser versionado — hoje só
-   `!agentry.settings.json` (ADR-0018). O diretório continua se autoexcluindo do controle de
-   versão por padrão, sem nunca tocar no `.gitignore` do projeto (arquivo que o `agentry` não
-   é dono); a exceção é sempre por nome de arquivo específico, nunca um padrão amplo que
-   arrisque expor estado privado (sessão, índices, audit log) por engano. Como as tools de
-   leitura já existentes (`fs.rs` do MT-12, `repo_map.rs` do MT-21) usam a crate `ignore`, que
-   respeita `.gitignore` por padrão, o resto de `.agentry/` continua saindo de graça de
+   arquivo para cada artefato de **política** que **deve** ser versionado — hoje só
+   `!agentry.settings.json` (ADR-0018). Uma segunda exceção puramente técnica,
+   `!.gitignore`, também é necessária: sem ela, a regra `*` se aplicaria ao próprio arquivo
+   que a contém, e `git add` descartaria o `.gitignore` em silêncio (achado real ao
+   distribuir o mesmo conteúdo pelo `ai-coding-agent-profiles`, ADR-0006 daquele repo) — não
+   é um segundo artefato de política, só a mecânica para a primeira exceção funcionar de
+   fato. O diretório continua se autoexcluindo do controle de versão por padrão, sem nunca
+   tocar no `.gitignore` do projeto (arquivo que o `agentry` não é dono); toda exceção é
+   sempre por nome de arquivo específico, nunca um padrão amplo que arrisque expor estado
+   privado (sessão, índices, audit log) por engano. Como as tools de leitura já existentes
+   (`fs.rs` do MT-12, `repo_map.rs` do MT-21) usam a crate `ignore`, que respeita
+   `.gitignore` por padrão, o resto de `.agentry/` continua saindo de graça de
    qualquer varredura de repo-map/RAG — nenhuma tool precisa de caso especial.
 3. **Layout reservado**, criado por quem precisar, não todo de uma vez — esta ADR não
    implementa a maioria, só reserva o espaço para que tickets futuros não reabram a decisão

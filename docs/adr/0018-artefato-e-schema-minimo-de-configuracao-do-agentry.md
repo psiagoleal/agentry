@@ -26,7 +26,7 @@ revelou que o artefato hoje existente — `profiles/<perfil>/.claude/settings.js
 **formato nativo do Claude Code** (`env`: `MAX_THINKING_TOKENS`/`CLAUDE_CODE_SUBAGENT_MODEL`;
 `permissions.deny`/`ask` como *padrões* estilo `"Bash(git push*)"`), não o que a ADR-0003
 supõe. `agentry::config::Permissions.deny`/`ask` já espera **nomes exatos de tool do agentry**
-(`"repo_map"`, `"shell"`, `"code_search"`) — sintaxe incompatível com padrões glob de Bash, e
+(`"repo_map"`, `"shell_exec"`, `"code_search"`) — sintaxe incompatível com padrões glob de Bash, e
 não há ali nada sobre roteamento por `task-class`, seleção de provider, ou as flags de
 contexto (RAG/repo-map/LSP)/Reviewer. Consumir esse artefato diretamente exigiria reinterpretar
 um formato desenhado para outro consumidor — não é uma opção sólida.
@@ -77,7 +77,7 @@ igual já faz hoje com `.claude/settings.json`):
    }
    ```
    `permissions.deny`/`ask` usam **nomes exatos de tool do agentry** (`"repo_map"`,
-   `"code_search"`, `"shell"`, ...) — nunca os padrões Bash do Claude Code, domínio diferente.
+   `"code_search"`, `"shell_exec"`, ...) — nunca os padrões Bash do Claude Code, domínio diferente.
    Todo campo é opcional; ausente ⇒ *default* de cada ADR de origem.
 6. **Deliberadamente fora desta fatia** — cada um ganha sua própria extensão de schema
    (nova seção deste ADR ou um ADR sucessor) quando o ticket de consumo for implementado,
