@@ -185,8 +185,10 @@ já tenha o Ollama (ou um container equivalente) para exercitar o teste
 completo.
 
 > Achado real desta sessão: a mensagem de erro útil (`erro: erro do
-> provider: ...`) vem **depois** de uma linha `[audit] AuditEntry { ... }`
+> provider: ...`) vinha **depois** de uma linha `[audit] AuditEntry { ... }`
 > (o *dump* de Debug do audit log, `StderrAuditSink` em
-> `crates/cli/src/main.rs`) — que polui a saída de stderr para quem só quer
-> entender por que a tarefa falhou. Não corrigido ainda (fora do escopo
-> deste guia); registrado aqui para não se perder.
+> `crates/cli/src/main.rs`) — poluindo a saída de stderr para quem só quer
+> entender por que a tarefa falhou. **Corrigido**: `AuditEntry` ganhou um
+> `impl Display` (uma linha compacta, ex.: `chat_stream ->
+> http://127.0.0.1:11434/api/chat (local-only, allowed)`), usado no lugar
+> de `{:?}`.
