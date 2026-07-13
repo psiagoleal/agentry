@@ -13,6 +13,7 @@
 
 use std::io::{BufRead, Write};
 use std::path::Path;
+use std::sync::Arc;
 
 use agentry_core::config::privacy::EgressClass;
 use agentry_core::router::{CallPreset, RouteEntry, RouteTarget, Router, RuntimeOverride};
@@ -168,8 +169,22 @@ pub async fn run_repl<R: BufRead, W: Write>(
             }
             continue;
         }
-        if linha == "/init" {
-            match crate::run_init_local(workspace_root) {
+        if linha == "/init" || linha.starts_with("/init ") {
+            let perfil = linha.strip_prefix("/init").unwrap_or("").trim();
+            let resultado = if perfil.is_empty() {
+                crate::run_init_local(workspace_root)
+            } else {
+                let sink: Arc<dyn agentry_core::transport::AuditSink> =
+                    Arc::new(crate::StderrAuditSink);
+                match crate::init::fetch_profile_settings(perfil, sink).await {
+                    Ok(conteudo) => crate::write_settings_if_absent(workspace_root, &conteudo),
+                    Err(erro) => {
+                        writeln!(output, "erro: {erro}").map_err(|e| e.to_string())?;
+                        continue;
+                    }
+                }
+            };
+            match resultado {
                 Ok(outcome) => crate::escrever_resultado_init(&outcome, &mut output)
                     .map_err(|e| e.to_string())?,
                 Err(erro) => writeln!(output, "erro: {erro}").map_err(|e| e.to_string())?,

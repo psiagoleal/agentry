@@ -21,7 +21,10 @@
 //! MT-08): devolve o corpo da resposta como um fluxo de **linhas de texto
 //! bruto**, sem conhecer o formato de nenhum provider — a interpretação de
 //! cada linha (NDJSON, SSE etc.) é responsabilidade do adapter, mantendo o
-//! transporte agnóstico de provider (fora de escopo do MT-07).
+//! transporte agnóstico de provider (fora de escopo do MT-07). [`Transport::get_text`]
+//! (MT-42, ADR-0019) cobre o caso GET simples — busca de um artefato estático
+//! (não uma API de chat/tool-calling) —, devolvendo o corpo como texto bruto
+//! pela mesma razão de agnosticismo de formato.
 //!
 //! Ambos os métodos aceitam um **timeout por chamada** (MT-17, ADR-0009),
 //! via a API nativa do `reqwest` (`.timeout()` no builder da requisição);
@@ -200,6 +203,50 @@ impl Transport {
 
         resposta
             .json::<serde_json::Value>()
+            .await
+            .map_err(|e| TransportError::Http(e.to_string()))
+    }
+
+    /// Envia um GET para `url`, sob a mesma política de egresso de
+    /// [`Self::post_json`] — decide primeiro se o host é alcançável
+    /// (allowlist); aborta antes de qualquer conexão se não for. Devolve o
+    /// corpo da resposta como texto bruto, sem assumir nenhum formato (JSON,
+    /// texto simples etc.) — a interpretação fica a cargo de quem chama (ex.:
+    /// `Settings::from_json_str` no bootstrap de configuração via rede,
+    /// MT-42/ADR-0019).
+    ///
+    /// # Errors
+    ///
+    /// Mesmos casos de [`Self::post_json`].
+    pub async fn get_text(
+        &self,
+        url: &str,
+        task: &str,
+        timeout: Option<Duration>,
+    ) -> Result<String, TransportError> {
+        let parsed = self.authorize(url, task)?;
+
+        let mut requisicao = self.client.get(parsed);
+        for (nome, valor) in &self.default_headers {
+            requisicao = requisicao.header(nome, valor);
+        }
+        if let Some(timeout) = timeout {
+            requisicao = requisicao.timeout(timeout);
+        }
+        let resposta = requisicao
+            .send()
+            .await
+            .map_err(|e| TransportError::Http(e.to_string()))?;
+
+        if !resposta.status().is_success() {
+            return Err(TransportError::Http(format!(
+                "status HTTP {}",
+                resposta.status()
+            )));
+        }
+
+        resposta
+            .text()
             .await
             .map_err(|e| TransportError::Http(e.to_string()))
     }
@@ -455,6 +502,61 @@ mod tests {
             erro,
             TransportError::Blocked(EgressError::NotAllowlisted { .. })
         ));
+    }
+
+    #[tokio::test]
+    async fn get_text_alcanca_o_servidor_e_devolve_o_corpo_bruto() {
+        let (addr, conexoes) = start_mock_server(r#"{"schemaVersion":1}"#).await;
+        let host = addr.ip().to_string();
+        let allowlist = Allowlist::new(vec![AllowlistEntry::new(
+            host.as_str(),
+            EgressClass::CloudOk,
+        )]);
+        let sink = Arc::new(AuditCollector::default());
+        let transport = Transport::new(
+            allowlist,
+            EgressClass::CloudOk,
+            Some("init".into()),
+            sink.clone(),
+        );
+
+        let url = format!("http://{addr}/perfil.json");
+        let corpo = transport
+            .get_text(&url, "init de teste", None)
+            .await
+            .expect("GET permitido deve passar");
+
+        assert_eq!(corpo, r#"{"schemaVersion":1}"#);
+        assert_eq!(conexoes.load(Ordering::SeqCst), 1);
+
+        let entradas = sink.entries();
+        assert_eq!(entradas.len(), 1);
+        assert_eq!(entradas[0].outcome, AuditOutcome::Allowed);
+    }
+
+    #[tokio::test]
+    async fn get_text_bloqueado_por_classe_insuficiente_aborta_sem_tocar_a_rede() {
+        let (addr, conexoes) = start_mock_server(r#"{"schemaVersion":1}"#).await;
+        let host = addr.ip().to_string();
+        let allowlist = Allowlist::new(vec![AllowlistEntry::new(
+            host.as_str(),
+            EgressClass::CloudOk,
+        )]);
+        let sink = Arc::new(AuditCollector::default());
+        let transport = Transport::new(allowlist, EgressClass::LocalOnly, None, sink.clone());
+
+        let url = format!("http://{addr}/perfil.json");
+        let erro = transport
+            .get_text(&url, "init de teste", None)
+            .await
+            .expect_err("classe insuficiente deve abortar");
+
+        assert!(matches!(erro, TransportError::Blocked(_)));
+        assert_eq!(
+            conexoes.load(Ordering::SeqCst),
+            0,
+            "nenhuma conexão deve ter sido aberta"
+        );
     }
 
     #[tokio::test]

@@ -18,11 +18,12 @@
 //! de sessão inicial, que os comandos de barra atualizam a partir daí.
 //!
 //! A flag `--init` (e o comando `/init` do REPL) materializam
-//! `.agentry/agentry.settings.json` com o exemplo genérico do schema mínimo
-//! (ADR-0018 §5) — bootstrap local, sem nenhuma chamada de rede (ADR-0019,
-//! MT-41); busca por `--profile` no repositório irmão `ai-coding-agent-profiles`
-//! fica para o MT-42.
+//! `.agentry/agentry.settings.json`: sem `--profile`, o exemplo genérico do
+//! schema mínimo (ADR-0018 §5), sem nenhuma chamada de rede (ADR-0019 §1,
+//! MT-41); com `--profile <nome>`, busca o artefato real daquele perfil no
+//! repositório irmão `ai-coding-agent-profiles` (ver [`init`], MT-42).
 
+mod init;
 mod repl;
 mod streaming;
 mod tool_executor;
@@ -131,10 +132,17 @@ struct Args {
     ollama_host: String,
 
     /// Cria `.agentry/agentry.settings.json` (bootstrap, ADR-0019) e sai —
-    /// sem `--profile` (MT-42, ainda não implementado), usa o exemplo
-    /// genérico do schema mínimo (ADR-0018 §5), sem nenhuma chamada de rede.
+    /// sem `--profile`, usa o exemplo genérico do schema mínimo (ADR-0018
+    /// §5), sem nenhuma chamada de rede.
     #[arg(long, conflicts_with = "tarefa")]
     init: bool,
+
+    /// Com `--init`: busca o `agentry.settings.json` real deste perfil
+    /// (`empresa`/`externo-confidencial`/`pessoal`) no `ai-coding-agent-profiles`
+    /// público, numa referência fixa (MT-42, ADR-0019 §2-4) — em vez do
+    /// exemplo genérico.
+    #[arg(long, requires = "init")]
+    profile: Option<String>,
 }
 
 /// Resultado de [`run_init_local`] — usado tanto por `--init` quanto por
@@ -147,25 +155,40 @@ enum InitOutcome {
     AlreadyExists(std::path::PathBuf),
 }
 
-/// Materializa `.agentry/agentry.settings.json` com o exemplo genérico do
-/// schema mínimo (ADR-0018 §5) — bootstrap local, sem `--profile` (ADR-0019
-/// §1). Reaproveita `state_dir::ensure_state_dir` (cria o diretório de
-/// estado e seu `.gitignore`, MT-38) e `state_dir::agentry_settings_path`
-/// (MT-39) para resolver o caminho final; nunca sobrescreve um arquivo já
-/// existente.
+/// Grava `conteudo` em `.agentry/agentry.settings.json` — reaproveita
+/// `state_dir::ensure_state_dir` (cria o diretório de estado e seu
+/// `.gitignore`, MT-38) e `state_dir::agentry_settings_path` (MT-39) para
+/// resolver o caminho final; nunca sobrescreve um arquivo já existente.
+/// Compartilhada entre o bootstrap local (MT-41) e o via rede com
+/// `--profile` (MT-42) — a diferença entre os dois é só de onde `conteudo`
+/// vem, nunca de como é gravado.
 ///
 /// # Errors
 ///
 /// Devolve o `io::Error` de criar o diretório de estado ou escrever o
 /// arquivo, sem tratamento especial.
-fn run_init_local(workspace_root: &std::path::Path) -> io::Result<InitOutcome> {
+fn write_settings_if_absent(
+    workspace_root: &std::path::Path,
+    conteudo: &str,
+) -> io::Result<InitOutcome> {
     state_dir::ensure_state_dir(workspace_root)?;
     let caminho = state_dir::agentry_settings_path(workspace_root);
     if caminho.exists() {
         return Ok(InitOutcome::AlreadyExists(caminho));
     }
-    std::fs::write(&caminho, GENERIC_SETTINGS_EXAMPLE)?;
+    std::fs::write(&caminho, conteudo)?;
     Ok(InitOutcome::Created(caminho))
+}
+
+/// Materializa `.agentry/agentry.settings.json` com o exemplo genérico do
+/// schema mínimo (ADR-0018 §5) — bootstrap local, sem `--profile` (ADR-0019
+/// §1), zero rede.
+///
+/// # Errors
+///
+/// Ver [`write_settings_if_absent`].
+fn run_init_local(workspace_root: &std::path::Path) -> io::Result<InitOutcome> {
+    write_settings_if_absent(workspace_root, GENERIC_SETTINGS_EXAMPLE)
 }
 
 /// Escreve o resultado de [`run_init_local`] em `output`, sempre seguido do
@@ -268,7 +291,20 @@ async fn main() {
             eprintln!("erro ao ler diretório de trabalho: {erro}");
             std::process::exit(1)
         });
-        match run_init_local(&workspace_root) {
+        let resultado = match &args.profile {
+            Some(perfil) => {
+                let sink: Arc<dyn AuditSink> = Arc::new(StderrAuditSink);
+                match init::fetch_profile_settings(perfil, sink).await {
+                    Ok(conteudo) => write_settings_if_absent(&workspace_root, &conteudo),
+                    Err(erro) => {
+                        eprintln!("erro ao buscar configuração do perfil: {erro}");
+                        std::process::exit(1)
+                    }
+                }
+            }
+            None => run_init_local(&workspace_root),
+        };
+        match resultado {
             Ok(outcome) => {
                 escrever_resultado_init(&outcome, &mut io::stdout()).unwrap_or_else(|erro| {
                     eprintln!("erro: {erro}");
