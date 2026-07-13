@@ -9,13 +9,12 @@
 
 - **Data:** 2026-07-13
 - **Branch:** `main`
-- **Commit:** `4e24a52`
-- **Fase:** Roadmap v0.1 completo e **fechado/imutável** (`docs/roadmap-v0.1.md`, MT-01..38).
-  Fase 7 fechada (`docs/roadmap-v0.2.md`, MT-39/40): `.agentry/agentry.settings.json`
-  (ADR-0018) já é lido de verdade e as 4 flags chegam à CLI real. Antes de abrir o Guardrail
-  Gate (ADR-0007) como próximo micro-ticket, o usuário pediu para primeiro fechar o design de
-  um comando `--init`/`/init` que crie o arquivo — resultou na **ADR-0019** (ver abaixo).
-  Ainda **sem micro-ticket de implementação aberto** para a ADR-0019, por pedido explícito.
+- **Commit:** *(ver histórico — commit do handoff é o topo da tabela)*
+- **Fase:** Roadmap v0.1 (MT-01..38) e v0.2 (MT-39/40, `Fase 7`) **fechados/imutáveis**.
+  Aberta a **Fase 8** (`docs/roadmap-v0.3.md`): implementa a **ADR-0019** (bootstrap de
+  `.agentry/agentry.settings.json` via `--init`/`/init`), quebrada em **MT-41** (local,
+  zero rede) e **MT-42** (via rede, `--profile`). Guardrail Gate (ADR-0007) é a frente
+  seguinte já sinalizada pelo usuário.
 
 ## Metas cumpridas / Em andamento / Próximo passo
 
@@ -174,17 +173,22 @@
   constante no código** (nunca "latest" dinâmico — reprodutibilidade sobre frescor,
   decisão explícita do usuário); comando manual (`setup-profile.sh`) sempre impresso como
   alternativa; falha de rede com `--profile` explícito nunca cai silenciosamente no exemplo
-  genérico. **Sem micro-ticket de implementação aberto ainda — só a ADR nesta passada, por
-  pedido explícito do usuário.** `docs/interop/exchange-log.md` ganhou a oitava troca.
+  genérico. `docs/interop/exchange-log.md` ganhou a oitava troca.
+- [x] **Roadmap v0.3** (`docs/roadmap-v0.3.md`, novo — v0.2 permanece fechado/imutável) —
+  ADR-0019 quebrada em 2 micro-tickets via skill `micro-ticket-planner`: **MT-41** (bootstrap
+  local sem `--profile`, zero rede, reaproveita `state_dir::ensure_state_dir`/MT-38/39,
+  idempotente) e **MT-42** (bootstrap via rede com `--profile`, `Transport` dedicado com
+  `Allowlist`/`EgressClass::CloudOk` próprias, referência pinada, validação por
+  `Settings::from_json_str` antes de gravar). Nenhum código implementado ainda.
 
 **Em andamento:** nada pendente no turno.
 
-**Próximo passo:** a definir com o usuário. Duas frentes conhecidas e não agendadas como
-ticket: (1) micro-tickets de implementação da ADR-0019 (`--init`/`/init`); (2) Guardrail Gate
-de conteúdo (ADR-0007), que o usuário já sinalizou querer abrir em seguida. Outros itens em
-aberto, também sem ticket: housekeeping de status de ADR (15 de 19 ainda `Proposed`); CI
-multi-SO ainda não observado verde (falta um push que dispare a matriz); backlog independente
-do `ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de reanálise de maturidade,
+**Próximo passo:** **MT-41** (`docs/roadmap-v0.3.md`) — bootstrap local sem `--profile`.
+Depois, **MT-42** (bootstrap via rede). Guardrail Gate (ADR-0007) segue sinalizado pelo
+usuário como próxima frente depois da ADR-0019. Outros itens em aberto, sem ticket:
+housekeeping de status de ADR (16 de 19 ainda `Proposed`); CI multi-SO ainda não observado
+verde (falta um push que dispare a matriz); backlog independente do
+`ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de reanálise de maturidade,
 perfis base+overlay/skills executáveis/config de serviços pendentes de validação de
 implementação).
 
