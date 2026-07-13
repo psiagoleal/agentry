@@ -8,6 +8,9 @@ pela CLI real (Fase 7 concluída). Este documento começa uma nova fase: impleme
 bootstrap de `.agentry/agentry.settings.json` decidido na ADR-0019
 (`docs/adr/0019-bootstrap-de-agentry-settings-json-via-init.md`).
 
+**Fase 8 concluída** (MT-41 + MT-42, `3a2075b`/`4f54169`) — este documento fica, a partir
+daqui, fechado/imutável como registro histórico, mesmo padrão dos roadmaps anteriores.
+
 ## Convenções
 
 Mesmas dos roadmaps anteriores (`docs/roadmap-v0.1.md` §Convenções): **DoD** padrão
@@ -39,7 +42,7 @@ ADR (ADR-0004), skill `micro-ticket-planner` para granularidade.
   sobrescrita explícita (deliberadamente adiada pela própria ADR-0019 §6).
 - **Depende de:** MT-38, MT-39 · ADR-0017, ADR-0018, ADR-0019.
 
-### MT-42: `--init --profile <nome>` — bootstrap via rede, referência pinada
+### MT-42: `--init --profile <nome>` — bootstrap via rede, referência pinada — ✅ concluído (`4f54169`)
 - **Objetivo:** quando `--profile <empresa|externo-confidencial|pessoal>` for informado
   (na flag CLI ou no comando REPL), buscar o `agentry.settings.json` real daquele perfil no
   `ai-coding-agent-profiles`, através de uma **instância de `Transport` dedicada ao

@@ -9,11 +9,11 @@
 
 - **Data:** 2026-07-13
 - **Branch:** `main`
-- **Commit:** `3a2075b`
-- **Fase:** Roadmap v0.1 (MT-01..38) e v0.2 (MT-39/40, `Fase 7`) **fechados/imutáveis**.
-  Em andamento a **Fase 8** (`docs/roadmap-v0.3.md`, ADR-0019): **MT-41 concluído**
-  (`--init`/`/init` local, zero rede); falta o **MT-42** (via rede, `--profile`). Guardrail
-  Gate (ADR-0007) é a frente seguinte já sinalizada pelo usuário.
+- **Commit:** `4f54169`
+- **Fase:** Roadmap v0.1 (MT-01..38), v0.2 (MT-39/40, `Fase 7`) e v0.3 (MT-41/42, `Fase 8`)
+  **fechados/imutáveis**. ADR-0019 totalmente implementada: `--init`/`/init` materializam
+  `.agentry/agentry.settings.json`, local (zero rede) ou via `--profile` (rede pinada).
+  Guardrail Gate (ADR-0007) é a frente seguinte já sinalizada pelo usuário.
 
 ## Metas cumpridas / Em andamento / Próximo passo
 
@@ -198,13 +198,34 @@
   + tarefa juntos é rejeitado pelo clap. 237 testes na lib do core + 4 de integração + 18 na
   CLI (14 + 4), fmt/clippy limpos, `cargo build --release` verde. Nenhuma dependência nova
   (`3a2075b`).
+- [x] **MT-42** — `crates/core/src/transport/mod.rs`: `Transport` ganha `get_text` (GET
+  simples, mesma política de egresso/audit de `post_json`) — necessário porque o `Transport`
+  só tinha métodos POST; **escopo maior que o declarado no ticket** (arquivos previstos eram
+  só `crates/cli/*`), mas inevitável — sem isso o fetch teria que ir por fora do `Transport`,
+  violando a ADR-0002 (mesmo conflito já resolvido na própria ADR-0019). `crates/cli/src/init.rs`
+  (novo): `fetch_profile_settings` busca o `agentry.settings.json` real de um perfil no
+  `ai-coding-agent-profiles` público via uma instância de `Transport` **dedicada ao
+  bootstrap** (`Allowlist` restrita a `raw.githubusercontent.com`, `EgressClass::CloudOk` —
+  nunca a classe da sessão real), numa referência (commit) fixa gravada como constante
+  (`d3ed413fbfcbb83da268bef540b924c26e2c3a2f`, HEAD real do `profiles` no momento do commit)
+  — nunca "latest". Valida com `Settings::from_json_str` (`schemaVersion`) antes de aceitar;
+  perfil desconhecido é rejeitado antes de qualquer rede. Núcleo parametrizado
+  (`base_url`/`host`) para os testes apontarem a um servidor local, nunca o GitHub real.
+  `crates/cli/src/main.rs` ganha `--profile` (`requires = "init"`); `run_init_local`
+  refatorado sobre `write_settings_if_absent` (compartilhada entre o caminho local do MT-41 e
+  o via rede daqui). `crates/cli/src/repl.rs`: `/init <perfil>` aceita o mesmo argumento.
+  **Smoke-test manual do binário real contra o GitHub de verdade** confirma: busca o
+  `agentry.settings.json` real do perfil `empresa` (com `_comentario` e `deny`/`ask`
+  diferenciados preservados); perfil desconhecido falha antes de qualquer rede; `--profile`
+  sem `--init` é rejeitado pelo clap. 7 testes novos (2 em `transport`, 5 em `init`), 239
+  testes na lib do core + 4 de integração + 23 na CLI (18 + 5), fmt/clippy limpos,
+  `cargo build --release` verde. Nenhuma dependência nova (`4f54169`). **Fecha o MT-42, a
+  ADR-0019 e a Fase 8.**
 
 **Em andamento:** nada pendente no turno.
 
-**Próximo passo:** **MT-42** (`docs/roadmap-v0.3.md`) — bootstrap via rede com `--profile`
-(`Transport` dedicado, referência pinada). Depois, fecha a Fase 8. Guardrail Gate (ADR-0007)
-segue sinalizado pelo usuário como próxima frente depois da ADR-0019. Outros itens em
-aberto, sem ticket:
+**Próximo passo:** a definir com o usuário — Guardrail Gate (ADR-0007) é a frente já
+sinalizada como a próxima depois da ADR-0019. Outros itens em aberto, sem ticket:
 housekeeping de status de ADR (16 de 19 ainda `Proposed`); CI multi-SO ainda não observado
 verde (falta um push que dispare a matriz); backlog independente do
 `ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de reanálise de maturidade,
@@ -228,6 +249,7 @@ implementação).
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-13 | `4f54169` | MT-42: --init --profile — bootstrap via rede, referência pinada; fecha a Fase 8 | MT-42 |
 | 2026-07-13 | `3a2075b` | MT-41: --init/`/init` sem --profile — bootstrap local, zero rede | MT-41 |
 | 2026-07-13 | `362696f` | docs(roadmap): ADR-0019 quebrada em MT-41/42 (Fase 8, roadmap-v0.3.md) | — |
 | 2026-07-13 | `4e24a52` | ADR-0019: bootstrap de agentry.settings.json via --init/`/init` | — |
