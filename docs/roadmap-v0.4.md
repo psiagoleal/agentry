@@ -18,7 +18,7 @@ ADR (ADR-0004), skill `micro-ticket-planner` para granularidade.
 
 ## Fase 9 — Guardrail Gate (ADR-0007)
 
-### MT-43: Módulo `guardrail` — tipos, correspondência e auditoria
+### MT-43: Módulo `guardrail` — tipos, correspondência e auditoria — ✅ concluído (`7627c53`)
 - **Objetivo:** novo módulo de topo `crates/core/src/guardrail/mod.rs`, paralelo a
   `egress`/`tools` — `GuardrailAction` (`Block`/`Redact`, com `rank()` análogo ao
   `EgressClass::rank()` do ADR-0002, `Block` > `Redact`), `GuardrailRule` (`id`/`match_text`/
