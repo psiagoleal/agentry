@@ -4,12 +4,15 @@
 //! override de **sessão** (ADR-0014/MT-33) — persiste para os turnos
 //! seguintes até ser trocado de novo — `/compact` (MT-37, ADR-0016) para
 //! compactar o histórico da sessão via `Session::compact` — e qualquer
-//! outra linha como mensagem de usuário.
+//! outra linha como mensagem de usuário. `/init` (MT-41, ADR-0019) materializa
+//! `.agentry/agentry.settings.json` via [`crate::run_init_local`] — mesma
+//! função usada pela flag `--init` do modo one-shot, sem duplicar a lógica.
 //!
 //! Genérico sobre `Read`/`Write` (não amarrado a `stdin`/`stdout` reais) para
 //! ser testável com buffers em memória.
 
 use std::io::{BufRead, Write};
+use std::path::Path;
 
 use agentry_core::config::privacy::EgressClass;
 use agentry_core::router::{CallPreset, RouteEntry, RouteTarget, Router, RuntimeOverride};
@@ -123,6 +126,11 @@ fn aplicar_comando(
 /// `session_override` é o estado inicial (tipicamente vindo das flags de
 /// invocação); comandos de barra atualizam esse mesmo estado, que passa a
 /// valer para os turnos seguintes até ser trocado de novo (ADR-0014).
+/// `workspace_root` é a raiz usada pelo comando `/init` (MT-41, ADR-0019)
+/// para localizar/criar `.agentry/agentry.settings.json` — passada
+/// explicitamente (em vez de `run_repl` ler `std::env::current_dir()` por
+/// conta própria) para que os testes nunca escrevam no diretório real do
+/// processo.
 ///
 /// # Errors
 ///
@@ -133,6 +141,7 @@ pub async fn run_repl<R: BufRead, W: Write>(
     mut output: W,
     session: &mut Session,
     router: &mut Router,
+    workspace_root: &Path,
     preset_base: &CallPreset,
     mut session_override: RuntimeOverride,
 ) -> Result<(), String> {
@@ -155,6 +164,14 @@ pub async fn run_repl<R: BufRead, W: Write>(
         if linha == "/compact" {
             match session.compact(router).await {
                 Ok(()) => writeln!(output, "sessão compactada").map_err(|e| e.to_string())?,
+                Err(erro) => writeln!(output, "erro: {erro}").map_err(|e| e.to_string())?,
+            }
+            continue;
+        }
+        if linha == "/init" {
+            match crate::run_init_local(workspace_root) {
+                Ok(outcome) => crate::escrever_resultado_init(&outcome, &mut output)
+                    .map_err(|e| e.to_string())?,
                 Err(erro) => writeln!(output, "erro: {erro}").map_err(|e| e.to_string())?,
             }
             continue;
@@ -248,6 +265,7 @@ mod tests {
             &mut saida,
             &mut session,
             &mut router,
+            &std::env::temp_dir(),
             &CallPreset::default(),
             RuntimeOverride::default(),
         )
@@ -277,6 +295,7 @@ mod tests {
             &mut saida,
             &mut session,
             &mut router,
+            &std::env::temp_dir(),
             &CallPreset::default(),
             RuntimeOverride::default(),
         )
@@ -308,6 +327,7 @@ mod tests {
             &mut saida,
             &mut session,
             &mut router,
+            &std::env::temp_dir(),
             &CallPreset::default(),
             RuntimeOverride::default(),
         )
@@ -339,6 +359,7 @@ mod tests {
             &mut saida,
             &mut session,
             &mut router,
+            &std::env::temp_dir(),
             &CallPreset::default(),
             RuntimeOverride::default(),
         )
@@ -383,6 +404,7 @@ mod tests {
             &mut saida,
             &mut session,
             &mut router,
+            &std::env::temp_dir(),
             &CallPreset::default(),
             RuntimeOverride::default(),
         )
@@ -415,6 +437,7 @@ mod tests {
             &mut saida,
             &mut session,
             &mut router,
+            &std::env::temp_dir(),
             &CallPreset::default(),
             RuntimeOverride::default(),
         )
@@ -445,6 +468,7 @@ mod tests {
             &mut saida,
             &mut session,
             &mut router,
+            &std::env::temp_dir(),
             &CallPreset::default(),
             RuntimeOverride::default(),
         )
@@ -453,5 +477,76 @@ mod tests {
 
         assert!(session.messages().is_empty());
         assert_eq!(mock.chat_requests().len(), 0);
+    }
+
+    /// Diretório temporário de teste, removido automaticamente ao sair de
+    /// escopo (mesma disciplina de `state_dir`/`config`/`main::tests`,
+    /// MT-38/39/41) — usado só pelo teste de `/init` abaixo, que de fato
+    /// escreve em disco (os demais testes deste módulo passam
+    /// `std::env::temp_dir()` porque nunca chamam `/init`).
+    struct TempDir(std::path::PathBuf);
+
+    impl TempDir {
+        fn new() -> Self {
+            let unico = format!(
+                "agentry-cli-repl-test-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .expect("relógio do sistema não deve estar antes de 1970")
+                    .as_nanos()
+            );
+            let path = std::env::temp_dir().join(unico);
+            std::fs::create_dir_all(&path).expect("deve criar diretório temporário de teste");
+            Self(path)
+        }
+
+        fn path(&self) -> &std::path::Path {
+            &self.0
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[tokio::test]
+    async fn comando_init_materializa_o_arquivo_pela_mesma_funcao_do_flag_cli() {
+        let dir = TempDir::new();
+        let mock = Arc::new(MockProvider::new(PROVIDER));
+        let mut router = router_com_ollama(mock.clone(), "modelo-x");
+        let rota = router.resolve(TASK_CLASS).expect("deve resolver");
+        let mut session = Session::new(rota, Arc::new(NoopExecutor), TokenBudget::new(100_000));
+
+        let entrada = "/init\n/exit\n";
+        let mut saida = Vec::new();
+
+        run_repl(
+            Cursor::new(entrada.as_bytes()),
+            &mut saida,
+            &mut session,
+            &mut router,
+            dir.path(),
+            &CallPreset::default(),
+            RuntimeOverride::default(),
+        )
+        .await
+        .expect("/init não deve derrubar o repl");
+
+        let caminho = crate::state_dir::agentry_settings_path(dir.path());
+        let conteudo = std::fs::read_to_string(&caminho)
+            .expect("/init deve ter criado o arquivo via a mesma run_init_local do --init");
+        assert_eq!(conteudo, crate::GENERIC_SETTINGS_EXAMPLE);
+
+        let saida_texto = String::from_utf8(saida).unwrap();
+        assert!(saida_texto.contains("criado:"));
+        assert!(saida_texto.contains(crate::MANUAL_SETUP_HINT));
+        assert_eq!(
+            mock.chat_requests().len(),
+            0,
+            "/init não deve chamar o provider"
+        );
     }
 }

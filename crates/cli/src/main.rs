@@ -16,6 +16,12 @@
 //! [`RuntimeOverride`] inicial (ADR-0014/MT-33): no one-shot, vale só para
 //! aquela invocação (o processo roda uma vez e sai); no REPL, vira o estado
 //! de sessão inicial, que os comandos de barra atualizam a partir daí.
+//!
+//! A flag `--init` (e o comando `/init` do REPL) materializam
+//! `.agentry/agentry.settings.json` com o exemplo genérico do schema mínimo
+//! (ADR-0018 §5) — bootstrap local, sem nenhuma chamada de rede (ADR-0019,
+//! MT-41); busca por `--profile` no repositório irmão `ai-coding-agent-profiles`
+//! fica para o MT-42.
 
 mod repl;
 mod streaming;
@@ -33,6 +39,7 @@ use agentry_core::provider::ollama::OllamaProvider;
 use agentry_core::provider::LlmProvider;
 use agentry_core::router::{CallPreset, Router, RuntimeOverride};
 use agentry_core::session::{Session, TokenBudget, ToolExecutor};
+use agentry_core::state_dir;
 use agentry_core::tools::code_search::{register_code_search_tool, CodeSearchSession};
 use agentry_core::tools::fs::{FsEditTool, FsReadTool, FsSearchTool, FsWriteTool};
 use agentry_core::tools::lsp::{register_lsp_tools, LspSession};
@@ -60,6 +67,32 @@ const DEFAULT_TOKEN_BUDGET: u64 = 100_000;
 /// Ausência do binário no `PATH` já é erro tratado pelo `LspClient` (MT-23),
 /// nunca *panic*.
 const DEFAULT_LSP_COMMAND: &str = "rust-analyzer";
+/// Exemplo genérico do schema mínimo (ADR-0018 §5) — conteúdo exato gravado
+/// por `--init`/`/init` quando nenhum `--profile` é informado (ADR-0019 §1,
+/// MT-41): todas as flags de contexto/provider em `true`, permissões
+/// vazias. Busca de valores diferenciados por perfil fica para o MT-42.
+const GENERIC_SETTINGS_EXAMPLE: &str = r#"{
+  "$schema": "https://agentry.dev/schema/agentry-settings-schema-1.json",
+  "schemaVersion": 1,
+  "permissions": {
+    "deny": [],
+    "ask": []
+  },
+  "context": {
+    "repoMap": { "enabled": true },
+    "semanticRag": { "enabled": true },
+    "lspGrounding": { "enabled": true }
+  },
+  "providers": {
+    "ollama": { "structuredOutput": true }
+  }
+}
+"#;
+/// Comando manual equivalente, sempre exibido por `--init`/`/init` (ADR-0019
+/// §5) — para quem preferir os valores diferenciados por perfil
+/// (`empresa`/`externo-confidencial`/`pessoal`) do `ai-coding-agent-profiles`
+/// em vez do exemplo genérico, inspecionando/rodando por conta própria.
+const MANUAL_SETUP_HINT: &str = "dica: para valores diferenciados por perfil (empresa/externo-confidencial/pessoal), rode o scripts/setup-profile.sh de https://github.com/psiagoleal/ai-coding-agent-profiles";
 
 /// CLI agêntica de codificação (multi-provedor, roteamento por classe de
 /// privacidade) — v0.1 fala só com um servidor Ollama local.
@@ -96,6 +129,58 @@ struct Args {
     /// Host:porta do servidor Ollama local.
     #[arg(long = "ollama-host", default_value = DEFAULT_OLLAMA_HOST)]
     ollama_host: String,
+
+    /// Cria `.agentry/agentry.settings.json` (bootstrap, ADR-0019) e sai —
+    /// sem `--profile` (MT-42, ainda não implementado), usa o exemplo
+    /// genérico do schema mínimo (ADR-0018 §5), sem nenhuma chamada de rede.
+    #[arg(long, conflicts_with = "tarefa")]
+    init: bool,
+}
+
+/// Resultado de [`run_init_local`] — usado tanto por `--init` quanto por
+/// `/init` (MT-41) para formatar a mesma mensagem sem duplicar a decisão.
+enum InitOutcome {
+    /// Arquivo criado agora, no caminho dado.
+    Created(std::path::PathBuf),
+    /// Arquivo já existia — não sobrescrito (mesma idempotência de
+    /// `state_dir::ensure_state_dir` para o `.gitignore`, MT-38).
+    AlreadyExists(std::path::PathBuf),
+}
+
+/// Materializa `.agentry/agentry.settings.json` com o exemplo genérico do
+/// schema mínimo (ADR-0018 §5) — bootstrap local, sem `--profile` (ADR-0019
+/// §1). Reaproveita `state_dir::ensure_state_dir` (cria o diretório de
+/// estado e seu `.gitignore`, MT-38) e `state_dir::agentry_settings_path`
+/// (MT-39) para resolver o caminho final; nunca sobrescreve um arquivo já
+/// existente.
+///
+/// # Errors
+///
+/// Devolve o `io::Error` de criar o diretório de estado ou escrever o
+/// arquivo, sem tratamento especial.
+fn run_init_local(workspace_root: &std::path::Path) -> io::Result<InitOutcome> {
+    state_dir::ensure_state_dir(workspace_root)?;
+    let caminho = state_dir::agentry_settings_path(workspace_root);
+    if caminho.exists() {
+        return Ok(InitOutcome::AlreadyExists(caminho));
+    }
+    std::fs::write(&caminho, GENERIC_SETTINGS_EXAMPLE)?;
+    Ok(InitOutcome::Created(caminho))
+}
+
+/// Escreve o resultado de [`run_init_local`] em `output`, sempre seguido do
+/// comando manual equivalente (ADR-0019 §5) — usado tanto por `--init`
+/// quanto por `/init`, para não duplicar a mensagem entre CLI e REPL.
+fn escrever_resultado_init(outcome: &InitOutcome, output: &mut impl io::Write) -> io::Result<()> {
+    match outcome {
+        InitOutcome::Created(caminho) => {
+            writeln!(output, "criado: {}", caminho.display())?;
+        }
+        InitOutcome::AlreadyExists(caminho) => {
+            writeln!(output, "já existe, não sobrescrito: {}", caminho.display())?;
+        }
+    }
+    writeln!(output, "{MANUAL_SETUP_HINT}")
 }
 
 /// Emite cada [`AuditEntry`] de egresso em stderr — suficiente para a v0.1;
@@ -177,6 +262,26 @@ fn overrides_from_args(args: &Args) -> Result<RuntimeOverride, String> {
 #[tokio::main]
 async fn main() {
     let args = Args::parse();
+
+    if args.init {
+        let workspace_root = std::env::current_dir().unwrap_or_else(|erro| {
+            eprintln!("erro ao ler diretório de trabalho: {erro}");
+            std::process::exit(1)
+        });
+        match run_init_local(&workspace_root) {
+            Ok(outcome) => {
+                escrever_resultado_init(&outcome, &mut io::stdout()).unwrap_or_else(|erro| {
+                    eprintln!("erro: {erro}");
+                    std::process::exit(1)
+                });
+            }
+            Err(erro) => {
+                eprintln!("erro ao inicializar configuração: {erro}");
+                std::process::exit(1)
+            }
+        }
+        return;
+    }
 
     let overrides = overrides_from_args(&args).unwrap_or_else(|erro| {
         eprintln!("erro: {erro}");
@@ -276,6 +381,7 @@ async fn main() {
             io::stdout(),
             &mut session,
             &mut router,
+            &workspace_root,
             &CallPreset::default(),
             overrides,
         )
@@ -322,6 +428,57 @@ mod tests {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[test]
+    fn run_init_local_cria_o_arquivo_ausente_com_o_exemplo_exato_da_adr_0018() {
+        let dir = TempDir::new();
+
+        let outcome = run_init_local(dir.path()).expect("deve criar o arquivo");
+        let caminho = match outcome {
+            InitOutcome::Created(caminho) => caminho,
+            InitOutcome::AlreadyExists(_) => panic!("arquivo não deveria existir ainda"),
+        };
+
+        let conteudo = std::fs::read_to_string(&caminho).expect("arquivo deve existir");
+        assert_eq!(conteudo, GENERIC_SETTINGS_EXAMPLE);
+    }
+
+    #[test]
+    fn run_init_local_nao_sobrescreve_arquivo_ja_existente() {
+        let dir = TempDir::new();
+        run_init_local(dir.path()).expect("primeira chamada deve criar");
+        let caminho = state_dir::agentry_settings_path(dir.path());
+        std::fs::write(&caminho, r#"{"customizado": true}"#)
+            .expect("simula customização do usuário");
+
+        let outcome = run_init_local(dir.path()).expect("segunda chamada não deve falhar");
+
+        assert!(matches!(outcome, InitOutcome::AlreadyExists(_)));
+        let conteudo = std::fs::read_to_string(&caminho).expect("arquivo deve continuar existindo");
+        assert_eq!(
+            conteudo, r#"{"customizado": true}"#,
+            "customização do usuário não pode ser sobrescrita"
+        );
+    }
+
+    #[test]
+    fn escrever_resultado_init_sempre_inclui_o_comando_manual() {
+        let dir = TempDir::new();
+
+        let criado = run_init_local(dir.path()).expect("deve criar");
+        let mut saida_criado = Vec::new();
+        escrever_resultado_init(&criado, &mut saida_criado).expect("deve escrever");
+        let texto_criado = String::from_utf8(saida_criado).unwrap();
+        assert!(texto_criado.contains("criado:"));
+        assert!(texto_criado.contains(MANUAL_SETUP_HINT));
+
+        let ja_existente = run_init_local(dir.path()).expect("segunda chamada");
+        let mut saida_existente = Vec::new();
+        escrever_resultado_init(&ja_existente, &mut saida_existente).expect("deve escrever");
+        let texto_existente = String::from_utf8(saida_existente).unwrap();
+        assert!(texto_existente.contains("já existe"));
+        assert!(texto_existente.contains(MANUAL_SETUP_HINT));
     }
 
     fn cfg_com_flags(repo_map: bool, semantic_rag: bool, lsp_grounding: bool) -> Config {
