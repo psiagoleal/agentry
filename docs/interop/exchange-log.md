@@ -247,3 +247,32 @@ reescrever entradas; decisões vinculantes viram ADR (referenciar o ADR aqui).
   manualmente a cada *bump* deliberado, nunca automática.
 - **Status:** ✅ ADR-0019 criada no `agentry` (ainda `Proposed`, sem micro-ticket de
   implementação aberto). Nenhuma ação pendente do lado `profiles`.
+
+---
+
+## 2026-07-13 — Nona troca: fechando o esquema do Guardrail Gate (ADR-0007)
+
+- **Origem:** `agentry`.
+- **Contexto:** ADR-0007 (2026-07-07) propôs um Guardrail Gate — correspondência
+  determinística de conteúdo (entrada/saída de uma chamada de LLM), distinto do gate de
+  tools (MT-11) e da allowlist de egresso (ADR-0002) — mas ficou sem esquema fechado nem
+  micro-ticket desde então. A moderação semântica que a própria ADR-0007 adiava para "v0.2,
+  se necessária" já foi coberta por um ADR separado, a ADR-0015 (Reviewer,
+  `guardrail-compliance`); esta troca fecha só a metade determinística.
+- **ADR emendada (`agentry`):**
+  - **ADR-0007** (ainda Proposed) — schema mínimo `guardrails.input`/`guardrails.output`
+    (array de `{ id, match, action }`, `action` ∈ `block`/`redact`), correspondência por
+    substring/palavra-chave *case-insensitive* (sem dependência `regex` nova); merge por
+    camada por `id`, mais severo vence (`block` > `redact`) — generalização de
+    `Permissions::union` para duas ações em vez de duas listas; bloqueio (entrada ou saída)
+    substitui a mensagem por aviso fixo e a sessão continua normalmente, sem erro/retry;
+    bloqueio na entrada nunca chama o provider. Auditoria via par novo
+    `GuardrailAuditEntry`/`GuardrailAuditSink` (não `AuditEntry`/`AuditSink` literais, que
+    carregam `profile`/`egress_class` irrelevantes a uma checagem de conteúdo) — nunca loga
+    o texto casado, só `direction`/`rule_id`/`action`/`task`.
+- **Pendências (rascunho a ratificar por ADR de esquema específico, quando implementado):**
+  nenhuma — esta troca já fecha o esquema mínimo por completo (diferente das trocas
+  anteriores, que deliberadamente adiavam o formato para a implementação).
+- **Status:** ✅ ADR-0007 emendada no `agentry`. Roadmap de micro-tickets (Fase 9) a criar em
+  seguida. Nenhuma ação do lado `profiles` (schema é definido pelo lado executor, mesma
+  divisão já estabelecida pela ADR-0018/ADR-0006 daquele repo).
