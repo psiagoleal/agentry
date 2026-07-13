@@ -57,6 +57,19 @@ pub fn resolve_root(start: &Path) -> PathBuf {
     }
 }
 
+/// Caminho do artefato de configuração `.agentry/agentry.settings.json`
+/// (ADR-0018) a partir da raiz resolvida por [`resolve_root`] — mesmo nome de
+/// arquivo citado em [`CONTEUDO_GITIGNORE`]. Só resolve o caminho, não cria
+/// diretório nem arquivo: `Settings::from_file` (MT-39) só lê, e ausência do
+/// arquivo não é erro (ADR-0018 §4), então não há por que forçar a criação de
+/// `.agentry/` num processo que só quer carregar configuração.
+#[must_use]
+pub fn agentry_settings_path(start: &Path) -> PathBuf {
+    resolve_root(start)
+        .join(NOME_DIRETORIO)
+        .join("agentry.settings.json")
+}
+
 /// Garante que `<raiz>/.agentry/` exista (raiz resolvida por
 /// [`resolve_root`] a partir de `start`) e que `.agentry/.gitignore`
 /// tenha o conteúdo `*` + exceção nomeada para `agentry.settings.json`
@@ -147,6 +160,23 @@ mod tests {
         let dir = TempDir::new();
 
         assert_eq!(resolve_root(dir.path()), dir.path());
+    }
+
+    #[test]
+    fn agentry_settings_path_nao_cria_nada_so_resolve_o_caminho() {
+        let dir = TempDir::new();
+        std::fs::create_dir_all(dir.path().join(".git")).expect("cria .git");
+
+        let caminho = agentry_settings_path(dir.path());
+
+        assert_eq!(
+            caminho,
+            dir.path().join(".agentry").join("agentry.settings.json")
+        );
+        assert!(
+            !dir.path().join(".agentry").exists(),
+            "resolver o caminho não deve criar o diretório de estado"
+        );
     }
 
     #[test]
