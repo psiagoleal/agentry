@@ -18,7 +18,7 @@ Mesmas do v0.1 (`docs/roadmap-v0.1.md` §Convenções): **DoD** padrão (`cargo 
 
 ## Fase 7 — Configuração real via `agentry.settings.json`
 
-### MT-39: `Settings::from_file` — carregamento do artefato de configuração
+### MT-39: `Settings::from_file` — carregamento do artefato de configuração — ✅ concluído (`b3357a6`)
 - **Objetivo:** localizar e parsear `.agentry/agentry.settings.json` a partir da raiz
   resolvida por `state_dir::resolve_root` (MT-38); inserir como camada de precedência entre
   o *default* do perfil e as variáveis de ambiente em `Config::resolve`.

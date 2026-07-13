@@ -7,13 +7,13 @@
 
 ## Último turno
 
-- **Data:** 2026-07-12
+- **Data:** 2026-07-13
 - **Branch:** `main`
-- **Commit:** `fb99c02`
+- **Commit:** `b3357a6`
 - **Fase:** Roadmap v0.1 completo e **fechado/imutável** como registro histórico
-  (`docs/roadmap-v0.1.md`, MT-01..38). Iniciada a **Fase 7** (`docs/roadmap-v0.2.md`):
+  (`docs/roadmap-v0.1.md`, MT-01..38). Em andamento a **Fase 7** (`docs/roadmap-v0.2.md`):
   fechar o loop do `settings-schema:1` com o `ai-coding-agent-profiles`, via ADR-0018 —
-  trabalho feito **nos dois repositórios em paralelo** (`--add-dir ../ai-coding-agent-profiles`).
+  **MT-39 concluído** (carregamento real do arquivo); falta só o MT-40 (consumo das flags).
 
 ## Metas cumpridas / Em andamento / Próximo passo
 
@@ -114,11 +114,31 @@
   4 de integração + 11 na CLI, fmt/clippy limpos, `cargo build --release` verde
   (`fb99c02`).
 
+- [x] **MT-39** — `crates/core/src/config/mod.rs`: `Settings` ganha os blocos `context.*`
+  (`repoMap`/`semanticRag`/`lspGrounding`, cada um `{ enabled: Option<bool> }` via
+  `FeatureToggle`) e `providers.ollama.structuredOutput` (fatia do ADR-0018 §5), cada bloco
+  com seu próprio `merged_over` (mesma convenção de camada por camada já usada em
+  `Permissions::union`); `schema_version` ganha `#[serde(alias = "schemaVersion")]` — o
+  artefato real usa a grafia camelCase da ADR-0018, diferente da grafia original
+  snake_case da ADR-0003. `Settings::from_file` (novo) localiza `.agentry/agentry.settings.json`
+  via `state_dir::agentry_settings_path` (nova função em `crates/core/src/state_dir.rs` — só
+  resolve o caminho, não cria diretório/gitignore, já que carregar configuração é
+  leitura, não escrita) e reaproveita `from_json_str`: ausência do arquivo não é erro
+  (`Settings::default`), JSON malformado é `ConfigError::Parse` tratado (nunca *panic*).
+  `Config` ganha os 4 booleanos resolvidos (`repo_map_enabled`/`semantic_rag_enabled`/
+  `lsp_grounding_enabled`/`ollama_structured_output`, *default* `true` quando nenhuma camada
+  define — mesmo *default* das ADRs de origem). 7 testes novos (1 em `state_dir`, 6 em
+  `config`, incluindo os 4 critérios de aceite literais do ticket: ausência não é erro,
+  arquivo válido carrega, JSON inválido é erro tratado, ambiente sobrescreve o arquivo),
+  237 testes na lib do core + 4 de integração + 11 na CLI, fmt/clippy limpos,
+  `cargo build --release` verde. Nenhuma dependência nova (`b3357a6`).
+
 **Em andamento:** nada pendente no turno.
 
-**Próximo passo:** **MT-39** — `Settings::from_file` (`crates/core/src/config/mod.rs`,
-`docs/roadmap-v0.2.md`), carregando `.agentry/agentry.settings.json` de verdade. Depois,
-**MT-40** consome as 4 flags. Sem outro ticket de código pendente do roadmap v0.1.
+**Próximo passo:** **MT-40** — `crates/cli/src/main.rs` para de hardcodar `true` para
+`structured_output`/`context.repo_map.enabled`/`context.semantic_rag.enabled`/
+`context.lsp_grounding.enabled`, passando a ler da `Config` resolvida pelo MT-39. Fecha a
+Fase 7 (`docs/roadmap-v0.2.md`). Sem outro ticket de código pendente do roadmap v0.1.
 
 ## Impedimentos de ambiente (não são bugs do código)
 
@@ -137,6 +157,7 @@
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-13 | `b3357a6` | MT-39: Settings::from_file — carrega agentry.settings.json (ADR-0018) | MT-39 |
 | 2026-07-12 | `fb99c02` | fix: .agentry/.gitignore não podia se autoignorar | — |
 | 2026-07-12 | `be4f000` | ADR-0018 (settings-schema) + emenda ADR-0017; roadmap-v0.2.md (Fase 7) | — |
 | 2026-07-12 | `4bd6ee6` | fix: audit log em stderr — Display compacto em vez de dump de Debug | — |
