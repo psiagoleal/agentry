@@ -8,6 +8,9 @@ contra Ollama real). Este documento começa uma nova fase: fechar o loop do
 `settings-schema:1` com o `ai-coding-agent-profiles`, formalizado na ADR-0018
 (`docs/adr/0018-artefato-e-schema-minimo-de-configuracao-do-agentry.md`).
 
+**Fase 7 concluída** (MT-39 + MT-40, `b3357a6`/`35362f6`) — este documento fica, a partir
+daqui, fechado/imutável como registro histórico, mesmo padrão do `roadmap-v0.1.md`.
+
 ## Convenções
 
 Mesmas do v0.1 (`docs/roadmap-v0.1.md` §Convenções): **DoD** padrão (`cargo fmt --check`,
@@ -31,7 +34,7 @@ Mesmas do v0.1 (`docs/roadmap-v0.1.md` §Convenções): **DoD** padrão (`cargo 
   schema além da primeira fatia (ADR-0018 §5).
 - **Depende de:** MT-04, MT-38 · ADR-0018.
 
-### MT-40: Consumo real das 4 flags já mecanicamente prontas
+### MT-40: Consumo real das 4 flags já mecanicamente prontas — ✅ concluído (`35362f6`)
 - **Objetivo:** `crates/cli/src/main.rs` para de hardcodar `true` para
   `structured_output`/`context.repo_map.enabled`/`context.semantic_rag.enabled`/
   `context.lsp_grounding.enabled` — passa a ler da `Config` resolvida (MT-39).

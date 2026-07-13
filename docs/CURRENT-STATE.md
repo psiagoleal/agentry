@@ -9,11 +9,13 @@
 
 - **Data:** 2026-07-13
 - **Branch:** `main`
-- **Commit:** `b3357a6`
+- **Commit:** `35362f6`
 - **Fase:** Roadmap v0.1 completo e **fechado/imutável** como registro histórico
-  (`docs/roadmap-v0.1.md`, MT-01..38). Em andamento a **Fase 7** (`docs/roadmap-v0.2.md`):
-  fechar o loop do `settings-schema:1` com o `ai-coding-agent-profiles`, via ADR-0018 —
-  **MT-39 concluído** (carregamento real do arquivo); falta só o MT-40 (consumo das flags).
+  (`docs/roadmap-v0.1.md`, MT-01..38). **Fase 7 fechada** (`docs/roadmap-v0.2.md`, MT-39/40):
+  fecha de vez o loop do `settings-schema:1` com o `ai-coding-agent-profiles` — o
+  `.agentry/agentry.settings.json` (ADR-0018) agora é lido de verdade e as 4 flags de
+  contexto/provider chegam à CLI real. Sem ticket de código pendente conhecido; próximo
+  passo a definir com o usuário.
 
 ## Metas cumpridas / Em andamento / Próximo passo
 
@@ -133,12 +135,39 @@
   237 testes na lib do core + 4 de integração + 11 na CLI, fmt/clippy limpos,
   `cargo build --release` verde. Nenhuma dependência nova (`b3357a6`).
 
+- [x] **MT-40** — `crates/cli/src/main.rs`: até este commit, `repo_map`/`code_search`/
+  `lsp_hover`/`lsp_definition` nunca tinham sido registradas na CLI de verdade (só existiam
+  testadas dentro dos próprios módulos de tool, MT-21/24/30) e o `OllamaProvider` sempre
+  saía com o *default* hardcoded (`structured_output: true`) — o ticket supunha que já
+  havia fiação a substituir, mas na prática esta foi a primeira vez que as 4 capacidades
+  ficaram de fato acessíveis pelo binário real. Nova `register_context_tools` (extraída de
+  `main()` para ser testável sem rodar o binário inteiro) chama os 3 `register_*_tool` já
+  existentes com os booleanos da `Config` resolvida (MT-39); `code_search` reaproveita o
+  mesmo provider Ollama já registrado no Router para embeddings/reranking (clonado antes de
+  `register_provider` consumir o `Arc`), não um segundo cliente. `OllamaProvider` ganhou
+  `.with_structured_output(cfg.ollama_structured_output)` no builder. **Decisão registrada
+  em comentário:** o *language server* de `lsp_hover`/`lsp_definition` fica hardcoded em
+  `rust-analyzer` — seleção por linguagem/projeto é um ticket futuro, fora do escopo
+  declarado ("UI/CLI de configuração"). 3 testes novos (flags true/false via a função
+  extraída + inspeção de `ToolRegistry::specs()`; ausência de arquivo preserva o
+  comportamento anterior); `ollama_structured_output` não ganhou teste próprio na CLI — a
+  leitura do arquivo já é coberta pelo MT-39 e o efeito no `OllamaProvider` já é coberto
+  pelo MT-22, a única peça nova aqui é uma chamada de builder de uma linha. Smoke-test
+  manual contra Ollama real confirma que a fiação não regrediu o caminho feliz. 237 testes
+  na lib do core + 4 de integração + 14 na CLI (11 + 3), fmt/clippy limpos,
+  `cargo build --release` verde. Nenhuma dependência nova (`35362f6`). **Fecha o MT-40, a
+  Fase 7 e o loop do `settings-schema:1` com o `ai-coding-agent-profiles` aberto desde o
+  bootstrap do ecossistema.**
+
 **Em andamento:** nada pendente no turno.
 
-**Próximo passo:** **MT-40** — `crates/cli/src/main.rs` para de hardcodar `true` para
-`structured_output`/`context.repo_map.enabled`/`context.semantic_rag.enabled`/
-`context.lsp_grounding.enabled`, passando a ler da `Config` resolvida pelo MT-39. Fecha a
-Fase 7 (`docs/roadmap-v0.2.md`). Sem outro ticket de código pendente do roadmap v0.1.
+**Próximo passo:** a definir com o usuário — sem ticket de código pendente conhecido do
+roadmap v0.1 nem da Fase 7 (v0.2). Itens em aberto, nenhum agendado como ticket: Guardrail
+Gate de conteúdo (ADR-0007, nunca virou micro-ticket); housekeeping de status de ADR (14 de
+18 ainda `Proposed`); CI multi-SO ainda não observado verde (falta um push que dispare a
+matriz); backlog independente do `ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF
+pendentes de reanálise de maturidade, perfis base+overlay/skills executáveis/config de
+serviços pendentes de validação de implementação).
 
 ## Impedimentos de ambiente (não são bugs do código)
 
@@ -157,6 +186,7 @@ Fase 7 (`docs/roadmap-v0.2.md`). Sem outro ticket de código pendente do roadmap
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-13 | `35362f6` | MT-40: consome as 4 flags de contexto/provider na CLI real; fecha a Fase 7 | MT-40 |
 | 2026-07-13 | `b3357a6` | MT-39: Settings::from_file — carrega agentry.settings.json (ADR-0018) | MT-39 |
 | 2026-07-12 | `fb99c02` | fix: .agentry/.gitignore não podia se autoignorar | — |
 | 2026-07-12 | `be4f000` | ADR-0018 (settings-schema) + emenda ADR-0017; roadmap-v0.2.md (Fase 7) | — |
