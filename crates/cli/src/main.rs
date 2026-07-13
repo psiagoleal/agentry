@@ -30,10 +30,14 @@ use agentry_core::config::{Config, Settings};
 use agentry_core::egress::allowlist::{Allowlist, AllowlistEntry};
 use agentry_core::egress::audit::AuditEntry;
 use agentry_core::provider::ollama::OllamaProvider;
+use agentry_core::provider::LlmProvider;
 use agentry_core::router::{CallPreset, Router, RuntimeOverride};
 use agentry_core::session::{Session, TokenBudget, ToolExecutor};
+use agentry_core::tools::code_search::{register_code_search_tool, CodeSearchSession};
 use agentry_core::tools::fs::{FsEditTool, FsReadTool, FsSearchTool, FsWriteTool};
+use agentry_core::tools::lsp::{register_lsp_tools, LspSession};
 use agentry_core::tools::permission::PermissionGate;
+use agentry_core::tools::repo_map::{register_repo_map_tool, RepoMapTool};
 use agentry_core::tools::shell::{ShellPolicy, ShellTool};
 use agentry_core::tools::ToolRegistry;
 use agentry_core::transport::{AuditSink, Transport};
@@ -48,6 +52,14 @@ const DEFAULT_OLLAMA_HOST: &str = "127.0.0.1:11434";
 /// Orçamento de tokens usado quando `max_tokens` não está definido em
 /// nenhuma camada de configuração.
 const DEFAULT_TOKEN_BUDGET: u64 = 100_000;
+/// *Language server* usado por `lsp_hover`/`lsp_definition` (MT-24, ADR-0013)
+/// quando `context.lspGrounding.enabled` está ativo. Seleção por linguagem
+/// (detectar o projeto e escolher o LS certo) fica para um ticket futuro —
+/// fora de escopo do MT-40 ("UI/CLI de configuração"); `rust-analyzer` é o
+/// default razoável hoje porque o próprio `agentry` é um workspace Rust.
+/// Ausência do binário no `PATH` já é erro tratado pelo `LspClient` (MT-23),
+/// nunca *panic*.
+const DEFAULT_LSP_COMMAND: &str = "rust-analyzer";
 
 /// CLI agêntica de codificação (multi-provedor, roteamento por classe de
 /// privacidade) — v0.1 fala só com um servidor Ollama local.
@@ -97,6 +109,46 @@ impl AuditSink for StderrAuditSink {
     fn record(&self, entry: AuditEntry) {
         eprintln!("[audit] {entry}");
     }
+}
+
+/// Registra as 3 tools de contexto (`repo_map`, `code_search`,
+/// `lsp_hover`/`lsp_definition`) segundo as 3 flags booleanas resolvidas por
+/// `Config` (MT-39/ADR-0018) — extraído de `main()` para ser testável sem
+/// rodar o binário inteiro (parsing de argv, rede real etc., MT-40).
+/// `ollama_provider` é reaproveitado do provider Ollama já registrado no
+/// `Router` (embeddings/reranking do RAG semântico, ADR-0011), não um
+/// segundo cliente.
+fn register_context_tools(
+    registry: &mut ToolRegistry,
+    cfg: &Config,
+    workspace_root: &std::path::Path,
+    ollama_provider: Arc<dyn LlmProvider>,
+    modelo: &str,
+) {
+    register_repo_map_tool(
+        registry,
+        cfg.repo_map_enabled,
+        RepoMapTool::new(workspace_root.to_path_buf()),
+    );
+    register_code_search_tool(
+        registry,
+        cfg.semantic_rag_enabled,
+        Arc::new(CodeSearchSession::new(
+            workspace_root.to_path_buf(),
+            ollama_provider,
+            modelo,
+            modelo,
+        )),
+    );
+    register_lsp_tools(
+        registry,
+        cfg.lsp_grounding_enabled,
+        Arc::new(LspSession::new(
+            DEFAULT_LSP_COMMAND,
+            vec![],
+            workspace_root.to_path_buf(),
+        )),
+    );
 }
 
 /// Monta o `RuntimeOverride` inicial a partir das flags de invocação.
@@ -152,10 +204,14 @@ async fn main() {
         cfg.profile.map(|p| format!("{p:?}")),
         Arc::new(StderrAuditSink),
     ));
-    let ollama = Arc::new(OllamaProvider::new(
-        transport,
-        format!("http://{}", args.ollama_host),
-    ));
+    let ollama = Arc::new(
+        OllamaProvider::new(transport, format!("http://{}", args.ollama_host))
+            .with_structured_output(cfg.ollama_structured_output),
+    );
+    // Clonado antes de `register_provider` consumir o Arc — o repo_map/RAG
+    // semântico reaproveita o mesmo provider Ollama para embeddings/reranking
+    // (ADR-0011), não um segundo cliente.
+    let ollama_provider: Arc<dyn LlmProvider> = ollama.clone();
 
     let mut router = Router::new(cfg.egress_class);
     router.register_provider(ollama);
@@ -177,14 +233,22 @@ async fn main() {
         std::process::exit(1)
     });
 
-    let mut registry = ToolRegistry::new(PermissionGate::new(cfg.permissions));
+    let mut registry = ToolRegistry::new(PermissionGate::new(cfg.permissions.clone()));
     registry.register(Arc::new(FsReadTool::new(workspace_root.clone())));
     registry.register(Arc::new(FsWriteTool::new(workspace_root.clone())));
     registry.register(Arc::new(FsEditTool::new(workspace_root.clone())));
-    registry.register(Arc::new(FsSearchTool::new(workspace_root)));
+    registry.register(Arc::new(FsSearchTool::new(workspace_root.clone())));
     // Sem padrões de `allow` configuráveis ainda (fora de escopo do MT-14):
     // shell fica bloqueado por padrão (default-deny da `ShellPolicy`, MT-13).
     registry.register(Arc::new(ShellTool::new(ShellPolicy::new(vec![]))));
+
+    register_context_tools(
+        &mut registry,
+        &cfg,
+        &workspace_root,
+        ollama_provider,
+        &modelo_inicial,
+    );
 
     let executor: Arc<dyn ToolExecutor> = Arc::new(RegistryToolExecutor::new(
         registry,
@@ -220,5 +284,112 @@ async fn main() {
             eprintln!("erro: {erro}");
             std::process::exit(1);
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use agentry_core::config::privacy::EgressClass;
+    use agentry_core::config::Permissions;
+    use agentry_core::provider::mock::MockProvider;
+
+    /// Diretório temporário de teste, removido automaticamente ao sair de
+    /// escopo (mesma disciplina de `state_dir`/`config`/`tools::*`, MT-38/39).
+    struct TempDir(std::path::PathBuf);
+
+    impl TempDir {
+        fn new() -> Self {
+            let unico = format!(
+                "agentry-cli-main-test-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .expect("relógio do sistema não deve estar antes de 1970")
+                    .as_nanos()
+            );
+            let path = std::env::temp_dir().join(unico);
+            std::fs::create_dir_all(&path).expect("deve criar diretório temporário de teste");
+            Self(path)
+        }
+
+        fn path(&self) -> &std::path::Path {
+            &self.0
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn cfg_com_flags(repo_map: bool, semantic_rag: bool, lsp_grounding: bool) -> Config {
+        Config {
+            profile: None,
+            egress_class: EgressClass::LocalOnly,
+            model: None,
+            max_tokens: None,
+            permissions: Permissions::default(),
+            repo_map_enabled: repo_map,
+            semantic_rag_enabled: semantic_rag,
+            lsp_grounding_enabled: lsp_grounding,
+            ollama_structured_output: true,
+        }
+    }
+
+    fn nomes_registrados(registry: &ToolRegistry) -> Vec<String> {
+        registry.specs().into_iter().map(|s| s.name).collect()
+    }
+
+    #[test]
+    fn flags_true_registra_as_3_tools_de_contexto() {
+        let dir = TempDir::new();
+        let cfg = cfg_com_flags(true, true, true);
+        let mut registry = ToolRegistry::new(PermissionGate::new(Permissions::default()));
+        let provider: Arc<dyn LlmProvider> = Arc::new(MockProvider::new("mock"));
+
+        register_context_tools(&mut registry, &cfg, dir.path(), provider, "modelo-teste");
+
+        let nomes = nomes_registrados(&registry);
+        assert!(nomes.contains(&"repo_map".to_string()));
+        assert!(nomes.contains(&"code_search".to_string()));
+        assert!(nomes.contains(&"lsp_hover".to_string()));
+        assert!(nomes.contains(&"lsp_definition".to_string()));
+    }
+
+    #[test]
+    fn flags_false_nao_registra_nenhuma_das_3_tools_de_contexto() {
+        let dir = TempDir::new();
+        let cfg = cfg_com_flags(false, false, false);
+        let mut registry = ToolRegistry::new(PermissionGate::new(Permissions::default()));
+        let provider: Arc<dyn LlmProvider> = Arc::new(MockProvider::new("mock"));
+
+        register_context_tools(&mut registry, &cfg, dir.path(), provider, "modelo-teste");
+
+        let nomes = nomes_registrados(&registry);
+        assert!(!nomes.contains(&"repo_map".to_string()));
+        assert!(!nomes.contains(&"code_search".to_string()));
+        assert!(!nomes.contains(&"lsp_hover".to_string()));
+        assert!(!nomes.contains(&"lsp_definition".to_string()));
+    }
+
+    #[test]
+    fn ausencia_do_arquivo_preserva_o_comportamento_anterior_todas_true() {
+        // Mesmo critério de aceite do MT-39: sem `.agentry/agentry.settings.json`,
+        // `Config::resolve` cai nos defaults do ADR-0018 (todas `true`) — e,
+        // por extensão, as 3 tools de contexto continuam registradas.
+        let cfg = Config::resolve(vec![Settings::default()]);
+        let dir = TempDir::new();
+        let mut registry = ToolRegistry::new(PermissionGate::new(Permissions::default()));
+        let provider: Arc<dyn LlmProvider> = Arc::new(MockProvider::new("mock"));
+
+        register_context_tools(&mut registry, &cfg, dir.path(), provider, "modelo-teste");
+
+        let nomes = nomes_registrados(&registry);
+        assert!(nomes.contains(&"repo_map".to_string()));
+        assert!(nomes.contains(&"code_search".to_string()));
+        assert!(nomes.contains(&"lsp_hover".to_string()));
+        assert!(nomes.contains(&"lsp_definition".to_string()));
     }
 }
