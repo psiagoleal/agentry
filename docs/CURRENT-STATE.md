@@ -9,11 +9,11 @@
 
 - **Data:** 2026-07-13
 - **Branch:** `main`
-- **Commit:** `3039554`
+- **Commit:** `6d46a51`
 - **Fase:** Roadmap v0.1/v0.2/v0.3 **fechados/imutáveis**. ADR-0019 totalmente implementada.
-  Em andamento a **Fase 9** (`docs/roadmap-v0.4.md`, ADR-0007 emendada): **MT-43/44
-  concluídos** (módulo `guardrail` + schema em `Config`); faltam **MT-45** (`Session` aplica
-  entrada/saída) → **MT-46** (consumo real na CLI).
+  Em andamento a **Fase 9** (`docs/roadmap-v0.4.md`, ADR-0007 emendada): **MT-43/44/45
+  concluídos** (módulo `guardrail` + schema em `Config` + `Session` aplica entrada/saída);
+  falta só **MT-46** (consumo real na CLI) para fechar a Fase 9 por completo.
 
 ## Metas cumpridas / Em andamento / Próximo passo
 
@@ -266,13 +266,34 @@
   o tipo do MT-43 em vez de expor dois `Vec` soltos. 4 testes novos, 252 testes na lib do
   core + 4 de integração + 23 na CLI, fmt/clippy limpos, `cargo build --release` verde.
   Nenhuma dependência nova (`3039554`).
+- [x] **MT-45** — `crates/core/src/session/mod.rs`: `Session::with_guardrails(gate, sink)`
+  (*default* `None`, mesmo "desligado até configurado" de `with_reviews`).
+  `aplicar_guardrail_entrada` roda antes do loop, sobre a mensagem de usuário mais recente —
+  `block` substitui por aviso fixo e devolve `StopReason::Done` com zero turnos, **sem nunca
+  chamar o provider** (zero egresso); `redact` mascara a mensagem antes de `build_request`.
+  `aplicar_guardrail_saida` roda após `StopReason::Done`, **antes** de `revisar_ou_continuar`
+  (Reviewer, ADR-0015) — `block` substitui a resposta e retorna via `ControlFlow::Break`
+  (Reviewer nunca chega a rodar sobre conteúdo substituído); `redact` mascara e segue via
+  `ControlFlow::Continue` (Reviewer roda em cima do texto já mascarado). `ColetorDuplo`
+  (privado) encaminha cada `GuardrailAuditEntry` ao sink real e também acumula localmente,
+  populando o novo campo `SessionOutcome::guardrail_hits` (paralelo a `reviews`).
+  **Limitação conhecida, documentada no código:** em `run_streaming`, o texto já foi entregue
+  a `on_event` (tipicamente exibido ao vivo) antes de chegar à checagem de saída — corrigir
+  isso exigiria *buffer* da resposta inteira, o que desfaria o propósito de streaming; fora
+  de escopo deste ticket. 5 testes novos (bloqueio de entrada nunca chama o provider; redact
+  de entrada chega ao provider mascarado; bloqueio de saída pula o Reviewer mesmo habilitado;
+  redact de saída mascara a resposta e o Reviewer ainda roda em cima dela — confirmando que
+  o próprio Reviewer recebe o texto já mascarado; sessão sem `with_guardrails` nunca aplica
+  nada), 257 testes na lib do core + 4 de integração + 23 na CLI, fmt/clippy limpos,
+  `cargo build --release` verde. Nenhuma dependência nova (`6d46a51`).
 
 **Em andamento:** nada pendente no turno.
 
-**Próximo passo:** **MT-45** (`docs/roadmap-v0.4.md`) — `Session` aplica o Guardrail Gate na
-entrada (antes do provider) e na saída (antes do Reviewer), `crates/core/src/session/mod.rs`.
-Depois, MT-46. Outros itens em aberto, sem ticket: housekeeping de status de ADR (16 de
-19 ainda `Proposed`); CI multi-SO ainda não observado verde (falta um push que dispare a
+**Próximo passo:** **MT-46** (`docs/roadmap-v0.4.md`) — consumo real na CLI
+(`crates/cli/src/main.rs`): construir o `GuardrailGate` a partir da `Config` resolvida e
+chamar `Session::with_guardrails`; `StderrAuditSink` ganha `impl GuardrailAuditSink`. Fecha
+a Fase 9 por completo. Outros itens em aberto, sem ticket: housekeeping de status de ADR (16
+de 19 ainda `Proposed`); CI multi-SO ainda não observado verde (falta um push que dispare a
 matriz); backlog independente do `ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF
 pendentes de reanálise de maturidade, perfis base+overlay/skills executáveis/config de
 serviços pendentes de validação de implementação).
@@ -294,6 +315,7 @@ serviços pendentes de validação de implementação).
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-13 | `6d46a51` | MT-45: Session aplica o Guardrail Gate na entrada e na saída | MT-45 |
 | 2026-07-13 | `3039554` | MT-44: GuardrailSettings — schema mínimo em Config | MT-44 |
 | 2026-07-13 | `7627c53` | MT-43: módulo guardrail — tipos, correspondência, auditoria | MT-43 |
 | 2026-07-13 | `53c4c6a` | docs(roadmap): ADR-0007 quebrada em MT-43..46 (Fase 9, roadmap-v0.4.md) | — |

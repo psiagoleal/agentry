@@ -60,7 +60,7 @@ ADR (ADR-0004), skill `micro-ticket-planner` para granularidade.
 - **Fora de escopo:** integração com `Session` (MT-45); consumo real na CLI (MT-46).
 - **Depende de:** MT-43 · ADR-0007.
 
-### MT-45: `Session` aplica o Guardrail Gate (entrada e saída)
+### MT-45: `Session` aplica o Guardrail Gate (entrada e saída) — ✅ concluído (`6d46a51`)
 - **Objetivo:** `Session::with_guardrails(gate: Arc<GuardrailGate>, sink: Arc<dyn
   GuardrailAuditSink>) -> Self` (*default*: nenhum gate — mesmo "desligado por padrão até
   configurado" de `with_reviews`, MT-35). `run`/`run_streaming` checam a mensagem de usuário
