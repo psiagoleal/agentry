@@ -25,3 +25,4 @@ Registros de decisões estruturais (ver skill `adr-writer`). Use
 | [0016](0016-compactacao-de-historico-de-sessao.md) | Compactação de histórico de sessão (`Session::compact`) | Proposed |
 | [0017](0017-diretorio-de-estado-local-do-agente.md) | Diretório de estado local por projeto (`.agentry/`) para memória, histórico e índices | Proposed |
 | [0018](0018-artefato-e-schema-minimo-de-configuracao-do-agentry.md) | Artefato e schema mínimo de configuração do `agentry` (`agentry.settings.json`) | Proposed |
+| [0019](0019-bootstrap-de-agentry-settings-json-via-init.md) | Bootstrap de `.agentry/agentry.settings.json` via `--init`/`/init` | Proposed |

@@ -218,3 +218,32 @@ reescrever entradas; decisões vinculantes viram ADR (referenciar o ADR aqui).
 - **Status:** ✅ ADR-0018 criada no `agentry`; ADR local + arquivos *default* + script
   atualizados no `profiles`, mesma sessão. Implementação de MT-39/MT-40 fica para o próximo
   turno.
+
+---
+
+## 2026-07-13 — Oitava troca: bootstrap de `agentry.settings.json` lê do `profiles` sem clone
+
+- **Origem:** `agentry`.
+- **Contexto:** MT-39/MT-40 fecharam a leitura do artefato; faltava um jeito de **criar**
+  `.agentry/agentry.settings.json` sem exigir que o usuário clone o `ai-coding-agent-profiles`
+  ao lado do `agentry`. `curl <script> | sh` foi considerado e descartado (execução de código
+  remoto sem *pinning*/revisão); buscar só o JSON diretamente também foi considerado e
+  corrigido em revisão — violava literalmente a Diretriz de Conformidade da ADR-0002
+  ("proibido qualquer chamada de rede fora do módulo de transporte central"), resolvido
+  roteando a busca pelo próprio `Transport`, numa instância dedicada ao bootstrap (allowlist
+  restrita a um host fixo, `EgressClass::CloudOk`) — sem abrir exceção à ADR-0002.
+- **ADR criado (`agentry`):**
+  - **ADR-0019** (Proposed) — `--init`/`/init` materializam `.agentry/agentry.settings.json`;
+    sem `--profile`, só o exemplo genérico local (zero rede); com `--profile`, um único GET
+    HTTPS (via `Transport`) do `agentry.settings.json` daquele perfil no `ai-coding-agent-
+    profiles`, numa **referência (tag/commit) fixa gravada no código do `agentry`** — nunca
+    "latest" dinâmico. Sempre imprime o comando manual equivalente (`setup-profile.sh`) como
+    alternativa. Falha de rede com `--profile` explícito é erro tratado, nunca *fallback*
+    silencioso para o exemplo genérico.
+- **Efeito no lado `profiles`:** nenhum arquivo novo é necessário — os `.agentry/
+  agentry.settings.json` por perfil já existem desde a sétima troca (ADR-0006 daquele
+  repo). O único acoplamento novo é o `agentry` passar a conhecer, como constante pinada no
+  próprio código, uma referência (tag/commit) daquele repositório público — atualizada
+  manualmente a cada *bump* deliberado, nunca automática.
+- **Status:** ✅ ADR-0019 criada no `agentry` (ainda `Proposed`, sem micro-ticket de
+  implementação aberto). Nenhuma ação pendente do lado `profiles`.
