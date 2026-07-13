@@ -9,11 +9,11 @@
 
 - **Data:** 2026-07-13
 - **Branch:** `main`
-- **Commit:** `7627c53`
+- **Commit:** `3039554`
 - **Fase:** Roadmap v0.1/v0.2/v0.3 **fechados/imutáveis**. ADR-0019 totalmente implementada.
-  Em andamento a **Fase 9** (`docs/roadmap-v0.4.md`, ADR-0007 emendada): **MT-43 concluído**
-  (módulo `guardrail` isolado); faltam **MT-44** (schema em `Config`) → **MT-45** (`Session`
-  aplica entrada/saída) → **MT-46** (consumo real na CLI).
+  Em andamento a **Fase 9** (`docs/roadmap-v0.4.md`, ADR-0007 emendada): **MT-43/44
+  concluídos** (módulo `guardrail` + schema em `Config`); faltam **MT-45** (`Session` aplica
+  entrada/saída) → **MT-46** (consumo real na CLI).
 
 ## Metas cumpridas / Em andamento / Próximo passo
 
@@ -253,12 +253,25 @@
   isolado por design — não toca `Config` nem `Session` ainda. 9 testes novos, 248 testes na
   lib do core + 4 de integração + 23 na CLI, fmt/clippy limpos, `cargo build --release`
   verde. Nenhuma dependência nova (`7627c53`).
+- [x] **MT-44** — `crates/core/src/guardrail/mod.rs`: `GuardrailAction`/`GuardrailRule`
+  ganham `Serialize`/`Deserialize` (`rename_all = "lowercase"` na ação; `match_text`
+  renomeado para `match` no JSON, palavra reservada em Rust) — mesmo tipo reaproveitado
+  literalmente nos dois lados (regra em memória e regra do artefato), sem tipo paralelo só
+  para o JSON. `crates/core/src/config/mod.rs`: `Settings` ganha `guardrails:
+  GuardrailSettings` (schema `guardrails.input`/`guardrails.output`, ADR-0007 §2);
+  `merged_over` une por `id` entre camadas — regra nova é adicionada, mesmo `id` em duas
+  camadas resolve para a ação mais severa via `GuardrailAction::rank` (`block` > `redact`),
+  nunca a mais permissiva (generalização de `Permissions::union`). `Config` ganha
+  `guardrails: GuardrailGate`, resolvido direto da `GuardrailSettings` mesclada — reaproveita
+  o tipo do MT-43 em vez de expor dois `Vec` soltos. 4 testes novos, 252 testes na lib do
+  core + 4 de integração + 23 na CLI, fmt/clippy limpos, `cargo build --release` verde.
+  Nenhuma dependência nova (`3039554`).
 
 **Em andamento:** nada pendente no turno.
 
-**Próximo passo:** **MT-44** (`docs/roadmap-v0.4.md`) — `GuardrailSettings` em `Config`
-(`crates/core/src/config/mod.rs`), mesmo padrão de merge por camada do MT-39. Depois, MT-45
-→ MT-46, na ordem. Outros itens em aberto, sem ticket: housekeeping de status de ADR (16 de
+**Próximo passo:** **MT-45** (`docs/roadmap-v0.4.md`) — `Session` aplica o Guardrail Gate na
+entrada (antes do provider) e na saída (antes do Reviewer), `crates/core/src/session/mod.rs`.
+Depois, MT-46. Outros itens em aberto, sem ticket: housekeeping de status de ADR (16 de
 19 ainda `Proposed`); CI multi-SO ainda não observado verde (falta um push que dispare a
 matriz); backlog independente do `ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF
 pendentes de reanálise de maturidade, perfis base+overlay/skills executáveis/config de
@@ -281,6 +294,7 @@ serviços pendentes de validação de implementação).
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-13 | `3039554` | MT-44: GuardrailSettings — schema mínimo em Config | MT-44 |
 | 2026-07-13 | `7627c53` | MT-43: módulo guardrail — tipos, correspondência, auditoria | MT-43 |
 | 2026-07-13 | `53c4c6a` | docs(roadmap): ADR-0007 quebrada em MT-43..46 (Fase 9, roadmap-v0.4.md) | — |
 | 2026-07-13 | `a7db76d` | ADR-0007: fecha o schema mínimo do Guardrail Gate | — |

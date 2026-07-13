@@ -42,7 +42,7 @@ ADR (ADR-0004), skill `micro-ticket-planner` para granularidade.
   ADR-0007 sem uma ADR própria de dependência).
 - **Depende de:** ADR-0007 · nenhum micro-ticket anterior.
 
-### MT-44: `GuardrailSettings` — schema mínimo em `Config`
+### MT-44: `GuardrailSettings` — schema mínimo em `Config` — ✅ concluído (`3039554`)
 - **Objetivo:** `Settings` (`crates/core/src/config/mod.rs`) ganha `guardrails:
   GuardrailSettings` (`input: Vec<GuardrailRuleSettings>`, `output: Vec<GuardrailRuleSettings>`
   — mesma forma do JSON da ADR-0007 §2: `{ id, match, action }`), com `merged_over` que une
