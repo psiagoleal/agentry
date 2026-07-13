@@ -24,10 +24,19 @@ use std::collections::HashMap;
 use std::ops::ControlFlow;
 use std::sync::Arc;
 
+use crate::guardrail::{
+    GuardrailAuditEntry, GuardrailAuditSink, GuardrailCheckResult, GuardrailDirection,
+    GuardrailGate,
+};
 use crate::model::{ContentBlock, Message, Role, StreamEvent, ToolCall, ToolResult, Usage};
 use crate::provider::{BoxFuture, ChatRequest, LlmProvider, ProviderError, ToolSpec};
 use crate::router::{CallPreset, ResolvedRoute, Router, RouterError};
 use reviewer::{AuditKind, ReviewResult, ReviewerError, Veredito};
+
+/// Rótulo de tarefa usado nas [`GuardrailAuditEntry`] emitidas pela sessão
+/// (MT-45, ADR-0007) — só identifica a origem no log de auditoria, não
+/// afeta a decisão de bloqueio/redação.
+const GUARDRAIL_TASK: &str = "session::guardrail";
 
 /// Executa uma chamada de tool solicitada pelo modelo e devolve a observação.
 ///
@@ -77,6 +86,12 @@ pub struct SessionOutcome {
     /// persistente (veredito `Fail` em modo `Blocking` mesmo após esgotar
     /// o teto de retentativas) aparece aqui, nunca suprimida.
     pub reviews: Vec<ReviewResult>,
+    /// Regras de Guardrail Gate que efetivamente agiram nesta chamada a
+    /// `run`/`run_streaming` (entrada e/ou saída, MT-45/ADR-0007) — vazio
+    /// quando nenhum guardrail está habilitado (*default*) ou nenhuma regra
+    /// casou. Mesmas entradas emitidas ao `GuardrailAuditSink` configurado,
+    /// aqui só para observabilidade direta do chamador/teste.
+    pub guardrail_hits: Vec<GuardrailAuditEntry>,
 }
 
 /// Modo de disparo de uma auditoria habilitada (MT-35, ADR-0015).
@@ -235,6 +250,42 @@ fn render_transcript(messages: &[Message]) -> String {
         .join("\n\n")
 }
 
+/// Encaminha cada [`GuardrailAuditEntry`] ao [`GuardrailAuditSink`] real
+/// configurado na sessão e também as acumula localmente — permite popular
+/// [`SessionOutcome::guardrail_hits`] (MT-45) sem duplicar a decisão de
+/// auditoria em dois lugares. `Mutex` (não `RefCell`) porque
+/// `GuardrailAuditSink` exige `Send + Sync`, mesmo não havendo concorrência
+/// real aqui (mesma disciplina já usada pelos coletores de teste do MT-43).
+struct ColetorDuplo<'a> {
+    externo: &'a dyn GuardrailAuditSink,
+    coletados: std::sync::Mutex<Vec<GuardrailAuditEntry>>,
+}
+
+impl<'a> ColetorDuplo<'a> {
+    fn new(externo: &'a dyn GuardrailAuditSink) -> Self {
+        Self {
+            externo,
+            coletados: std::sync::Mutex::new(Vec::new()),
+        }
+    }
+
+    fn into_entradas(self) -> Vec<GuardrailAuditEntry> {
+        self.coletados
+            .into_inner()
+            .expect("mutex do coletor não deve envenenar")
+    }
+}
+
+impl GuardrailAuditSink for ColetorDuplo<'_> {
+    fn record(&self, entry: GuardrailAuditEntry) {
+        self.externo.record(entry.clone());
+        self.coletados
+            .lock()
+            .expect("mutex do coletor não deve envenenar")
+            .push(entry);
+    }
+}
+
 /// Uma sessão do agent loop: histórico de mensagens + provider + executor de
 /// tools + orçamento de tokens.
 pub struct Session {
@@ -255,6 +306,10 @@ pub struct Session {
     /// Teto de retentativas para vereditos `Fail` em modo `Blocking` (mesma
     /// disciplina de limite do [`TokenBudget`] — nunca loopar indefinidamente).
     review_retry_limit: u32,
+    /// Guardrail Gate habilitado (MT-43/44/45, ADR-0007) — `None` por
+    /// padrão (nenhuma checagem), mesmo "desligado até configurado" de
+    /// [`Self::reviews`].
+    guardrails: Option<(Arc<GuardrailGate>, Arc<dyn GuardrailAuditSink>)>,
 }
 
 impl Session {
@@ -273,6 +328,7 @@ impl Session {
             budget,
             reviews: Vec::new(),
             review_retry_limit: 0,
+            guardrails: None,
         }
     }
 
@@ -291,6 +347,20 @@ impl Session {
     pub fn with_reviews(mut self, reviews: Vec<ReviewConfig>, retry_limit: u32) -> Self {
         self.reviews = reviews;
         self.review_retry_limit = retry_limit;
+        self
+    }
+
+    /// Habilita o Guardrail Gate (MT-43/44/45, ADR-0007) para esta sessão —
+    /// *default* nenhum (nenhuma checagem de entrada/saída roda). `gate` traz
+    /// as regras resolvidas por `Config` (MT-44); `sink` recebe cada
+    /// [`GuardrailAuditEntry`] emitida por uma regra que efetivamente agiu.
+    #[must_use]
+    pub fn with_guardrails(
+        mut self,
+        gate: Arc<GuardrailGate>,
+        sink: Arc<dyn GuardrailAuditSink>,
+    ) -> Self {
+        self.guardrails = Some((gate, sink));
         self
     }
 
@@ -417,6 +487,7 @@ impl Session {
                 usage: *consumed,
                 turns,
                 reviews: Vec::new(),
+                guardrail_hits: Vec::new(),
             });
         }
 
@@ -426,6 +497,7 @@ impl Session {
                 usage: *consumed,
                 turns,
                 reviews: Vec::new(),
+                guardrail_hits: Vec::new(),
             });
         }
 
@@ -440,6 +512,102 @@ impl Session {
         });
 
         None
+    }
+
+    /// Aplica o Guardrail Gate (ADR-0007 §1) sobre a mensagem de usuário
+    /// mais recente, **antes** de qualquer chamada ao provider (MT-45).
+    /// `Some(outcome)` decide o desfecho do turno sem tocar o provider
+    /// (bloqueio: substitui a mensagem por um aviso fixo e sinaliza
+    /// `StopReason::Done` com zero turnos); `None` segue o fluxo normal —
+    /// nada casou, ou casou `redact` e a mensagem em `self.messages` já
+    /// saiu mascarada. Entradas de auditoria (bloqueio ou redação) são
+    /// acrescentadas a `hits`, para o chamador anexar ao `SessionOutcome`
+    /// final, qualquer que seja o caminho de saída do loop.
+    fn aplicar_guardrail_entrada(
+        &mut self,
+        hits: &mut Vec<GuardrailAuditEntry>,
+    ) -> Option<SessionOutcome> {
+        let (gate, sink) = self.guardrails.clone()?;
+        let indice = self.messages.iter().rposition(|m| m.role == Role::User)?;
+        let texto = self.messages[indice].text_content();
+
+        let coletor = ColetorDuplo::new(sink.as_ref());
+        let resultado = gate.check(GuardrailDirection::Input, &texto, GUARDRAIL_TASK, &coletor);
+        hits.extend(coletor.into_entradas());
+
+        match resultado {
+            GuardrailCheckResult::Allowed => None,
+            GuardrailCheckResult::Redacted(mascarado) => {
+                self.messages[indice] = Message::user(mascarado);
+                None
+            }
+            GuardrailCheckResult::Blocked(regra_id) => {
+                self.messages.push(Message::assistant(format!(
+                    "[guardrail] mensagem bloqueada pela regra '{regra_id}' antes de chegar ao provider."
+                )));
+                Some(SessionOutcome {
+                    reason: StopReason::Done,
+                    usage: Usage::default(),
+                    turns: 0,
+                    reviews: Vec::new(),
+                    guardrail_hits: Vec::new(),
+                })
+            }
+        }
+    }
+
+    /// Aplica o Guardrail Gate (ADR-0007 §1) sobre a última mensagem
+    /// (resposta do turno) — **antes** do Reviewer (ADR-0015): não faz
+    /// sentido auditar semanticamente um conteúdo que acabou de ser
+    /// substituído (MT-45). `Blocked` substitui a resposta pelo aviso fixo
+    /// e devolve `ControlFlow::Break` (nunca chega a chamar
+    /// `revisar_ou_continuar`); `Redacted` mascara a mensagem em
+    /// `self.messages` e devolve `ControlFlow::Continue` — o Reviewer, se
+    /// habilitado, roda em cima do texto já mascarado.
+    ///
+    /// **Limitação conhecida:** em `run_streaming`, o texto já foi entregue
+    /// a `on_event` (e, tipicamente, exibido ao usuário em tempo real)
+    /// turno a turno, *antes* de chegar aqui — um bloqueio/redação de saída
+    /// só protege o histórico (`self.messages`) e qualquer turno seguinte
+    /// (Reviewer, próxima chamada ao provider), não o que já foi
+    /// transmitido ao vivo. Corrigir isso exigiria *buffer* da resposta
+    /// inteira antes de emitir qualquer evento, o que desfaria o propósito
+    /// de streaming — fora do escopo deste ticket.
+    fn aplicar_guardrail_saida(
+        &mut self,
+        mut outcome: SessionOutcome,
+        hits: &mut Vec<GuardrailAuditEntry>,
+    ) -> ControlFlow<SessionOutcome, SessionOutcome> {
+        let Some((gate, sink)) = self.guardrails.clone() else {
+            return ControlFlow::Continue(outcome);
+        };
+        let Some(indice) = self
+            .messages
+            .iter()
+            .rposition(|m| m.role == Role::Assistant)
+        else {
+            return ControlFlow::Continue(outcome);
+        };
+        let texto = self.messages[indice].text_content();
+
+        let coletor = ColetorDuplo::new(sink.as_ref());
+        let resultado = gate.check(GuardrailDirection::Output, &texto, GUARDRAIL_TASK, &coletor);
+        hits.extend(coletor.into_entradas());
+
+        match resultado {
+            GuardrailCheckResult::Allowed => ControlFlow::Continue(outcome),
+            GuardrailCheckResult::Redacted(mascarado) => {
+                self.messages[indice] = Message::assistant(mascarado);
+                ControlFlow::Continue(outcome)
+            }
+            GuardrailCheckResult::Blocked(regra_id) => {
+                self.messages[indice] = Message::assistant(format!(
+                    "[guardrail] resposta bloqueada pela regra '{regra_id}'."
+                ));
+                outcome.reviews = Vec::new();
+                ControlFlow::Break(outcome)
+            }
+        }
     }
 
     /// Depois que [`Self::after_response`] sinaliza [`StopReason::Done`],
@@ -522,6 +690,13 @@ impl Session {
         let mut consumed = Usage::default();
         let mut turns = 0u32;
         let mut tentativas_de_revisao = 0u32;
+        let mut guardrail_hits = Vec::new();
+
+        if let Some(mut outcome) = self.aplicar_guardrail_entrada(&mut guardrail_hits) {
+            outcome.guardrail_hits = guardrail_hits;
+            return Ok(outcome);
+        }
+
         loop {
             turns += 1;
             let request = self.build_request();
@@ -530,7 +705,7 @@ impl Session {
                 .chat(request)
                 .await
                 .map_err(SessionError::Provider)?;
-            let Some(outcome) = self
+            let Some(mut outcome) = self
                 .after_response(response.message, response.usage, &mut consumed, turns)
                 .await
             else {
@@ -538,14 +713,26 @@ impl Session {
             };
 
             if outcome.reason != StopReason::Done {
+                outcome.guardrail_hits = guardrail_hits;
                 return Ok(outcome);
             }
+
+            outcome = match self.aplicar_guardrail_saida(outcome, &mut guardrail_hits) {
+                ControlFlow::Break(mut outcome_final) => {
+                    outcome_final.guardrail_hits = guardrail_hits;
+                    return Ok(outcome_final);
+                }
+                ControlFlow::Continue(outcome) => outcome,
+            };
 
             match self
                 .revisar_ou_continuar(outcome, router, &mut tentativas_de_revisao)
                 .await?
             {
-                ControlFlow::Break(outcome_final) => return Ok(outcome_final),
+                ControlFlow::Break(mut outcome_final) => {
+                    outcome_final.guardrail_hits = guardrail_hits;
+                    return Ok(outcome_final);
+                }
                 ControlFlow::Continue(()) => continue,
             }
         }
@@ -573,6 +760,13 @@ impl Session {
         let mut consumed = Usage::default();
         let mut turns = 0u32;
         let mut tentativas_de_revisao = 0u32;
+        let mut guardrail_hits = Vec::new();
+
+        if let Some(mut outcome) = self.aplicar_guardrail_entrada(&mut guardrail_hits) {
+            outcome.guardrail_hits = guardrail_hits;
+            return Ok(outcome);
+        }
+
         loop {
             turns += 1;
             let request = self.build_request();
@@ -590,7 +784,7 @@ impl Session {
             }
             let (message, turn_usage) = aggregator.into_message();
 
-            let Some(outcome) = self
+            let Some(mut outcome) = self
                 .after_response(message, turn_usage, &mut consumed, turns)
                 .await
             else {
@@ -598,14 +792,26 @@ impl Session {
             };
 
             if outcome.reason != StopReason::Done {
+                outcome.guardrail_hits = guardrail_hits;
                 return Ok(outcome);
             }
+
+            outcome = match self.aplicar_guardrail_saida(outcome, &mut guardrail_hits) {
+                ControlFlow::Break(mut outcome_final) => {
+                    outcome_final.guardrail_hits = guardrail_hits;
+                    return Ok(outcome_final);
+                }
+                ControlFlow::Continue(outcome) => outcome,
+            };
 
             match self
                 .revisar_ou_continuar(outcome, router, &mut tentativas_de_revisao)
                 .await?
             {
-                ControlFlow::Break(outcome_final) => return Ok(outcome_final),
+                ControlFlow::Break(mut outcome_final) => {
+                    outcome_final.guardrail_hits = guardrail_hits;
+                    return Ok(outcome_final);
+                }
                 ControlFlow::Continue(()) => continue,
             }
         }
@@ -615,6 +821,7 @@ impl Session {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::guardrail::GuardrailAction;
     use crate::provider::mock::MockProvider;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -1280,6 +1487,229 @@ mod tests {
             mock.chat_requests().len(),
             0,
             "nenhuma chamada deveria ter sido feita para histórico vazio"
+        );
+    }
+
+    /// Coletor de [`GuardrailAuditEntry`] de teste (MT-45) — mesma
+    /// disciplina de [`crate::guardrail::tests`] (`Mutex`, não `RefCell`,
+    /// porque `GuardrailAuditSink` exige `Send + Sync`).
+    #[derive(Default)]
+    struct SinkColetorDeTeste(std::sync::Mutex<Vec<GuardrailAuditEntry>>);
+
+    impl GuardrailAuditSink for SinkColetorDeTeste {
+        fn record(&self, entry: GuardrailAuditEntry) {
+            self.0
+                .lock()
+                .expect("mutex do coletor não deve envenenar")
+                .push(entry);
+        }
+    }
+
+    #[tokio::test]
+    async fn regra_de_entrada_block_nunca_chama_o_provider() {
+        let mock = Arc::new(MockProvider::new("mock"));
+        // Nenhuma resposta enfileirada de propósito: se o provider fosse
+        // chamado, o mock devolveria erro de fila vazia — provando que a
+        // chamada nunca aconteceu de fato, não só que o teste não observou.
+        let executor = Arc::new(CountingExecutor::default());
+        let gate = Arc::new(crate::guardrail::GuardrailGate {
+            input: vec![crate::guardrail::GuardrailRule::new(
+                "bloqueia-senha",
+                "senha:",
+                GuardrailAction::Block,
+            )],
+            output: vec![],
+        });
+        let sink = Arc::new(SinkColetorDeTeste::default());
+
+        let mut session = Session::new(route(mock.clone()), executor, TokenBudget::new(10_000))
+            .with_guardrails(gate, sink);
+        session.push_user_message("minha senha: 12345");
+
+        let outcome = session
+            .run(&router_vazio())
+            .await
+            .expect("bloqueio de entrada não deve ser erro");
+
+        assert_eq!(outcome.reason, StopReason::Done);
+        assert_eq!(outcome.turns, 0);
+        assert_eq!(mock.chat_requests().len(), 0, "o provider nunca é chamado");
+        assert_eq!(outcome.guardrail_hits.len(), 1);
+        assert_eq!(outcome.guardrail_hits[0].action, GuardrailAction::Block);
+        assert_eq!(
+            outcome.guardrail_hits[0].direction,
+            GuardrailDirection::Input
+        );
+    }
+
+    #[tokio::test]
+    async fn regra_de_entrada_redact_chega_ao_provider_mascarada() {
+        let mock = Arc::new(MockProvider::new("mock"));
+        mock.enqueue_chat(Ok(resposta_final("tudo certo", Usage::default())));
+        let executor = Arc::new(CountingExecutor::default());
+        let gate = Arc::new(crate::guardrail::GuardrailGate {
+            input: vec![crate::guardrail::GuardrailRule::new(
+                "mascara-segredo",
+                "segredo-abc",
+                GuardrailAction::Redact,
+            )],
+            output: vec![],
+        });
+        let sink = Arc::new(SinkColetorDeTeste::default());
+
+        let mut session = Session::new(route(mock.clone()), executor, TokenBudget::new(10_000))
+            .with_guardrails(gate, sink);
+        session.push_user_message("o valor é segredo-abc, use com cuidado");
+
+        let outcome = session.run(&router_vazio()).await.expect("deve completar");
+
+        assert_eq!(outcome.reason, StopReason::Done);
+        let requisicoes = mock.chat_requests();
+        assert_eq!(requisicoes.len(), 1);
+        let texto_enviado = requisicoes[0].messages[0].text_content();
+        assert!(!texto_enviado.contains("segredo-abc"));
+        assert!(texto_enviado.contains(crate::egress::redact::REDACTED_PLACEHOLDER));
+        assert_eq!(outcome.guardrail_hits.len(), 1);
+        assert_eq!(outcome.guardrail_hits[0].action, GuardrailAction::Redact);
+    }
+
+    #[tokio::test]
+    async fn regra_de_saida_block_substitui_a_resposta_e_pula_o_reviewer_mesmo_com_reviews_habilitadas(
+    ) {
+        let mock = Arc::new(MockProvider::new("mock"));
+        mock.enqueue_chat(Ok(resposta_final(
+            "aqui está internal.corp no meio",
+            Usage::default(),
+        )));
+        let executor = Arc::new(CountingExecutor::default());
+        let gate = Arc::new(crate::guardrail::GuardrailGate {
+            input: vec![],
+            output: vec![crate::guardrail::GuardrailRule::new(
+                "bloqueia-host",
+                "internal.corp",
+                GuardrailAction::Block,
+            )],
+        });
+        let sink = Arc::new(SinkColetorDeTeste::default());
+
+        // router_vazio() não tem nenhuma rota "review-*" registrada — se o
+        // Reviewer fosse de fato chamado, resolve() falharia e run()
+        // devolveria Err, não Ok.
+        let mut session = Session::new(route(mock.clone()), executor, TokenBudget::new(10_000))
+            .with_guardrails(gate, sink)
+            .with_reviews(
+                vec![ReviewConfig {
+                    kind: AuditKind::Security,
+                    mode: ReviewMode::Blocking,
+                }],
+                3,
+            );
+        session.push_user_message("qual o endereço do servidor?");
+
+        let outcome = session
+            .run(&router_vazio())
+            .await
+            .expect("bloqueio de saída não deve ser erro, e o Reviewer nunca deve rodar");
+
+        assert_eq!(outcome.reason, StopReason::Done);
+        assert!(
+            outcome.reviews.is_empty(),
+            "Reviewer nunca roda sobre uma resposta já bloqueada"
+        );
+        let historico = session.messages();
+        let resposta_final_texto = historico.last().unwrap().text_content();
+        assert!(!resposta_final_texto.contains("internal.corp"));
+        assert!(resposta_final_texto.contains("bloqueia-host"));
+        assert_eq!(outcome.guardrail_hits.len(), 1);
+        assert_eq!(
+            outcome.guardrail_hits[0].direction,
+            GuardrailDirection::Output
+        );
+    }
+
+    #[tokio::test]
+    async fn regra_de_saida_redact_mascara_a_resposta_e_o_reviewer_ainda_roda_em_cima_dela() {
+        let mock_principal = Arc::new(MockProvider::new("mock-principal"));
+        mock_principal.enqueue_chat(Ok(resposta_final(
+            "a chave é segredo-xyz, guarde bem",
+            Usage::default(),
+        )));
+        let mock_revisor = Arc::new(MockProvider::new("mock-revisor"));
+        mock_revisor.enqueue_chat(Ok(resposta_com_veredito("pass", "sem problemas")));
+        let router = router_com_review(mock_revisor.clone(), "review-security");
+
+        let executor = Arc::new(CountingExecutor::default());
+        let gate = Arc::new(crate::guardrail::GuardrailGate {
+            input: vec![],
+            output: vec![crate::guardrail::GuardrailRule::new(
+                "mascara-segredo",
+                "segredo-xyz",
+                GuardrailAction::Redact,
+            )],
+        });
+        let sink = Arc::new(SinkColetorDeTeste::default());
+
+        let mut session = Session::new(
+            route(mock_principal.clone()),
+            executor,
+            TokenBudget::new(10_000),
+        )
+        .with_guardrails(gate, sink)
+        .with_reviews(
+            vec![ReviewConfig {
+                kind: AuditKind::Security,
+                mode: ReviewMode::Advisory,
+            }],
+            0,
+        );
+        session.push_user_message("me dê uma chave de teste");
+
+        let outcome = session.run(&router).await.expect("deve completar");
+
+        assert_eq!(outcome.reviews.len(), 1, "o Reviewer roda normalmente");
+        assert_eq!(outcome.reviews[0].veredito, Veredito::Pass);
+
+        let historico = session.messages();
+        let resposta_final_texto = historico.last().unwrap().text_content();
+        assert!(!resposta_final_texto.contains("segredo-xyz"));
+
+        // O Reviewer recebeu o texto já mascarado, não o original.
+        let requisicoes_revisor = mock_revisor.chat_requests();
+        let texto_para_o_revisor = requisicoes_revisor[0]
+            .messages
+            .iter()
+            .map(Message::text_content)
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert!(!texto_para_o_revisor.contains("segredo-xyz"));
+    }
+
+    #[tokio::test]
+    async fn sessao_sem_with_guardrails_nunca_aplica_nenhuma_checagem() {
+        let mock = Arc::new(MockProvider::new("mock"));
+        mock.enqueue_chat(Ok(resposta_final(
+            "resposta com senha: 12345 e tudo mais",
+            Usage::default(),
+        )));
+        let executor = Arc::new(CountingExecutor::default());
+
+        // Sem with_guardrails — nenhum gate configurado.
+        let mut session = Session::new(route(mock.clone()), executor, TokenBudget::new(10_000));
+        session.push_user_message("minha senha: segredo");
+
+        let outcome = session.run(&router_vazio()).await.expect("deve completar");
+
+        assert_eq!(outcome.reason, StopReason::Done);
+        assert!(outcome.guardrail_hits.is_empty());
+        assert_eq!(mock.chat_requests().len(), 1);
+        // Mensagens preservadas exatamente como escritas, sem mascarar nada.
+        assert_eq!(
+            mock.chat_requests()[0].messages[0].text_content(),
+            "minha senha: segredo"
+        );
+        assert_eq!(
+            session.messages().last().unwrap().text_content(),
+            "resposta com senha: 12345 e tudo mais"
         );
     }
 }
