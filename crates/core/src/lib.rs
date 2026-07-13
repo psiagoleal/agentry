@@ -10,12 +10,15 @@
 //! mínimo, MT-10), [`tools`] (Tool Registry + gate de permissão
 //! `allow`/`ask`/`deny`, MT-11), [`context`] (extração de contexto do
 //! repositório — repo-map via `tree-sitter` e RAG semântico local,
-//! MT-18..28, ADR-0010/0011) e [`state_dir`] (diretório de estado local
-//! por projeto, MT-38, ADR-0017).
+//! MT-18..28, ADR-0010/0011), [`state_dir`] (diretório de estado local
+//! por projeto, MT-38, ADR-0017) e [`guardrail`] (Guardrail Gate —
+//! correspondência determinística de conteúdo na entrada/saída de uma
+//! chamada de LLM, MT-43, ADR-0007).
 
 pub mod config;
 pub mod context;
 pub mod egress;
+pub mod guardrail;
 pub mod model;
 pub mod provider;
 pub mod router;
