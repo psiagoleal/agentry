@@ -9,11 +9,12 @@
 
 - **Data:** 2026-07-13
 - **Branch:** `main`
-- **Commit:** `4f54169`
-- **Fase:** Roadmap v0.1 (MT-01..38), v0.2 (MT-39/40, `Fase 7`) e v0.3 (MT-41/42, `Fase 8`)
-  **fechados/imutáveis**. ADR-0019 totalmente implementada: `--init`/`/init` materializam
-  `.agentry/agentry.settings.json`, local (zero rede) ou via `--profile` (rede pinada).
-  Guardrail Gate (ADR-0007) é a frente seguinte já sinalizada pelo usuário.
+- **Commit:** *(ver histórico — este turno só adiciona ADR-0007 emendada + roadmap-v0.4.md)*
+- **Fase:** Roadmap v0.1/v0.2/v0.3 **fechados/imutáveis**. ADR-0019 totalmente implementada.
+  Aberta a **Fase 9** (`docs/roadmap-v0.4.md`, ADR-0007 emendada): Guardrail Gate — schema
+  fechado, quebrado em **MT-43** (módulo `guardrail`) → **MT-44** (schema em `Config`) →
+  **MT-45** (`Session` aplica entrada/saída) → **MT-46** (consumo real na CLI). Nenhum código
+  implementado ainda.
 
 ## Metas cumpridas / Em andamento / Próximo passo
 
@@ -221,16 +222,33 @@
   testes na lib do core + 4 de integração + 23 na CLI (18 + 5), fmt/clippy limpos,
   `cargo build --release` verde. Nenhuma dependência nova (`4f54169`). **Fecha o MT-42, a
   ADR-0019 e a Fase 8.**
+- [x] **ADR-0007 emendada** — schema mínimo do Guardrail Gate fechado: `guardrails.input`/
+  `guardrails.output` (array de `{ id, match, action }`, `action` em `block`/`redact`);
+  substring/palavra-chave *case-insensitive*, sem `regex` nova (mesma filosofia de
+  `fs_search`); merge por camada por `id`, mais severo vence (`block` > `redact`) —
+  generalização de `Permissions::union`; bloqueio (entrada ou saída) substitui a mensagem por
+  aviso fixo e a sessão continua normalmente, sem erro/retry; bloqueio na entrada nunca chama
+  o provider; auditoria via par novo `GuardrailAuditEntry`/`GuardrailAuditSink` (não
+  `AuditEntry`/`AuditSink` literais — carregam `profile`/`egress_class` irrelevantes a uma
+  checagem de conteúdo), nunca loga o texto casado. A moderação semântica que a ADR-0007
+  adiava para "v0.2" já foi coberta pela ADR-0015 (Reviewer) — complementares, não
+  sobrepostas. `docs/interop/exchange-log.md` ganhou a nona troca (`a7db76d`).
+- [x] **Roadmap v0.4** (`docs/roadmap-v0.4.md`, novo — v0.3 permanece fechado/imutável) —
+  Guardrail Gate quebrado em 4 micro-tickets via skill `micro-ticket-planner`: **MT-43**
+  (módulo `guardrail` novo — tipos/correspondência/auditoria, sem tocar Config/Session),
+  **MT-44** (`GuardrailSettings` em `Config`, mesmo padrão de merge do MT-39), **MT-45**
+  (`Session` aplica entrada/saída, hooks em `run`/`run_streaming` antes do Reviewer), **MT-46**
+  (consumo real na CLI). Nenhum código implementado ainda.
 
 **Em andamento:** nada pendente no turno.
 
-**Próximo passo:** a definir com o usuário — Guardrail Gate (ADR-0007) é a frente já
-sinalizada como a próxima depois da ADR-0019. Outros itens em aberto, sem ticket:
-housekeeping de status de ADR (16 de 19 ainda `Proposed`); CI multi-SO ainda não observado
-verde (falta um push que dispare a matriz); backlog independente do
-`ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de reanálise de maturidade,
-perfis base+overlay/skills executáveis/config de serviços pendentes de validação de
-implementação).
+**Próximo passo:** **MT-43** (`docs/roadmap-v0.4.md`) — módulo `crates/core/src/guardrail/
+mod.rs` (tipos, correspondência, auditoria). Depois, MT-44 → MT-45 → MT-46, na ordem.
+Outros itens em aberto, sem ticket: housekeeping de status de ADR (16 de 19 ainda
+`Proposed`); CI multi-SO ainda não observado verde (falta um push que dispare a matriz);
+backlog independente do `ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de
+reanálise de maturidade, perfis base+overlay/skills executáveis/config de serviços
+pendentes de validação de implementação).
 
 ## Impedimentos de ambiente (não são bugs do código)
 
