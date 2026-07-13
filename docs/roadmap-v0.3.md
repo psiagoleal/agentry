@@ -18,7 +18,7 @@ ADR (ADR-0004), skill `micro-ticket-planner` para granularidade.
 
 ## Fase 8 — Bootstrap de configuração (`--init`/`/init`, ADR-0019)
 
-### MT-41: `--init`/`/init` sem `--profile` — bootstrap local, zero rede
+### MT-41: `--init`/`/init` sem `--profile` — bootstrap local, zero rede — ✅ concluído (`3a2075b`)
 - **Objetivo:** `agentry --init` (flag CLI) e `/init` (comando REPL), chamados sem
   `--profile`, criam `.agentry/agentry.settings.json` com o exemplo genérico já documentado
   na ADR-0018 §5 (`schemaVersion`, `permissions` vazias, as 4 flags de contexto/provider em

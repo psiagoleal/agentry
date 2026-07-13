@@ -9,12 +9,11 @@
 
 - **Data:** 2026-07-13
 - **Branch:** `main`
-- **Commit:** `362696f`
+- **Commit:** `3a2075b`
 - **Fase:** Roadmap v0.1 (MT-01..38) e v0.2 (MT-39/40, `Fase 7`) **fechados/imutáveis**.
-  Aberta a **Fase 8** (`docs/roadmap-v0.3.md`): implementa a **ADR-0019** (bootstrap de
-  `.agentry/agentry.settings.json` via `--init`/`/init`), quebrada em **MT-41** (local,
-  zero rede) e **MT-42** (via rede, `--profile`). Guardrail Gate (ADR-0007) é a frente
-  seguinte já sinalizada pelo usuário.
+  Em andamento a **Fase 8** (`docs/roadmap-v0.3.md`, ADR-0019): **MT-41 concluído**
+  (`--init`/`/init` local, zero rede); falta o **MT-42** (via rede, `--profile`). Guardrail
+  Gate (ADR-0007) é a frente seguinte já sinalizada pelo usuário.
 
 ## Metas cumpridas / Em andamento / Próximo passo
 
@@ -179,13 +178,33 @@
   local sem `--profile`, zero rede, reaproveita `state_dir::ensure_state_dir`/MT-38/39,
   idempotente) e **MT-42** (bootstrap via rede com `--profile`, `Transport` dedicado com
   `Allowlist`/`EgressClass::CloudOk` próprias, referência pinada, validação por
-  `Settings::from_json_str` antes de gravar). Nenhum código implementado ainda.
+  `Settings::from_json_str` antes de gravar).
+- [x] **MT-41** — `crates/cli/src/main.rs`: nova flag `--init` (`conflicts_with = "tarefa"`
+  via clap); `crates/cli/src/repl.rs`: novo comando `/init`. Ambos chamam a mesma
+  `run_init_local`/`escrever_resultado_init` (definidas em `main.rs`, visíveis para `repl.rs`
+  via `crate::` — mesmo padrão de compartilhamento já usado por
+  `overrides_from_args`/`parse_bool_toggle`). `run_init_local` reaproveita
+  `state_dir::ensure_state_dir` (cria `.agentry/`+`.gitignore`, MT-38) e
+  `state_dir::agentry_settings_path` (MT-39); grava o exemplo genérico exato da ADR-0018 §5
+  só quando o arquivo ainda não existe — nunca sobrescreve customização do usuário.
+  `escrever_resultado_init` sempre imprime também o comando manual (`setup-profile.sh`) como
+  alternativa. **Mudança de assinatura:** `run_repl` ganha `workspace_root: &Path` (usado
+  pelo `/init`), passado explicitamente em vez de ler `std::env::current_dir()` — os 7
+  call-sites de teste já existentes passam `std::env::temp_dir()` (nenhum chama `/init`). 4
+  testes novos (3 cobrindo os critérios de aceite diretamente sobre `run_init_local`/
+  `escrever_resultado_init`; 1 rodando `/init` de ponta a ponta via `run_repl`, provando que
+  `--init` e `/init` produzem o mesmo arquivo pela mesma função). Smoke-test manual do
+  binário real confirma: cria com o conteúdo exato; segunda chamada não sobrescreve; `--init`
+  + tarefa juntos é rejeitado pelo clap. 237 testes na lib do core + 4 de integração + 18 na
+  CLI (14 + 4), fmt/clippy limpos, `cargo build --release` verde. Nenhuma dependência nova
+  (`3a2075b`).
 
 **Em andamento:** nada pendente no turno.
 
-**Próximo passo:** **MT-41** (`docs/roadmap-v0.3.md`) — bootstrap local sem `--profile`.
-Depois, **MT-42** (bootstrap via rede). Guardrail Gate (ADR-0007) segue sinalizado pelo
-usuário como próxima frente depois da ADR-0019. Outros itens em aberto, sem ticket:
+**Próximo passo:** **MT-42** (`docs/roadmap-v0.3.md`) — bootstrap via rede com `--profile`
+(`Transport` dedicado, referência pinada). Depois, fecha a Fase 8. Guardrail Gate (ADR-0007)
+segue sinalizado pelo usuário como próxima frente depois da ADR-0019. Outros itens em
+aberto, sem ticket:
 housekeeping de status de ADR (16 de 19 ainda `Proposed`); CI multi-SO ainda não observado
 verde (falta um push que dispare a matriz); backlog independente do
 `ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de reanálise de maturidade,
@@ -209,6 +228,7 @@ implementação).
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-13 | `3a2075b` | MT-41: --init/`/init` sem --profile — bootstrap local, zero rede | MT-41 |
 | 2026-07-13 | `362696f` | docs(roadmap): ADR-0019 quebrada em MT-41/42 (Fase 8, roadmap-v0.3.md) | — |
 | 2026-07-13 | `4e24a52` | ADR-0019: bootstrap de agentry.settings.json via --init/`/init` | — |
 | 2026-07-13 | `35362f6` | MT-40: consome as 4 flags de contexto/provider na CLI real; fecha a Fase 7 | MT-40 |
