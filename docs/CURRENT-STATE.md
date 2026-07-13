@@ -9,7 +9,7 @@
 
 - **Data:** 2026-07-13
 - **Branch:** `main`
-- **Commit:** *(ver histórico — este turno só adiciona o MT-47 ao roadmap-v0.4.md)*
+- **Commit:** `794a3cc`
 - **Fase:** Roadmap v0.1/v0.2/v0.3 **fechados/imutáveis**. ADR-0019 totalmente implementada.
   Em andamento a **Fase 9** (`docs/roadmap-v0.4.md`, ADR-0007 emendada): **MT-43/44/45
   concluídos** (módulo `guardrail` + schema em `Config` + `Session` aplica entrada/saída).
@@ -329,6 +329,7 @@ serviços pendentes de validação de implementação).
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-13 | `794a3cc` | docs(roadmap): adiciona MT-47 (buffer condicional em run_streaming) | — |
 | 2026-07-13 | `6d46a51` | MT-45: Session aplica o Guardrail Gate na entrada e na saída | MT-45 |
 | 2026-07-13 | `3039554` | MT-44: GuardrailSettings — schema mínimo em Config | MT-44 |
 | 2026-07-13 | `7627c53` | MT-43: módulo guardrail — tipos, correspondência, auditoria | MT-43 |
