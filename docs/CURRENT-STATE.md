@@ -9,13 +9,13 @@
 
 - **Data:** 2026-07-13
 - **Branch:** `main`
-- **Commit:** `35362f6`
-- **Fase:** Roadmap v0.1 completo e **fechado/imutável** como registro histórico
-  (`docs/roadmap-v0.1.md`, MT-01..38). **Fase 7 fechada** (`docs/roadmap-v0.2.md`, MT-39/40):
-  fecha de vez o loop do `settings-schema:1` com o `ai-coding-agent-profiles` — o
-  `.agentry/agentry.settings.json` (ADR-0018) agora é lido de verdade e as 4 flags de
-  contexto/provider chegam à CLI real. Sem ticket de código pendente conhecido; próximo
-  passo a definir com o usuário.
+- **Commit:** `4e24a52`
+- **Fase:** Roadmap v0.1 completo e **fechado/imutável** (`docs/roadmap-v0.1.md`, MT-01..38).
+  Fase 7 fechada (`docs/roadmap-v0.2.md`, MT-39/40): `.agentry/agentry.settings.json`
+  (ADR-0018) já é lido de verdade e as 4 flags chegam à CLI real. Antes de abrir o Guardrail
+  Gate (ADR-0007) como próximo micro-ticket, o usuário pediu para primeiro fechar o design de
+  um comando `--init`/`/init` que crie o arquivo — resultou na **ADR-0019** (ver abaixo).
+  Ainda **sem micro-ticket de implementação aberto** para a ADR-0019, por pedido explícito.
 
 ## Metas cumpridas / Em andamento / Próximo passo
 
@@ -159,15 +159,34 @@
   Fase 7 e o loop do `settings-schema:1` com o `ai-coding-agent-profiles` aberto desde o
   bootstrap do ecossistema.**
 
+- [x] **ADR-0019** (Proposed) — bootstrap de `.agentry/agentry.settings.json` via `--init`
+  (CLI)/`/init` (REPL): sem `--profile`, cria só o exemplo genérico da ADR-0018 §5, zero
+  rede; com `--profile <nome>`, busca o arquivo real daquele perfil no `ai-coding-agent-
+  profiles` **público**. Duas abordagens descartadas antes de fechar o desenho: `curl
+  <script> | sh` (execução de código remoto sem *pinning*/revisão — anti-padrão de *supply
+  chain*) e buscar o JSON direto **fora** do `Transport` — esta última, ao revisar contra os
+  ADRs `Accepted` (disciplina da skill `adr-writer`), viola literalmente a Diretriz de
+  Conformidade da ADR-0002 ("proibido qualquer chamada de rede fora do módulo de transporte
+  central"). Resolvido sem emendar a ADR-0002: `Transport::new` já aceita uma
+  `Allowlist`/`EgressClass` próprias por instância, então o bootstrap ganha uma instância
+  dedicada (allowlist restrita a um host fixo, `EgressClass::CloudOk`) — cumpre a ADR-0002
+  ao pé da letra em vez de contorná-la. Referência do `profiles` buscada fica **pinada como
+  constante no código** (nunca "latest" dinâmico — reprodutibilidade sobre frescor,
+  decisão explícita do usuário); comando manual (`setup-profile.sh`) sempre impresso como
+  alternativa; falha de rede com `--profile` explícito nunca cai silenciosamente no exemplo
+  genérico. **Sem micro-ticket de implementação aberto ainda — só a ADR nesta passada, por
+  pedido explícito do usuário.** `docs/interop/exchange-log.md` ganhou a oitava troca.
+
 **Em andamento:** nada pendente no turno.
 
-**Próximo passo:** a definir com o usuário — sem ticket de código pendente conhecido do
-roadmap v0.1 nem da Fase 7 (v0.2). Itens em aberto, nenhum agendado como ticket: Guardrail
-Gate de conteúdo (ADR-0007, nunca virou micro-ticket); housekeeping de status de ADR (14 de
-18 ainda `Proposed`); CI multi-SO ainda não observado verde (falta um push que dispare a
-matriz); backlog independente do `ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF
-pendentes de reanálise de maturidade, perfis base+overlay/skills executáveis/config de
-serviços pendentes de validação de implementação).
+**Próximo passo:** a definir com o usuário. Duas frentes conhecidas e não agendadas como
+ticket: (1) micro-tickets de implementação da ADR-0019 (`--init`/`/init`); (2) Guardrail Gate
+de conteúdo (ADR-0007), que o usuário já sinalizou querer abrir em seguida. Outros itens em
+aberto, também sem ticket: housekeeping de status de ADR (15 de 19 ainda `Proposed`); CI
+multi-SO ainda não observado verde (falta um push que dispare a matriz); backlog independente
+do `ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de reanálise de maturidade,
+perfis base+overlay/skills executáveis/config de serviços pendentes de validação de
+implementação).
 
 ## Impedimentos de ambiente (não são bugs do código)
 
@@ -186,6 +205,7 @@ serviços pendentes de validação de implementação).
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-13 | `4e24a52` | ADR-0019: bootstrap de agentry.settings.json via --init/`/init` | — |
 | 2026-07-13 | `35362f6` | MT-40: consome as 4 flags de contexto/provider na CLI real; fecha a Fase 7 | MT-40 |
 | 2026-07-13 | `b3357a6` | MT-39: Settings::from_file — carrega agentry.settings.json (ADR-0018) | MT-39 |
 | 2026-07-12 | `fb99c02` | fix: .agentry/.gitignore não podia se autoignorar | — |
