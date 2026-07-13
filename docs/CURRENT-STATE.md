@@ -9,7 +9,7 @@
 
 - **Data:** 2026-07-13
 - **Branch:** `main`
-- **Commit:** *(ver histórico — commit do handoff é o topo da tabela)*
+- **Commit:** `362696f`
 - **Fase:** Roadmap v0.1 (MT-01..38) e v0.2 (MT-39/40, `Fase 7`) **fechados/imutáveis**.
   Aberta a **Fase 8** (`docs/roadmap-v0.3.md`): implementa a **ADR-0019** (bootstrap de
   `.agentry/agentry.settings.json` via `--init`/`/init`), quebrada em **MT-41** (local,
@@ -209,6 +209,7 @@ implementação).
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-13 | `362696f` | docs(roadmap): ADR-0019 quebrada em MT-41/42 (Fase 8, roadmap-v0.3.md) | — |
 | 2026-07-13 | `4e24a52` | ADR-0019: bootstrap de agentry.settings.json via --init/`/init` | — |
 | 2026-07-13 | `35362f6` | MT-40: consome as 4 flags de contexto/provider na CLI real; fecha a Fase 7 | MT-40 |
 | 2026-07-13 | `b3357a6` | MT-39: Settings::from_file — carrega agentry.settings.json (ADR-0018) | MT-39 |
