@@ -20,10 +20,18 @@
 //! as máscaras, não só a primeira. Fiação com `Config`/`Session` fica para os
 //! próximos tickets (MT-44/45) — este módulo não depende de nenhum dos dois.
 
+use serde::{Deserialize, Serialize};
+
 use crate::egress::redact::REDACTED_PLACEHOLDER;
 
 /// Ação de uma [`GuardrailRule`] quando o padrão casa.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+///
+/// `Serialize`/`Deserialize` (`rename_all = "lowercase"`) reaproveitados
+/// diretamente pelo schema de `Settings` (MT-44, ADR-0007 §2) — mesmo tipo
+/// nos dois lados (regra em memória e regra vinda de
+/// `agentry.settings.json`), sem um enum paralelo só para o JSON.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum GuardrailAction {
     /// Mascara o trecho casado com [`REDACTED_PLACEHOLDER`]; o turno segue normalmente.
     Redact,
@@ -76,7 +84,11 @@ impl std::fmt::Display for GuardrailDirection {
 
 /// Uma regra de guardrail: identificador (para log/aviso), padrão de
 /// correspondência (substring literal, *case-insensitive*) e ação.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// Mesmo tipo usado literalmente pelo schema de `Settings` (MT-44) — o JSON
+/// usa `match` (nome reservado em Rust), daí o `rename` no campo
+/// `match_text`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GuardrailRule {
     /// Identificador único da regra — nunca o texto casado, aparece em
     /// avisos/auditoria no lugar dele.
@@ -84,6 +96,7 @@ pub struct GuardrailRule {
     /// Substring a procurar, comparada sem diferenciar maiúsculas/minúsculas.
     /// Padrão vazio nunca casa (evita bloquear/redigir tudo por engano de
     /// configuração).
+    #[serde(rename = "match")]
     pub match_text: String,
     pub action: GuardrailAction,
 }

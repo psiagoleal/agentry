@@ -5,11 +5,17 @@
 //! e permissões `deny`/`ask`; mais a primeira fatia do artefato
 //! `.agentry/agentry.settings.json` (ADR-0018): as flags de contexto
 //! (`context.repoMap`/`semanticRag`/`lspGrounding`) e provider
-//! (`providers.ollama.structuredOutput`). O merge segue duas regras:
+//! (`providers.ollama.structuredOutput`); mais o schema do Guardrail Gate
+//! (`guardrails.input`/`guardrails.output`, MT-44/ADR-0007). O merge segue
+//! três regras:
 //!
 //! 1. **Campo escalar:** a camada mais específica vence (env > arquivo > perfil).
 //! 2. **Permissões:** **união** entre camadas — um `deny` herdado nunca é
 //!    removido por uma camada mais específica (fail-closed, ADR-0002).
+//! 3. **Regras de guardrail:** união por `id` — regra nova é adicionada; o
+//!    mesmo `id` em duas camadas resolve para a ação mais severa
+//!    (`GuardrailAction::rank`, `block` > `redact`), nunca a mais permissiva
+//!    (ADR-0007 §3).
 //!
 //! [`Settings::from_file`] localiza e carrega `.agentry/agentry.settings.json`
 //! (MT-39): ausência não é erro (usa os *defaults* de cada ADR de origem — todos
@@ -23,6 +29,7 @@ pub mod privacy;
 
 use serde::{Deserialize, Serialize};
 
+use crate::guardrail::{GuardrailGate, GuardrailRule};
 use privacy::{EgressClass, Profile};
 
 /// Versão do `settings-schema` suportada por este binário (contrato interop v1).
@@ -165,6 +172,57 @@ impl ProvidersSettings {
     }
 }
 
+/// Bloco `guardrails.*` do schema mínimo (ADR-0007 §2, MT-44) — regras de
+/// correspondência determinística do Guardrail Gate (MT-43), aplicadas na
+/// entrada (mensagem de usuário) e na saída (resposta do turno) de uma
+/// chamada de LLM. Reaproveita [`GuardrailRule`] literalmente (mesmo tipo
+/// dos dois lados: regra em memória e regra vinda do artefato) — sem um
+/// tipo paralelo só para o JSON.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct GuardrailSettings {
+    /// `guardrails.input` — checado contra a mensagem de usuário mais
+    /// recente, antes de qualquer chamada ao provider.
+    #[serde(default)]
+    pub input: Vec<GuardrailRule>,
+    /// `guardrails.output` — checado contra a resposta do turno, antes do
+    /// Reviewer (ADR-0015).
+    #[serde(default)]
+    pub output: Vec<GuardrailRule>,
+}
+
+impl GuardrailSettings {
+    fn merged_over(self, base: Self) -> Self {
+        Self {
+            input: merge_regras_de_guardrail(base.input, self.input),
+            output: merge_regras_de_guardrail(base.output, self.output),
+        }
+    }
+}
+
+/// Une duas listas de regras de guardrail por `id` (ADR-0007 §3): regra nova
+/// (`id` inédito) é sempre adicionada; o mesmo `id` presente nas duas listas
+/// resolve para a ação mais severa (`GuardrailAction::rank`, `block` >
+/// `redact`) — nunca a mais permissiva, mesmo espírito de
+/// `Permissions::union` generalizado para severidade em vez de só
+/// crescimento de lista.
+fn merge_regras_de_guardrail(
+    base: Vec<GuardrailRule>,
+    overlay: Vec<GuardrailRule>,
+) -> Vec<GuardrailRule> {
+    let mut resultado = base;
+    for regra_nova in overlay {
+        match resultado.iter_mut().find(|regra| regra.id == regra_nova.id) {
+            Some(existente) => {
+                if regra_nova.action.rank() > existente.action.rank() {
+                    existente.action = regra_nova.action;
+                }
+            }
+            None => resultado.push(regra_nova),
+        }
+    }
+    resultado
+}
+
 /// Uma camada de configuração (mínimo do `settings-schema:1` + fatia do
 /// ADR-0018).
 ///
@@ -196,6 +254,9 @@ pub struct Settings {
     /// Bloco `providers.*` (ADR-0018 §5).
     #[serde(default)]
     pub providers: ProvidersSettings,
+    /// Bloco `guardrails.*` (ADR-0007 §2).
+    #[serde(default)]
+    pub guardrails: GuardrailSettings,
 }
 
 impl Settings {
@@ -281,6 +342,7 @@ impl Settings {
             permissions: base.permissions.union(self.permissions),
             context: self.context.merged_over(base.context),
             providers: self.providers.merged_over(base.providers),
+            guardrails: self.guardrails.merged_over(base.guardrails),
         }
     }
 }
@@ -306,6 +368,11 @@ pub struct Config {
     pub lsp_grounding_enabled: bool,
     /// `providers.ollama.structuredOutput` (ADR-0012); nenhuma camada define ⇒ `true`.
     pub ollama_structured_output: bool,
+    /// Guardrail Gate resolvido (`guardrails.input`/`guardrails.output`,
+    /// ADR-0007) — nenhuma camada define ⇒ `GuardrailGate::default()` (sem
+    /// regras, nada é checado). Consumido por `Session::with_guardrails`
+    /// (MT-45).
+    pub guardrails: GuardrailGate,
 }
 
 impl Config {
@@ -328,6 +395,10 @@ impl Config {
             semantic_rag_enabled: merged.context.semantic_rag.enabled.unwrap_or(true),
             lsp_grounding_enabled: merged.context.lsp_grounding.enabled.unwrap_or(true),
             ollama_structured_output: merged.providers.ollama.structured_output.unwrap_or(true),
+            guardrails: GuardrailGate {
+                input: merged.guardrails.input,
+                output: merged.guardrails.output,
+            },
         }
     }
 }
@@ -335,6 +406,7 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::guardrail::GuardrailAction;
 
     fn camada_perfil(profile: &str) -> Settings {
         Settings {
@@ -600,5 +672,140 @@ mod tests {
             !cfg.ollama_structured_output,
             "ambiente deve vencer o arquivo"
         );
+    }
+
+    #[test]
+    fn json_com_guardrails_input_e_output_carrega_corretamente() {
+        let json = r#"{
+            "guardrails": {
+                "input": [
+                    { "id": "bloqueia-senha", "match": "senha:", "action": "block" }
+                ],
+                "output": [
+                    { "id": "mascara-host", "match": "internal.corp", "action": "redact" }
+                ]
+            }
+        }"#;
+        let settings = Settings::from_json_str(json).expect("guardrails devem carregar");
+
+        assert_eq!(settings.guardrails.input.len(), 1);
+        assert_eq!(settings.guardrails.input[0].id, "bloqueia-senha");
+        assert_eq!(settings.guardrails.input[0].match_text, "senha:");
+        assert_eq!(settings.guardrails.input[0].action, GuardrailAction::Block);
+
+        assert_eq!(settings.guardrails.output.len(), 1);
+        assert_eq!(
+            settings.guardrails.output[0].action,
+            GuardrailAction::Redact
+        );
+    }
+
+    #[test]
+    fn camada_mais_especifica_adiciona_regra_de_id_novo_sem_apagar_as_herdadas() {
+        let perfil = Settings {
+            guardrails: GuardrailSettings {
+                input: vec![GuardrailRule::new(
+                    "regra-do-perfil",
+                    "x",
+                    GuardrailAction::Redact,
+                )],
+                output: vec![],
+            },
+            ..Settings::default()
+        };
+        let arquivo = Settings {
+            guardrails: GuardrailSettings {
+                input: vec![GuardrailRule::new(
+                    "regra-do-arquivo",
+                    "y",
+                    GuardrailAction::Block,
+                )],
+                output: vec![],
+            },
+            ..Settings::default()
+        };
+
+        let cfg = Config::resolve(vec![perfil, arquivo]);
+
+        assert_eq!(cfg.guardrails.input.len(), 2, "as duas regras sobrevivem");
+        assert!(cfg
+            .guardrails
+            .input
+            .iter()
+            .any(|r| r.id == "regra-do-perfil"));
+        assert!(cfg
+            .guardrails
+            .input
+            .iter()
+            .any(|r| r.id == "regra-do-arquivo"));
+    }
+
+    #[test]
+    fn mesmo_id_em_duas_camadas_resolve_para_a_acao_mais_severa_nas_duas_ordens() {
+        // Perfil redact, arquivo block (mais severo) — vence o arquivo.
+        let perfil = Settings {
+            guardrails: GuardrailSettings {
+                input: vec![GuardrailRule::new(
+                    "mesma-regra",
+                    "x",
+                    GuardrailAction::Redact,
+                )],
+                output: vec![],
+            },
+            ..Settings::default()
+        };
+        let arquivo = Settings {
+            guardrails: GuardrailSettings {
+                input: vec![GuardrailRule::new(
+                    "mesma-regra",
+                    "x",
+                    GuardrailAction::Block,
+                )],
+                output: vec![],
+            },
+            ..Settings::default()
+        };
+        let cfg = Config::resolve(vec![perfil, arquivo]);
+        assert_eq!(cfg.guardrails.input.len(), 1);
+        assert_eq!(cfg.guardrails.input[0].action, GuardrailAction::Block);
+
+        // Ordem invertida: perfil block, arquivo redact (mais fraco) — o
+        // bloqueio herdado nunca é afrouxado.
+        let perfil = Settings {
+            guardrails: GuardrailSettings {
+                input: vec![GuardrailRule::new(
+                    "mesma-regra",
+                    "x",
+                    GuardrailAction::Block,
+                )],
+                output: vec![],
+            },
+            ..Settings::default()
+        };
+        let arquivo = Settings {
+            guardrails: GuardrailSettings {
+                input: vec![GuardrailRule::new(
+                    "mesma-regra",
+                    "x",
+                    GuardrailAction::Redact,
+                )],
+                output: vec![],
+            },
+            ..Settings::default()
+        };
+        let cfg = Config::resolve(vec![perfil, arquivo]);
+        assert_eq!(cfg.guardrails.input.len(), 1);
+        assert_eq!(
+            cfg.guardrails.input[0].action,
+            GuardrailAction::Block,
+            "camada mais específica nunca afrouxa uma regra herdada"
+        );
+    }
+
+    #[test]
+    fn ausencia_da_chave_guardrails_nao_e_erro_e_nao_gera_nenhuma_regra() {
+        let cfg = Config::resolve(vec![Settings::default()]);
+        assert!(cfg.guardrails.input.is_empty());
+        assert!(cfg.guardrails.output.is_empty());
     }
 }
