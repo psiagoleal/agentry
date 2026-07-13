@@ -100,6 +100,33 @@ ADR (ADR-0004), skill `micro-ticket-planner` para granularidade.
 - **Fora de escopo:** UI/CLI de configuração; `--force`/edição interativa de regras.
 - **Depende de:** MT-44, MT-45 · ADR-0007.
 
+### MT-47: `run_streaming` — buffer condicional quando há guardrails de saída
+- **Objetivo:** achado durante o MT-45 — em `run_streaming`, `on_event` recebe cada
+  `StreamEvent` **em tempo real**, turno a turno, *antes* de `aplicar_guardrail_saida` rodar
+  sobre o texto completo; um bloqueio/redação de saída hoje só protege `self.messages` e
+  turnos seguintes, não o que já foi transmitido ao vivo (tipicamente exibido ao usuário
+  antes mesmo do guardrail decidir algo). Corrige isso com **buffer condicional**: quando
+  `self.guardrails` tiver ao menos uma regra em `output`, `run_streaming` deixa de repassar
+  os eventos a `on_event` conforme chegam — acumula a resposta inteira do turno primeiro
+  (como já faz internamente via `StreamAggregator`), roda `aplicar_guardrail_saida` sobre o
+  texto completo, e só então emite os eventos (o texto original se `Allowed`, o texto já
+  mascarado se `Redacted`, o aviso fixo se `Blocked` — via eventos sintéticos equivalentes a
+  `MessageStart`/`TextDelta`/`MessageEnd`) de uma vez. Sessões sem nenhuma regra em
+  `guardrails.output` continuam com o streaming 100% ao vivo, sem nenhuma mudança de
+  comportamento observável.
+- **Arquivos no escopo:** `crates/core/src/session/mod.rs`.
+- **Critério de aceite:** testes — sessão sem guardrails de saída streama eventos em tempo
+  real exatamente como hoje (nenhuma regressão, mesmo teste de agregação já existente
+  continua verde); sessão com uma regra de saída `block`: `on_event` nunca recebe o texto
+  original bloqueado, só os eventos sintéticos do aviso fixo; sessão com uma regra de saída
+  `redact`: `on_event` recebe só o texto já mascarado, nunca o original; `usage`/`turns`
+  continuam corretos nos dois casos.
+- **Fora de escopo:** janela deslizante/checagem incremental durante o streaming (descartada
+  na discussão — mais complexa e ainda deixa uma fresta real perto da borda do buffer);
+  guardrails de entrada (já totalmente protegidos desde o MT-45 — nunca streamam nada antes
+  do provider ser chamado).
+- **Depende de:** MT-45.
+
 ---
 
 ## Sequência crítica
@@ -107,4 +134,5 @@ ADR (ADR-0004), skill `micro-ticket-planner` para granularidade.
 ```
 MT-43 → MT-44 → MT-46
 MT-43 → MT-45 → MT-46
+MT-45 → MT-47
 ```

@@ -9,11 +9,12 @@
 
 - **Data:** 2026-07-13
 - **Branch:** `main`
-- **Commit:** `6d46a51`
+- **Commit:** *(ver histórico — este turno só adiciona o MT-47 ao roadmap-v0.4.md)*
 - **Fase:** Roadmap v0.1/v0.2/v0.3 **fechados/imutáveis**. ADR-0019 totalmente implementada.
   Em andamento a **Fase 9** (`docs/roadmap-v0.4.md`, ADR-0007 emendada): **MT-43/44/45
-  concluídos** (módulo `guardrail` + schema em `Config` + `Session` aplica entrada/saída);
-  falta só **MT-46** (consumo real na CLI) para fechar a Fase 9 por completo.
+  concluídos** (módulo `guardrail` + schema em `Config` + `Session` aplica entrada/saída).
+  Faltam **MT-46** (consumo real na CLI) e o novo **MT-47** (buffer condicional em
+  `run_streaming` quando há guardrails de saída — achado durante o MT-45, ainda sem código).
 
 ## Metas cumpridas / Em andamento / Próximo passo
 
@@ -286,16 +287,29 @@
   o próprio Reviewer recebe o texto já mascarado; sessão sem `with_guardrails` nunca aplica
   nada), 257 testes na lib do core + 4 de integração + 23 na CLI, fmt/clippy limpos,
   `cargo build --release` verde. Nenhuma dependência nova (`6d46a51`).
+- [x] **MT-47 adicionado** (`docs/roadmap-v0.4.md`) — a pedido do usuário, ao discutir a
+  limitação encontrada no MT-45: em `run_streaming`, o texto de saída já é entregue a
+  `on_event` em tempo real, turno a turno, antes de `aplicar_guardrail_saida` rodar sobre o
+  texto completo. Correção decidida: **buffer condicional** — só quando `guardrails.output`
+  tiver ao menos uma regra, `run_streaming` acumula a resposta inteira, roda a checagem, e só
+  então emite os eventos (originais/mascarados/aviso fixo, conforme o resultado); sem regras
+  de saída, o streaming continua 100% ao vivo, sem nenhuma mudança. Alternativas descartadas
+  na discussão: janela deslizante (mais complexa, ainda deixa uma fresta perto da borda do
+  buffer) e exigir `run` não-streaming para guardrails de saída (força demais a mão do
+  chamador). Depende só do MT-45 (não do MT-46) — pode ser feito antes ou depois dele.
+  Nenhum código implementado ainda.
 
 **Em andamento:** nada pendente no turno.
 
-**Próximo passo:** **MT-46** (`docs/roadmap-v0.4.md`) — consumo real na CLI
-(`crates/cli/src/main.rs`): construir o `GuardrailGate` a partir da `Config` resolvida e
-chamar `Session::with_guardrails`; `StderrAuditSink` ganha `impl GuardrailAuditSink`. Fecha
-a Fase 9 por completo. Outros itens em aberto, sem ticket: housekeeping de status de ADR (16
-de 19 ainda `Proposed`); CI multi-SO ainda não observado verde (falta um push que dispare a
-matriz); backlog independente do `ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF
-pendentes de reanálise de maturidade, perfis base+overlay/skills executáveis/config de
+**Próximo passo:** a decidir com o usuário entre **MT-46** (`docs/roadmap-v0.4.md`, consumo
+real na CLI — `crates/cli/src/main.rs`, constrói o `GuardrailGate` a partir da `Config`
+resolvida e chama `Session::with_guardrails`; `StderrAuditSink` ganha `impl
+GuardrailAuditSink`) e **MT-47** (buffer condicional em `run_streaming`, `crates/core/src/
+session/mod.rs`) — os dois fecham a Fase 9 quando ambos estiverem prontos. Outros itens em
+aberto, sem ticket: housekeeping de status de ADR (16 de 19 ainda `Proposed`); CI multi-SO
+ainda não observado verde (falta um push que dispare a matriz); backlog independente do
+`ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de reanálise de maturidade,
+perfis base+overlay/skills executáveis/config de
 serviços pendentes de validação de implementação).
 
 ## Impedimentos de ambiente (não são bugs do código)
