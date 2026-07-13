@@ -9,7 +9,7 @@
 
 - **Data:** 2026-07-13
 - **Branch:** `main`
-- **Commit:** *(ver histórico — este turno só adiciona ADR-0007 emendada + roadmap-v0.4.md)*
+- **Commit:** `53c4c6a`
 - **Fase:** Roadmap v0.1/v0.2/v0.3 **fechados/imutáveis**. ADR-0019 totalmente implementada.
   Aberta a **Fase 9** (`docs/roadmap-v0.4.md`, ADR-0007 emendada): Guardrail Gate — schema
   fechado, quebrado em **MT-43** (módulo `guardrail`) → **MT-44** (schema em `Config`) →
@@ -267,6 +267,8 @@ pendentes de validação de implementação).
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-13 | `53c4c6a` | docs(roadmap): ADR-0007 quebrada em MT-43..46 (Fase 9, roadmap-v0.4.md) | — |
+| 2026-07-13 | `a7db76d` | ADR-0007: fecha o schema mínimo do Guardrail Gate | — |
 | 2026-07-13 | `4f54169` | MT-42: --init --profile — bootstrap via rede, referência pinada; fecha a Fase 8 | MT-42 |
 | 2026-07-13 | `3a2075b` | MT-41: --init/`/init` sem --profile — bootstrap local, zero rede | MT-41 |
 | 2026-07-13 | `362696f` | docs(roadmap): ADR-0019 quebrada em MT-41/42 (Fase 8, roadmap-v0.3.md) | — |
