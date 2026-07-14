@@ -9,13 +9,11 @@
 
 - **Data:** 2026-07-14
 - **Branch:** `main`
-- **Commit:** `f60e5be`
-- **Fase:** Roadmap v0.1/v0.2/v0.3 **fechados/imutáveis**. ADR-0019 totalmente implementada.
-  **Fase 9 concluída** (`docs/roadmap-v0.4.md`, ADR-0007 emendada, agora também
-  fechado/imutável) — Guardrail Gate completo: MT-43 (módulo `guardrail`), MT-44 (schema em
-  `Config`), MT-45 (`Session` aplica entrada/saída), MT-46 (consumo real na CLI), MT-47
-  (buffer condicional em `run_streaming`). Nenhum roadmap v0.5 aberto ainda — próxima macro-
-  feature a decidir com o usuário.
+- **Commit:** `5b8913a`
+- **Fase:** Roadmap v0.1/v0.2/v0.3/v0.4 **fechados/imutáveis** (Fase 9/Guardrail Gate
+  concluída no turno anterior). Nenhum roadmap v0.5 aberto ainda. Turno atual: housekeeping
+  de status de ADR (concluído) + montagem de um site de documentação MkDocs (em andamento —
+  ver seção "Em andamento" abaixo).
 
 ## Metas cumpridas / Em andamento / Próximo passo
 
@@ -343,16 +341,35 @@
   verde sem nenhuma alteração). 261 testes na lib do core + 4 de integração + 27 na CLI,
   fmt/clippy limpos, `cargo build --release` verde. Nenhuma dependência nova (`f60e5be`).
   **Fecha a Fase 9 inteira** (Guardrail Gate, ADR-0007).
+- [x] **Housekeeping de status de ADR** — 16 de 19 ADRs estavam `Proposed`; 13 (0007..0019)
+  promovidos a `Accepted` depois de confirmar individualmente (por `grep` contra o símbolo
+  real no código — `GuardrailGate`, `CallPreset`, `RepoMapTool`, `CodeSearchSession`,
+  `with_structured_output`, `register_lsp_tools`, `RuntimeOverride`, `reviewer`,
+  `Session::compact`, `state_dir`, `schemaVersion`, `fetch_profile_settings`) que cada
+  decisão está implementada e em vigor — não promoção em lote cega. **ADR-0003 e ADR-0004
+  permanecem `Proposed`, verificados como genuinamente incompletos:** ADR-0003 (consumo dos
+  artefatos do `profiles`) só teve a fatia `settings-schema:1` implementada (ADR-0018);
+  leitura de `AGENTS.md`/`SKILL.md` via *progressive disclosure* ainda não existe no
+  `agentry`. ADR-0004 (sinergia OSS) ganhou verificação parcial via `gh repo view
+  rtk-ai/rtk` (real, não arquivado, Apache-2.0, ativo, release `v0.43.0` recente) registrada
+  no próprio ADR — mas `stargazerCount: 70976` para um repositório com ~6 meses de vida
+  reforça a suspeita original de números inflados, e a checagem de telemetria 100%
+  desligável (bloqueante para adotar o **binário**, não só o padrão) não foi feita;
+  `caveman`/`ponytail`/`OKF` seguem sem identificador de repositório conhecido em nenhum dos
+  dois repos do ecossistema, sem verificação possível ainda. `docs/adr/README.md`
+  atualizado (`5b8913a`).
 
-**Em andamento:** nada pendente no turno.
+**Em andamento:** site de documentação **MkDocs** (a pedido do usuário) — três trilhas:
+desenvolvimento no repo, documentação de usuário, e uma trilha de estratégias/métodos
+focada em **aceite de uso interno em empresas** (segurança, governança, compliance,
+confidencialidade), sem detalhamento granular de código. Estrutura/escopo em definição no
+momento deste registro — ver o próximo commit para o estado real.
 
-**Próximo passo:** nenhum ticket aberto no momento — **Fase 9 concluída**, nenhum roadmap
-v0.5 definido ainda; decidir com o usuário a próxima macro-feature. Itens em aberto, sem
-ticket: housekeeping de status de ADR (16 de 19 ainda `Proposed`); CI multi-SO ainda não
-observado verde (falta um push que dispare a matriz); backlog independente do
-`ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de reanálise de maturidade,
-perfis base+overlay/skills executáveis/config de
-serviços pendentes de validação de implementação).
+**Próximo passo:** concluir o site MkDocs (em andamento). Itens em aberto, sem ticket: CI
+multi-SO ainda não observado verde (falta um push que dispare a matriz); backlog
+independente do `ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de
+reanálise de maturidade, perfis base+overlay/skills executáveis/config de serviços
+pendentes de validação de implementação).
 
 ## Impedimentos de ambiente (não são bugs do código)
 
@@ -371,6 +388,7 @@ serviços pendentes de validação de implementação).
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-14 | `5b8913a` | docs(adr): housekeeping de status — 13 ADRs promovidos a Accepted | — |
 | 2026-07-14 | `f60e5be` | MT-47: buffer condicional em run_streaming quando há guardrails de saída; fecha a Fase 9 | MT-47 |
 | 2026-07-14 | `ee33219` | MT-46: consumo real do Guardrail Gate na CLI; corrige Settings::from_file nunca lido em main() | MT-46 |
 | 2026-07-13 | `794a3cc` | docs(roadmap): adiciona MT-47 (buffer condicional em run_streaming) | — |
