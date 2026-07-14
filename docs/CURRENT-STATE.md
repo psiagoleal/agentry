@@ -9,12 +9,12 @@
 
 - **Data:** 2026-07-14
 - **Branch:** `main`
-- **Commit:** `ac28251`
-- **Fase:** Roadmap v0.1/v0.2/v0.3/v0.4 **fechados/imutáveis**. **Fase 10** aberta
+- **Commit:** `a714182`
+- **Fase:** Roadmap v0.1/v0.2/v0.3/v0.4 **fechados/imutáveis**. **Fase 10** em andamento
   (`docs/roadmap-v0.5.md`, ADR-0006) — conexão configurável com LiteLLM, a pedido do
-  usuário (testar modelos 30B+ atrás do gateway LiteLLM da empresa dele). **MT-48
-  concluído** (schema `providers.litellm`); faltam **MT-49** (consumo real na CLI),
-  **MT-50** (`--provider`/`/provider`), **MT-51** (atualizar site MkDocs).
+  usuário (testar modelos 30B+ atrás do gateway LiteLLM da empresa dele). **MT-48/49
+  concluídos** (schema `providers.litellm` + consumo real na CLI); faltam **MT-50**
+  (`--provider`/`/provider`) e **MT-51** (atualizar site MkDocs).
 
 ## Metas cumpridas / Em andamento / Próximo passo
 
@@ -409,19 +409,44 @@
   específica sobrescreve campo a campo, inclusive parcialmente). 266 testes na lib do core
   (261+5) + 4 de integração + 27 na CLI, fmt/clippy limpos, `cargo build --release` verde.
   Nenhuma dependência nova (`ac28251`).
+- [x] **MT-49** — `crates/core/src/transport/mod.rs` ganha `host_from_url(url)` (extrai só
+  o host de uma URL completa — mesma extração que `Transport::authorize` já usa
+  internamente — exposta para quem monta uma `AllowlistEntry` fora do módulo de transporte
+  a partir de uma URL configurada precisar declarar exatamente o mesmo host que será
+  checado depois). `crates/cli/src/main.rs` ganha `build_litellm_provider(cfg, api_key)` —
+  quando `cfg.litellm` (MT-48) é `Some`, monta uma segunda instância de `Transport`
+  dedicada (mesma disciplina do bootstrap `--profile`, ADR-0019) com allowlist restrita ao
+  host de `base_url` sob a `egress_class` já resolvida (nunca inferida — ADR-0006); anexa
+  `Authorization: Bearer` só quando `api_key` é `Some`. **Decisão de design:** `api_key` é
+  parâmetro explícito da função, não lido do ambiente dentro dela — `main()` lê
+  `AGENTRY_LITELLM_API_KEY` e repassa, pra não acoplar os testes a variáveis de ambiente
+  reais (evita *flakiness* em testes paralelos). Provider registrado no `Router` como
+  segundo candidato da `task-class` "chat", depois de Ollama — zero mudança de
+  comportamento *default* para quem não configurar `providers.litellm` (confirmado com
+  smoke-test manual do binário real). `crates/cli/src/repl.rs`: `set_chat_route` ganha um
+  `candidato_extra` opcional — como `Router::set_route` substitui a `RouteEntry` inteira
+  (não existe "adicionar candidato"), o candidato LiteLLM precisa ser redeclarado a cada
+  `/model`, senão desapareceria silenciosamente na primeira troca de modelo no REPL;
+  `run_repl` reagrupou `workspace_root`/`preset_base`/`candidato_extra` num novo struct
+  `ReplConfig` (`clippy::too_many_arguments` batia no limite de 7 com o parâmetro novo). 9
+  testes novos (`host_from_url` no core; `build_litellm_provider` — ausência preserva
+  `None`, configuração completa monta provider+candidato corretos, `baseUrl` inválida é
+  erro tratado; `Router` com os dois candidatos resolve o preferencial por *default* e o
+  `litellm` quando pedido via `RuntimeOverride.provider`, mesmo mecanismo que o MT-50 vai
+  expor por flag). 268 testes na lib do core (266+2) + 4 de integração + 31 na CLI (27+4),
+  fmt/clippy limpos, `cargo build --release` verde. Nenhuma dependência nova (`a714182`).
 
 **Em andamento:** nada pendente no turno.
 
-**Próximo passo:** **MT-49** (`docs/roadmap-v0.5.md`, consumo real na CLI —
-`crates/cli/src/main.rs`: instancia `OpenAiCompatProvider` quando `cfg.litellm` é `Some`,
-segunda instância de `Transport` com allowlist restrita ao host declarado, header
-`Authorization` só se `AGENTRY_LITELLM_API_KEY` estiver no ambiente, registra como segundo
-candidato da `task-class` "chat"). Depois: MT-50 (`--provider`/`/provider`) e MT-51
-(atualizar `docs/usuario`/`docs/governanca` — a afirmação atual de "nenhum destino de rede
-além do Ollama local" deixa de ser verdade). Outros itens em aberto, sem ticket: deploy do
-site MkDocs (GitHub Pages) — decisão explícita do usuário de não fazer ainda, retomar
-quando pedido; CI multi-SO ainda não observado verde (falta um push que dispare a matriz);
-backlog independente do `ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de
+**Próximo passo:** **MT-50** (`docs/roadmap-v0.5.md` — flag `-p, --provider <nome>` no modo
+one-shot e comando `/provider <nome>` no REPL, expondo `RuntimeOverride.provider`, que já
+existe desde a ADR-0014 mas nunca foi ligado a nada real; `crates/cli/src/main.rs`,
+`crates/cli/src/repl.rs`). Depois: MT-51 (atualizar `docs/usuario`/`docs/governanca` — a
+afirmação atual de "nenhum destino de rede além do Ollama local" deixa de ser verdade a
+partir do MT-49). Outros itens em aberto, sem ticket: deploy do site MkDocs (GitHub Pages)
+— decisão explícita do usuário de não fazer ainda, retomar quando pedido; CI multi-SO
+ainda não observado verde (falta um push que dispare a matriz); backlog independente do
+`ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de
 reanálise de maturidade, perfis base+overlay/skills executáveis/config de serviços
 pendentes de validação de implementação).
 
@@ -442,6 +467,7 @@ pendentes de validação de implementação).
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-14 | `a714182` | MT-49: consumo real do provider LiteLLM na CLI (ADR-0006) | MT-49 |
 | 2026-07-14 | `ac28251` | MT-48: schema providers.litellm em Settings/Config (ADR-0006) | MT-48 |
 | 2026-07-14 | `b18a65c` | docs(roadmap): conexão configurável com LiteLLM (Fase 10, roadmap-v0.5.md) | — |
 | 2026-07-14 | `8a4be44` | docs: site MkDocs com três trilhas (usuário, governança/compliance, dev) | — |
