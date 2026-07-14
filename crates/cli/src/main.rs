@@ -119,6 +119,13 @@ struct Args {
     #[arg(long, short = 'm')]
     model: Option<String>,
 
+    /// Provider a usar nesta invocação — `ollama` (padrão) ou `litellm`, se
+    /// `providers.litellm` estiver configurado (ADR-0006/MT-49). Restringe a
+    /// escolha aos candidatos já declarados na rota; nome desconhecido é o
+    /// mesmo erro tratado de `Router::resolve_with_override`.
+    #[arg(long, short = 'p')]
+    provider: Option<String>,
+
     /// Temperatura de amostragem desta invocação.
     #[arg(long)]
     temperature: Option<f32>,
@@ -322,7 +329,7 @@ fn overrides_from_args(args: &Args) -> Result<RuntimeOverride, String> {
         .map(parse_bool_toggle)
         .transpose()?;
     Ok(RuntimeOverride {
-        provider: None,
+        provider: args.provider.clone(),
         model: args.model.clone(),
         temperature: args.temperature,
         top_p: args.top_p,
@@ -844,6 +851,22 @@ mod tests {
         assert!(!ultima.contains("segredo-abc"));
         assert!(ultima.contains(agentry_core::egress::redact::REDACTED_PLACEHOLDER));
         assert_eq!(outcome.guardrail_hits.len(), 1);
+    }
+
+    // --- MT-50: flag --provider ---
+
+    #[test]
+    fn flag_provider_chega_ao_runtime_override() {
+        let args = Args::parse_from(["agentry", "--provider", "litellm", "tarefa"]);
+        let overrides = overrides_from_args(&args).expect("flags válidas não devem falhar");
+        assert_eq!(overrides.provider, Some("litellm".to_string()));
+    }
+
+    #[test]
+    fn ausencia_da_flag_provider_preserva_none() {
+        let args = Args::parse_from(["agentry", "tarefa"]);
+        let overrides = overrides_from_args(&args).expect("flags válidas não devem falhar");
+        assert_eq!(overrides.provider, None);
     }
 
     // --- MT-49: consumo real do provider LiteLLM na CLI ---

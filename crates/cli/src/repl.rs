@@ -94,6 +94,18 @@ fn aplicar_comando(
             overrides.model = Some(valor.to_string());
             Ok((format!("modelo alterado para: {valor}"), true))
         }
+        "provider" => {
+            if valor.is_empty() {
+                return Err("uso: /provider <nome>".into());
+            }
+            overrides.provider = Some(valor.to_string());
+            // Restringe a escolha aos candidatos já declarados na rota
+            // (ADR-0014) — nenhum candidato novo é introduzido aqui, então
+            // não há necessidade de redeclarar a rota como `/model` faz;
+            // `resolve_with_override`, chamado logo em seguida por
+            // `run_repl`, já filtra pelo provider pedido.
+            Ok((format!("provider alterado para: {valor}"), false))
+        }
         "temperature" => {
             let n: f32 = valor
                 .parse()
@@ -359,6 +371,89 @@ mod tests {
 
         let saida_texto = String::from_utf8(saida).unwrap();
         assert!(saida_texto.contains("modelo alterado para: modelo-novo"));
+    }
+
+    #[tokio::test]
+    async fn comando_provider_troca_para_o_candidato_extra_sem_precisar_de_model() {
+        let mock_ollama = Arc::new(MockProvider::new(PROVIDER));
+        let mock_litellm = Arc::new(MockProvider::new("litellm"));
+        mock_litellm.enqueue_stream(roteiro_de_resposta("resposta do litellm"));
+
+        let mut router = Router::new(EgressClass::LocalOnly);
+        router.register_provider(mock_ollama.clone());
+        router.register_provider(mock_litellm.clone());
+        let candidato_litellm = RouteTarget::new("litellm", "modelo-30b", EgressClass::LocalOnly);
+        set_chat_route(
+            &mut router,
+            "modelo-ollama",
+            &CallPreset::default(),
+            Some(&candidato_litellm),
+        );
+        let rota = router.resolve(TASK_CLASS).expect("deve resolver");
+        let mut session = Session::new(rota, Arc::new(NoopExecutor), TokenBudget::new(100_000));
+
+        let entrada = "/provider litellm\nmensagem\n/exit\n";
+        let mut saida = Vec::new();
+
+        run_repl(
+            Cursor::new(entrada.as_bytes()),
+            &mut saida,
+            &mut session,
+            &mut router,
+            RuntimeOverride::default(),
+            &ReplConfig {
+                workspace_root: &std::env::temp_dir(),
+                preset_base: &CallPreset::default(),
+                candidato_extra: Some(&candidato_litellm),
+            },
+        )
+        .await
+        .expect("repl deve rodar sem erro");
+
+        assert_eq!(
+            mock_litellm.chat_requests().len(),
+            1,
+            "mensagem deve ter ido para o candidato litellm"
+        );
+        assert_eq!(
+            mock_ollama.chat_requests().len(),
+            0,
+            "ollama nunca deveria ser chamado depois do /provider"
+        );
+
+        let saida_texto = String::from_utf8(saida).unwrap();
+        assert!(saida_texto.contains("provider alterado para: litellm"));
+    }
+
+    #[tokio::test]
+    async fn comando_provider_com_nome_desconhecido_propaga_erro_de_resolucao_sem_panic() {
+        let mock = Arc::new(MockProvider::new(PROVIDER));
+        mock.enqueue_stream(roteiro_de_resposta("ok"));
+
+        let mut router = router_com_ollama(mock.clone(), "modelo-x");
+        let rota = router.resolve(TASK_CLASS).expect("deve resolver");
+        let mut session = Session::new(rota, Arc::new(NoopExecutor), TokenBudget::new(100_000));
+
+        let entrada = "/provider nao-existe\nmensagem\n/exit\n";
+        let mut saida = Vec::new();
+
+        run_repl(
+            Cursor::new(entrada.as_bytes()),
+            &mut saida,
+            &mut session,
+            &mut router,
+            RuntimeOverride::default(),
+            &ReplConfig {
+                workspace_root: &std::env::temp_dir(),
+                preset_base: &CallPreset::default(),
+                candidato_extra: None,
+            },
+        )
+        .await
+        .expect_err("provider inexistente deve propagar erro, mas sem panic");
+
+        let saida_texto = String::from_utf8(saida).unwrap();
+        assert!(saida_texto.contains("provider alterado para: nao-existe"));
     }
 
     #[tokio::test]
