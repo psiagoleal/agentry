@@ -9,11 +9,11 @@
 
 - **Data:** 2026-07-14
 - **Branch:** `main`
-- **Commit:** `5b8913a`
+- **Commit:** `8a4be44`
 - **Fase:** Roadmap v0.1/v0.2/v0.3/v0.4 **fechados/imutáveis** (Fase 9/Guardrail Gate
-  concluída no turno anterior). Nenhum roadmap v0.5 aberto ainda. Turno atual: housekeeping
-  de status de ADR (concluído) + montagem de um site de documentação MkDocs (em andamento —
-  ver seção "Em andamento" abaixo).
+  concluída em turno anterior). Nenhum roadmap v0.5 aberto ainda. Turno atual: housekeeping
+  de status de ADR (concluído) + site de documentação MkDocs com três trilhas — usuário,
+  governança/compliance, desenvolvimento (concluído).
 
 ## Metas cumpridas / Em andamento / Próximo passo
 
@@ -359,13 +359,40 @@
   dois repos do ecossistema, sem verificação possível ainda. `docs/adr/README.md`
   atualizado (`5b8913a`).
 
-**Em andamento:** site de documentação **MkDocs** (a pedido do usuário) — três trilhas:
-desenvolvimento no repo, documentação de usuário, e uma trilha de estratégias/métodos
-focada em **aceite de uso interno em empresas** (segurança, governança, compliance,
-confidencialidade), sem detalhamento granular de código. Estrutura/escopo em definição no
-momento deste registro — ver o próximo commit para o estado real.
+- [x] **Site de documentação MkDocs** (a pedido do usuário) — `mkdocs.yml` na raiz,
+  `docs_dir: docs`, três trilhas na nav. **Desenvolvimento** reaproveita o `docs/` já
+  existente (architecture.md, ADRs, roadmaps, testing.md, interop/, CURRENT-STATE.md) sem
+  duplicar nada — decisão confirmada com o usuário antes de escrever qualquer conteúdo.
+  **Guia do Usuário** (`docs/usuario/`, novo): instalação, `agentry.settings.json` (schema
+  completo — `permissions`/`context`/`providers`/`guardrails`, com exemplo JSON validado),
+  flags da CLI + comandos de barra do REPL (verificados contra `Args`/`aplicar_comando` no
+  código, não assumidos), guardrails de conteúdo do ponto de vista do operador, FAQ.
+  **Governança & Compliance** (`docs/governanca/`, novo) — trilha para times de segurança
+  avaliando uso interno: modelo de privacidade/egresso (com a ressalva real de que a CLI
+  v0.1 só fala com Ollama local — adapters de nuvem existem na lib mas sem fiação de CLI
+  ainda; e a exceção real de `--init --profile` contatar rede para buscar config, corrigida
+  depois de uma inconsistência própria entre duas páginas), auditoria (dois sistemas
+  independentes — egresso e guardrail —, o que cada um audita, o que nunca loga, e a
+  limitação real de hoje só existir sink de stderr, sem persistência estruturada
+  embutida), permissões de ferramentas (shell default-deny na CLI, distinto do
+  default-allow do mecanismo genérico), guardrails (perspectiva de compliance), postura de
+  dependências (ADR-0004, critério de adoção, sem telemetria conhecida hoje), FAQ.
+  Framework-agnóstica por decisão do usuário (sem citar SOC2/ISO27001/LGPD) — descreve
+  controles técnicos reais, nunca alega certificação; inclui seção "Maturidade e status"
+  honesta (projeto pessoal, sem auditoria externa, v0.1) — decisão deliberada para não
+  overclaiming numa página que existe para convencer um time de segurança.
+  `mkdocs-material` não estava disponível via pip neste ambiente (sem root/apt) — instalado
+  num venv isolado via `uv`, sem sudo; `docs-requirements.txt` documenta como reproduzir.
+  Build local validado com `mkdocs build --strict`: zero warnings; todos os arquivos da nav
+  existem (checado programaticamente); JSON de exemplo validado com `json.loads`. Nenhum
+  deploy (GitHub Pages) configurado — decisão do usuário, só montagem local por enquanto.
+  `README.md` ganhou seção "Documentação" com o passo a passo; `.gitignore` ignora `/site`
+  e `.venv-docs/` (`8a4be44`).
 
-**Próximo passo:** concluir o site MkDocs (em andamento). Itens em aberto, sem ticket: CI
+**Em andamento:** nada pendente no turno.
+
+**Próximo passo:** nenhum ticket aberto. Itens em aberto, sem ticket: deploy do site MkDocs
+(GitHub Pages) — decisão explícita do usuário de não fazer ainda, retomar quando pedido; CI
 multi-SO ainda não observado verde (falta um push que dispare a matriz); backlog
 independente do `ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de
 reanálise de maturidade, perfis base+overlay/skills executáveis/config de serviços
@@ -388,6 +415,7 @@ pendentes de validação de implementação).
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-14 | `8a4be44` | docs: site MkDocs com três trilhas (usuário, governança/compliance, dev) | — |
 | 2026-07-14 | `5b8913a` | docs(adr): housekeeping de status — 13 ADRs promovidos a Accepted | — |
 | 2026-07-14 | `f60e5be` | MT-47: buffer condicional em run_streaming quando há guardrails de saída; fecha a Fase 9 | MT-47 |
 | 2026-07-14 | `ee33219` | MT-46: consumo real do Guardrail Gate na CLI; corrige Settings::from_file nunca lido em main() | MT-46 |
