@@ -2,7 +2,7 @@
 
 # ADR 0010: Repo map (estilo Aider) via `tree-sitter`, sem vector DB
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Data:** 2026-07-08
 - **Decisores:** Iago Leal (mantenedor)
 - **Tags:** contexto, especialização-sem-fine-tuning, dependências, tree-sitter

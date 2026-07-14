@@ -2,7 +2,7 @@
 
 # ADR 0014: Override runtime de parâmetros de chamada (sessão + invocação única)
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Data:** 2026-07-08
 - **Decisores:** Iago Leal (mantenedor)
 - **Tags:** configuração, cli, router, session, segurança

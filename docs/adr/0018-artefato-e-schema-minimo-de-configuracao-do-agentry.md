@@ -2,7 +2,7 @@
 
 # ADR 0018: Artefato e schema mínimo de configuração do `agentry` (`agentry.settings.json`)
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Data:** 2026-07-12
 - **Decisores:** Iago Leal (mantenedor)
 - **Tags:** integração, dados, formato, governança, settings-schema

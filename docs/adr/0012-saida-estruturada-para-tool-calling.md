@@ -2,7 +2,7 @@
 
 # ADR 0012: Saída estruturada (*constrained decoding*) para tool-calling
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Data:** 2026-07-08
 - **Decisores:** Iago Leal (mantenedor)
 - **Tags:** confiabilidade, providers, especialização-sem-fine-tuning

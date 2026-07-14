@@ -2,7 +2,7 @@
 
 # ADR 0011: RAG semântico local para código (chunking + busca híbrida + reranker)
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Data:** 2026-07-08
 - **Decisores:** Iago Leal (mantenedor)
 - **Tags:** contexto, especialização-sem-fine-tuning, dependências, rag, embeddings

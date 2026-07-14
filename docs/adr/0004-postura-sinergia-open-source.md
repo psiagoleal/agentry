@@ -16,6 +16,18 @@ Duas restrições: (1) as métricas de maturidade desses projetos **ainda não f
 (números obtidos por leitura de página parecem inflados); (2) `rtk` menciona **telemetria**,
 o que conflita potencialmente com o ADR-0002. Por isso este ADR é **Proposed**.
 
+**Verificação parcial (2026-07-14, `gh repo view rtk-ai/rtk`):** repositório real, não
+arquivado, licença **Apache-2.0** (compatível, item (a) da Decisão), criado em 2026-01-22
+(~6 meses), último push em 2026-07-09 (ativo), última release `v0.43.0`
+(2026-06-28) — sinais de maturidade técnica razoáveis. Porém `stargazerCount: 70976` para um
+repositório com ~6 meses de vida é uma anomalia estatística forte, reforçando (não
+resolvendo) a suspeita original de números inflados registrada acima; a checagem de
+telemetria 100% desligável (exigida pela Decisão antes de integrar o **binário**) não foi
+feita — continua bloqueando qualquer adoção como dependência, só o *padrão* pode ser
+adotado. `caveman`/`ponytail`/`OKF` seguem **sem identificador de repositório conhecido** em
+nenhum dos dois repositórios do ecossistema — nenhuma verificação possível ainda. ADR
+permanece **Proposed**.
+
 ## Decisão
 
 Fica proposta a regra **"padrão antes de dependência"**:

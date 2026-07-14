@@ -2,7 +2,7 @@
 
 # ADR 0008: Parâmetros de chamada de LLM e presets de modelo por task-class
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Data:** 2026-07-07
 - **Decisores:** Iago Leal (mantenedor)
 - **Tags:** configuração, providers, router, interop

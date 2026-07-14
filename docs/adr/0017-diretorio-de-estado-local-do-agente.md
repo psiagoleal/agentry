@@ -2,7 +2,7 @@
 
 # ADR 0017: Diretório de estado local por projeto (`.agentry/`) para memória, histórico e índices
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Data:** 2026-07-10 (emendado em 2026-07-12 — ver nota abaixo)
 - **Decisores:** Iago Leal (mantenedor)
 - **Tags:** dados, persistência, portabilidade

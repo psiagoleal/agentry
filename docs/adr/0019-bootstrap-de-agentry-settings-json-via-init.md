@@ -2,7 +2,7 @@
 
 # ADR 0019: Bootstrap de `.agentry/agentry.settings.json` via `--init`/`/init`
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Data:** 2026-07-13
 - **Decisores:** Iago Leal (mantenedor)
 - **Tags:** bootstrap, cli, interop, segurança, egresso

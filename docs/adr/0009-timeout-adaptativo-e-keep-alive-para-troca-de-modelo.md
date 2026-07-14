@@ -2,7 +2,7 @@
 
 # ADR 0009: Timeout adaptativo e `keep_alive` configurável para troca de modelo em provider local
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Data:** 2026-07-07
 - **Decisores:** Iago Leal (mantenedor)
 - **Tags:** confiabilidade, providers, router, transporte, configuração

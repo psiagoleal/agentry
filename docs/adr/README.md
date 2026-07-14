@@ -13,16 +13,16 @@ Registros de decisões estruturais (ver skill `adr-writer`). Use
 | [0004](0004-postura-sinergia-open-source.md) | Postura de sinergia com projetos open-source | Proposed |
 | [0005](0005-portabilidade-cross-platform.md) | Portabilidade cross-platform (Linux, Windows, macOS) | Accepted |
 | [0006](0006-litellm-fonte-de-modelos.md) | LiteLLM como fonte de modelos via adapter OpenAI-compatible | Accepted |
-| [0007](0007-guardrails-configuraveis-de-conteudo.md) | Guardrails configuráveis de conteúdo (gate distinto do Tool Registry) | Proposed |
-| [0008](0008-parametros-de-chamada-e-presets-por-task-class.md) | Parâmetros de chamada de LLM e presets de modelo por task-class | Proposed |
-| [0009](0009-timeout-adaptativo-e-keep-alive-para-troca-de-modelo.md) | Timeout adaptativo e `keep_alive` configurável para troca de modelo em provider local | Proposed |
-| [0010](0010-repo-map-tree-sitter.md) | Repo map (estilo Aider) via `tree-sitter`, sem vector DB | Proposed |
-| [0011](0011-rag-semantico-local-para-codigo.md) | RAG semântico local para código (chunking + busca híbrida + reranker) | Proposed |
-| [0012](0012-saida-estruturada-para-tool-calling.md) | Saída estruturada (*constrained decoding*) para tool-calling | Proposed |
-| [0013](0013-tool-de-grounding-via-lsp.md) | Tool de *grounding* via LSP (Language Server Protocol) | Proposed |
-| [0014](0014-override-runtime-de-parametros-de-chamada.md) | Override runtime de parâmetros de chamada (sessão + invocação única) | Proposed |
-| [0015](0015-reviewer-auditoria-semantica-por-task-class.md) | Reviewer — auditoria semântica de tarefas via `task-class` dedicada | Proposed |
-| [0016](0016-compactacao-de-historico-de-sessao.md) | Compactação de histórico de sessão (`Session::compact`) | Proposed |
-| [0017](0017-diretorio-de-estado-local-do-agente.md) | Diretório de estado local por projeto (`.agentry/`) para memória, histórico e índices | Proposed |
-| [0018](0018-artefato-e-schema-minimo-de-configuracao-do-agentry.md) | Artefato e schema mínimo de configuração do `agentry` (`agentry.settings.json`) | Proposed |
-| [0019](0019-bootstrap-de-agentry-settings-json-via-init.md) | Bootstrap de `.agentry/agentry.settings.json` via `--init`/`/init` | Proposed |
+| [0007](0007-guardrails-configuraveis-de-conteudo.md) | Guardrails configuráveis de conteúdo (gate distinto do Tool Registry) | Accepted |
+| [0008](0008-parametros-de-chamada-e-presets-por-task-class.md) | Parâmetros de chamada de LLM e presets de modelo por task-class | Accepted |
+| [0009](0009-timeout-adaptativo-e-keep-alive-para-troca-de-modelo.md) | Timeout adaptativo e `keep_alive` configurável para troca de modelo em provider local | Accepted |
+| [0010](0010-repo-map-tree-sitter.md) | Repo map (estilo Aider) via `tree-sitter`, sem vector DB | Accepted |
+| [0011](0011-rag-semantico-local-para-codigo.md) | RAG semântico local para código (chunking + busca híbrida + reranker) | Accepted |
+| [0012](0012-saida-estruturada-para-tool-calling.md) | Saída estruturada (*constrained decoding*) para tool-calling | Accepted |
+| [0013](0013-tool-de-grounding-via-lsp.md) | Tool de *grounding* via LSP (Language Server Protocol) | Accepted |
+| [0014](0014-override-runtime-de-parametros-de-chamada.md) | Override runtime de parâmetros de chamada (sessão + invocação única) | Accepted |
+| [0015](0015-reviewer-auditoria-semantica-por-task-class.md) | Reviewer — auditoria semântica de tarefas via `task-class` dedicada | Accepted |
+| [0016](0016-compactacao-de-historico-de-sessao.md) | Compactação de histórico de sessão (`Session::compact`) | Accepted |
+| [0017](0017-diretorio-de-estado-local-do-agente.md) | Diretório de estado local por projeto (`.agentry/`) para memória, histórico e índices | Accepted |
+| [0018](0018-artefato-e-schema-minimo-de-configuracao-do-agentry.md) | Artefato e schema mínimo de configuração do `agentry` (`agentry.settings.json`) | Accepted |
+| [0019](0019-bootstrap-de-agentry-settings-json-via-init.md) | Bootstrap de `.agentry/agentry.settings.json` via `--init`/`/init` | Accepted |

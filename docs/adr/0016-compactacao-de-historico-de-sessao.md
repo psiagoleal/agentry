@@ -2,7 +2,7 @@
 
 # ADR 0016: Compactação de histórico de sessão (`Session::compact`)
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Data:** 2026-07-09
 - **Decisores:** Iago Leal (mantenedor)
 - **Tags:** confiabilidade, router, session, contexto

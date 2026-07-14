@@ -2,7 +2,7 @@
 
 # ADR 0013: Tool de *grounding* via LSP (Language Server Protocol)
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Data:** 2026-07-08
 - **Decisores:** Iago Leal (mantenedor)
 - **Tags:** contexto, especialização-sem-fine-tuning, dependências, lsp

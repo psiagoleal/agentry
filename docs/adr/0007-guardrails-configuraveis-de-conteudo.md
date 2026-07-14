@@ -2,7 +2,7 @@
 
 # ADR 0007: Guardrails configuráveis de conteúdo (gate distinto do Tool Registry)
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Data:** 2026-07-07 (emendado em 2026-07-13 — ver nota abaixo)
 - **Decisores:** Iago Leal (mantenedor)
 - **Tags:** segurança, configuração, guardrails, interop
