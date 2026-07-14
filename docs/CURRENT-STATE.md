@@ -9,12 +9,12 @@
 
 - **Data:** 2026-07-14
 - **Branch:** `main`
-- **Commit:** `3b851cb`
+- **Commit:** `4aee255`
 - **Fase:** Roadmap v0.1/v0.2/v0.3/v0.4 **fechados/imutáveis**. `docs/roadmap-v0.5.md` tem
-  duas fases abertas: **Fase 10** (ADR-0006, conexão com LiteLLM) — **MT-48/49
-  concluídos**, faltam **MT-50** (`--provider`/`/provider`) e **MT-51** (site MkDocs); e a
-  nova **Fase 11** (ADR-0020, `.agentryignore` + `context.gitignore.enabled`) — só a ADR
-  registrada ainda, nenhum código (MT-52..54 não iniciados).
+  duas fases abertas: **Fase 10** (ADR-0006, conexão com LiteLLM) — **MT-48/49/50
+  concluídos**, falta só **MT-51** (site MkDocs) pra fechar a fase inteira; e a **Fase 11**
+  (ADR-0020, `.agentryignore` + `context.gitignore.enabled`) — só a ADR registrada ainda,
+  nenhum código (MT-52..54 não iniciados).
 
 ## Metas cumpridas / Em andamento / Próximo passo
 
@@ -458,16 +458,34 @@
   roadmap-v0.5.md** (MT-52 renomeia com *fallback*; MT-53 schema + consumo de
   `context.gitignore`; MT-54 documentação do site) — nenhum código implementado ainda
   (`3b851cb`).
+- [x] **MT-50** — `crates/cli/src/main.rs`: `Args` ganha `-p, --provider <nome>`,
+  encaminhado por `overrides_from_args` (mesmo padrão de `--model`) pro
+  `RuntimeOverride.provider` que já existia desde a ADR-0014/MT-33 mas nunca tinha sido
+  ligado a nada real. Sem a flag, comportamento atual preservado (Ollama por *default*).
+  **Uso esperado:** `--provider litellm` **sem** `--model` junto seleciona o único
+  candidato `litellm` declarado (modelo vem de `providers.litellm.model`, MT-48) —
+  `resolve_with_override` filtra por provider **e** model quando os dois estão definidos
+  (E, não OU), então passar `--model` junto exige bater exatamente com o modelo
+  configurado; omitir `--model` é o caminho simples. `crates/cli/src/repl.rs`:
+  `aplicar_comando` ganha o braço `"provider"` — troca `overrides.provider` e devolve
+  `mudou_model=false` (diferente de `/model`, o candidato `litellm` é estático, não precisa
+  redeclarar a rota — `resolve_with_override` já refiltra a cada comando). 6 testes novos
+  (`overrides_from_args` mapeia a flag, presente e ausente; REPL com dois candidatos
+  registrados troca de verdade via `/provider` sem precisar de `/model`; provider
+  desconhecido propaga o erro de resolução do `Router`, sem *panic*). Confirmado com
+  smoke-test real do binário: `--provider litellm` ataca o `baseUrl` configurado, sem a
+  flag continua indo para o Ollama. 268 testes na lib do core + 4 de integração + 35 na CLI
+  (33+2), fmt/clippy limpos, `cargo build --release` verde. Nenhuma dependência nova
+  (`4aee255`). **Fecha o penúltimo ticket da Fase 10** — falta só o MT-51.
 
 **Em andamento:** nada pendente no turno.
 
-**Próximo passo:** **MT-50** (`docs/roadmap-v0.5.md` — flag `-p, --provider <nome>` no modo
-one-shot e comando `/provider <nome>` no REPL, expondo `RuntimeOverride.provider`, que já
-existe desde a ADR-0014 mas nunca foi ligado a nada real; `crates/cli/src/main.rs`,
-`crates/cli/src/repl.rs`). Depois: MT-51 (atualizar `docs/usuario`/`docs/governanca` — a
-afirmação atual de "nenhum destino de rede além do Ollama local" deixa de ser verdade a
-partir do MT-49), fechando a Fase 10; e a **Fase 11** completa (MT-52/53/54, `.agentryignore`
-+ `context.gitignore.enabled`, ADR-0020) — nenhum código ainda. Outros itens em aberto, sem
+**Próximo passo:** **MT-51** (`docs/roadmap-v0.5.md` — atualizar `docs/usuario`/
+`docs/governanca` do site MkDocs: novo bloco `providers.litellm`/flag `--provider`/comando
+`/provider`; a afirmação atual em `docs/governanca/privacidade-e-egresso.md` de "nenhum
+destino de rede além do Ollama local" deixa de ser verdade a partir do MT-49) — fecha a
+Fase 10 inteira. Depois: **Fase 11** completa (MT-52/53/54, `.agentryignore` +
+`context.gitignore.enabled`, ADR-0020) — nenhum código ainda. Outros itens em aberto, sem
 ticket: deploy do site MkDocs (GitHub Pages)
 — decisão explícita do usuário de não fazer ainda, retomar quando pedido; CI multi-SO
 ainda não observado verde (falta um push que dispare a matriz); backlog independente do
@@ -492,6 +510,7 @@ pendentes de validação de implementação).
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-14 | `4aee255` | MT-50: flag --provider e comando /provider (ADR-0014/MT-49) | MT-50 |
 | 2026-07-14 | `3b851cb` | ADR-0020: .agentryignore (renomeando .claudeignore) + gitignore opcional | — |
 | 2026-07-14 | `a714182` | MT-49: consumo real do provider LiteLLM na CLI (ADR-0006) | MT-49 |
 | 2026-07-14 | `ac28251` | MT-48: schema providers.litellm em Settings/Config (ADR-0006) | MT-48 |
