@@ -150,6 +150,11 @@ cargo build --release --target x86_64-pc-windows-gnu
 # binário em target/x86_64-pc-windows-gnu/release/agentry.exe
 ```
 
+Com o `.cargo/config.toml` acima já resolvido, `make windows` (raiz do repo) faz esse build
+e ainda empacota `agentry.exe` + `README.md` + `LICENSE` num `.zip` pronto para copiar a
+outra máquina, em `dist/agentry-windows-x86_64-<versão>.zip` — ver a seção "Distribuir para
+Windows" do [`README.md`](../README.md).
+
 ## Scripts de automação
 
 - `scripts/test.sh` (Linux/macOS) — `./scripts/test.sh`

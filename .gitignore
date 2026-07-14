@@ -2,7 +2,13 @@
 
 # Artefatos de build
 /target
+/dist
 **/*.rs.bk
+
+# Config de cargo local à máquina (ex.: linker do cross-compile Windows via
+# mingw-w64/posix, ver docs/testing.md) — nunca versionado, cada
+# desenvolvedor(a) resolve a própria pegadinha de toolchain localmente.
+/.cargo/
 
 # Site MkDocs gerado (mkdocs build) — ver docs-requirements.txt para as
 # ferramentas usadas para gerar o site a partir de docs/

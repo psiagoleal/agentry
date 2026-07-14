@@ -77,7 +77,28 @@ docs/
 mkdocs.yml               # config do site de documentação (ver seção "Documentação")
 scripts/
   test.sh / test.ps1     # sequência de validação do CI (fmt/clippy/test/build), local
+Makefile                 # atalhos de build/empacotamento (ver seção "Distribuir para Windows")
 ```
+
+## Distribuir para Windows (cross-compile a partir do Linux)
+
+Pré-requisitos (uma vez só — ver a seção "Cross-compile Linux → Windows" em
+[`docs/testing.md`](docs/testing.md)):
+
+```bash
+sudo apt-get install -y mingw-w64
+rustup target add x86_64-pc-windows-gnu
+```
+
+Depois, gerar o `.exe` e um `.zip` pronto pra copiar pra outra máquina:
+
+```bash
+make windows
+```
+
+Gera `dist/agentry-windows-x86_64-<versão>.zip` (`agentry.exe` + `README.md` + `LICENSE`).
+`make windows-build` só compila, sem empacotar; `make windows-clean` remove `dist/`; `make`
+sem argumento lista os alvos disponíveis.
 
 ## Testes
 
