@@ -112,8 +112,76 @@ override de rota válido, só nunca exposto por uma flag/comando real.
 
 ---
 
+## Fase 11 — `.agentryignore` e respeito opcional a `.gitignore` (ADR-0020)
+
+Discussão do usuário durante a Fase 10: `.claudeignore` (já usado por `fs`/`repo_map`/
+`code_search`) resolve confidencialidade (independente do versionamento), mas nada resolve
+ruído de contexto por artefatos já cobertos por `.gitignore`. Pesquisa de mercado (ver
+ADR-0020): `.claudeignore` não é um recurso real do Claude Code (convenção mal-atribuída,
+espalhada por documentação gerada por IA); o `OpenCode` real resolve os dois lados —
+`.gitignore` respeitado por padrão nas tools de busca, mais um arquivo próprio nativo
+(`.opencodeignore`) para exclusões específicas do agente. ADR-0020 decide: renomear para
+`.agentryignore` (artefato próprio do `agentry`, não mais do contrato de interop v1) com
+*fallback* de compatibilidade para `.claudeignore`; nova opção `context.gitignore.enabled`
+(*default* `false`) para também respeitar `.gitignore`, em união com
+`.agentryignore`/`.claudeignore`, nunca substituindo. Escopo só do lado `agentry` — o
+`ai-coding-agent-profiles` continua distribuindo `.claudeignore` sem mudança por enquanto
+(migração daquele lado é item futuro).
+
+### MT-52: Renomear para `.agentryignore` com fallback de compatibilidade
+- **Objetivo:** as três tools que já reconhecem `.claudeignore` (`fs`, `repo_map`,
+  `code_search`) passam a procurar `.agentryignore` primeiro; se ausente, caem para
+  `.claudeignore` (sem erro — comportamento atual preservado). Se os dois existirem no
+  mesmo projeto, `.agentryignore` vence **sozinho** — nunca um merge dos dois padrões
+  (ADR-0020 §2).
+- **Arquivos no escopo:** `crates/core/src/tools/fs.rs`, `crates/core/src/tools/repo_map.rs`,
+  `crates/core/src/tools/code_search.rs`.
+- **Critério de aceite:** testes — projeto só com `.agentryignore` funciona; projeto só com
+  `.claudeignore` (legado) ainda funciona via *fallback*; projeto com os dois presentes usa
+  só `.agentryignore` (arquivo coberto só por `.claudeignore` nesse cenário **não** fica
+  ignorado); ausência dos dois não é erro, nada ignorado (comportamento atual preservado).
+- **Fora de escopo:** opção de respeitar `.gitignore` (MT-53); qualquer mudança no
+  `ai-coding-agent-profiles` (ADR-0020 §5, item futuro separado).
+- **Depende de:** ADR-0020.
+
+### MT-53: Schema `context.gitignore` — respeito opcional a `.gitignore`
+- **Objetivo:** `Settings.context.gitignore: FeatureToggle` (mesmo padrão de
+  `repoMap`/`semanticRag`/`lspGrounding`, ADR-0018), *default* `false`; `Config` expõe o
+  booleano resolvido. Quando `true`, as três tools passam a excluir **também** o que
+  `.gitignore` cobre — `GitignoreBuilder::add(".gitignore")` em `fs.rs` (só a raiz, mesma
+  assimetria pré-existente dessas tools com `.agentryignore`); `WalkBuilder::git_ignore(true)`
+  em `repo_map`/`code_search` (`.gitignore` aninhado por subdiretório, suporte nativo da
+  crate `ignore`) — sempre em **união** com `.agentryignore`/`.claudeignore` (MT-52), nunca
+  em substituição.
+- **Arquivos no escopo:** `crates/core/src/config/mod.rs`, `crates/core/src/tools/fs.rs`,
+  `crates/core/src/tools/repo_map.rs`, `crates/core/src/tools/code_search.rs`,
+  `crates/cli/src/main.rs` (fiação da flag resolvida até as tools, se necessário).
+- **Critério de aceite:** testes — flag desligada (*default*) preserva o comportamento
+  atual (arquivo só coberto por `.gitignore`, não por `.agentryignore`, continua visível);
+  flag ligada exclui um arquivo coberto só por `.gitignore`; flag ligada com arquivo coberto
+  pelos dois continua excluído (união, sem conflito); `repo_map`/`code_search` respeitam
+  `.gitignore` aninhado por subdiretório quando ligada.
+- **Fora de escopo:** migração do lado `profiles`; UI/CLI dedicada além do
+  `agentry.settings.json`.
+- **Depende de:** MT-52.
+
+### MT-54: Documentação do site (usuário + governança)
+- **Objetivo:** `docs/usuario/configuracao.md` ganha o bloco `context.gitignore` e a
+  explicação de `.agentryignore`/*fallback* `.claudeignore`; revisão da trilha de
+  governança deixando explícito que confidencialidade (`.agentryignore`, independente do
+  versionamento) e redução de ruído de contexto (`context.gitignore.enabled`, opt-in) são
+  mecanismos distintos, não confundir um pelo outro.
+- **Arquivos no escopo:** `docs/usuario/configuracao.md`, `docs/governanca/*.md` (o que se
+  aplicar).
+- **Critério de aceite:** `mkdocs build --strict` continua sem warnings.
+- **Fora de escopo:** qualquer trilha nova; tradução para outro idioma.
+- **Depende de:** MT-53.
+
+---
+
 ## Sequência crítica
 
 ```
 MT-48 → MT-49 → MT-50 → MT-51
+MT-52 → MT-53 → MT-54
 ```

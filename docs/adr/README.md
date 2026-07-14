@@ -26,3 +26,4 @@ Registros de decisões estruturais (ver skill `adr-writer`). Use
 | [0017](0017-diretorio-de-estado-local-do-agente.md) | Diretório de estado local por projeto (`.agentry/`) para memória, histórico e índices | Accepted |
 | [0018](0018-artefato-e-schema-minimo-de-configuracao-do-agentry.md) | Artefato e schema mínimo de configuração do `agentry` (`agentry.settings.json`) | Accepted |
 | [0019](0019-bootstrap-de-agentry-settings-json-via-init.md) | Bootstrap de `.agentry/agentry.settings.json` via `--init`/`/init` | Accepted |
+| [0020](0020-agentryignore-com-respeito-opcional-a-gitignore.md) | Arquivo `.agentryignore` (renomeando `.claudeignore`) com respeito opcional a `.gitignore` | Proposed |

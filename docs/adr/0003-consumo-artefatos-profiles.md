@@ -16,6 +16,14 @@ deve **ler e aplicar** esses artefatos — `AGENTS.md`, `.claude/settings.json`,
 política. Os esquemas exatos de alguns artefatos ainda estão em definição, por isso este ADR
 é **Proposed**: fixa a abordagem, não congela todos os detalhes.
 
+**Emenda (2026-07-14, ADR-0020):** `.claudeignore` deixa de ser artefato de primeira classe
+do contrato de interop v1 consumido daqui — o `agentry` passa a ter seu próprio artefato,
+`.agentryignore` (mesmo padrão de posse do `.agentry/`, ADR-0017), com `.claudeignore`
+mantido só como *fallback* de compatibilidade quando `.agentryignore` está ausente. O
+`ai-coding-agent-profiles` continua distribuindo `.claudeignore` em seus três perfis sem
+nenhuma mudança por enquanto — ver ADR-0020 para o racional completo e o item de migração
+futura do lado `profiles`.
+
 ## Decisão
 
 Fica proposto que o `agentry` consuma os artefatos do perfil ativo como **fonte única de
