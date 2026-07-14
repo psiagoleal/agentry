@@ -38,8 +38,9 @@ use agentry_core::egress::allowlist::{Allowlist, AllowlistEntry};
 use agentry_core::egress::audit::AuditEntry;
 use agentry_core::guardrail::{GuardrailAuditEntry, GuardrailAuditSink};
 use agentry_core::provider::ollama::OllamaProvider;
+use agentry_core::provider::openai_compat::OpenAiCompatProvider;
 use agentry_core::provider::LlmProvider;
-use agentry_core::router::{CallPreset, Router, RuntimeOverride};
+use agentry_core::router::{CallPreset, RouteTarget, Router, RuntimeOverride};
 use agentry_core::session::{Session, TokenBudget, ToolExecutor};
 use agentry_core::state_dir;
 use agentry_core::tools::code_search::{register_code_search_tool, CodeSearchSession};
@@ -49,7 +50,7 @@ use agentry_core::tools::permission::PermissionGate;
 use agentry_core::tools::repo_map::{register_repo_map_tool, RepoMapTool};
 use agentry_core::tools::shell::{ShellPolicy, ShellTool};
 use agentry_core::tools::ToolRegistry;
-use agentry_core::transport::{AuditSink, Transport};
+use agentry_core::transport::{host_from_url, AuditSink, Transport};
 
 use repl::parse_bool_toggle;
 use tool_executor::{InteractiveConfirmer, RegistryToolExecutor};
@@ -61,6 +62,16 @@ const DEFAULT_OLLAMA_HOST: &str = "127.0.0.1:11434";
 /// Orçamento de tokens usado quando `max_tokens` não está definido em
 /// nenhuma camada de configuração.
 const DEFAULT_TOKEN_BUDGET: u64 = 100_000;
+/// Nome do provider LiteLLM (ADR-0006) no `Router` — fixo, diferente do
+/// `OpenAiCompatProvider` genérico (que aceita qualquer nome porque pode
+/// apontar para vLLM/OpenRouter/etc.): esta CLI só liga um único endpoint
+/// LiteLLM, `providers.litellm` (MT-48).
+const LITELLM_PROVIDER_NAME: &str = "litellm";
+/// Variável de ambiente com a chave de API do gateway LiteLLM (MT-49) —
+/// nunca lida do arquivo de configuração (segredo). Ausente ⇒ nenhum header
+/// de autorização é anexado; gateways internos sem autenticação (ex.: só
+/// acessíveis via VPN corporativa) continuam funcionando sem ela.
+const LITELLM_API_KEY_ENV: &str = "AGENTRY_LITELLM_API_KEY";
 /// *Language server* usado por `lsp_hover`/`lsp_definition` (MT-24, ADR-0013)
 /// quando `context.lspGrounding.enabled` está ativo. Seleção por linguagem
 /// (detectar o projeto e escolher o LS certo) fica para um ticket futuro —
@@ -321,6 +332,62 @@ fn overrides_from_args(args: &Args) -> Result<RuntimeOverride, String> {
     })
 }
 
+/// Provider já pronto para registrar no `Router` + o candidato de rota
+/// correspondente — par devolvido por [`build_litellm_provider`].
+type RegistroDeProvider = (Arc<dyn LlmProvider>, RouteTarget);
+
+/// Monta o provider LiteLLM e o candidato de rota correspondente, a partir
+/// de `cfg.litellm` (`providers.litellm`, MT-48) — `None` se LiteLLM não
+/// estiver configurado (comportamento atual preservado: só Ollama).
+///
+/// Transporte dedicado (mesma disciplina de instância própria já usada pelo
+/// bootstrap `--profile`, ADR-0019): allowlist restrita ao host de
+/// `base_url` sob a `egress_class` já resolvida por `Config` — nunca
+/// inferida aqui, só lida da configuração (ADR-0006: proibido tratar
+/// endpoint de proxy como `local-only` por inferência de host). `api_key`
+/// (tipicamente de `AGENTRY_LITELLM_API_KEY`, lida por `main` — nunca por
+/// esta função, para não acoplar a testes ao ambiente de processo real) é
+/// anexada como `Authorization: Bearer` só quando `Some`; gateways sem
+/// autenticação continuam funcionando com `None`.
+///
+/// # Errors
+///
+/// Devolve erro se `providers.litellm.baseUrl` não puder ser interpretada
+/// como URL válida com host.
+fn build_litellm_provider(
+    cfg: &Config,
+    api_key: Option<&str>,
+) -> Result<Option<RegistroDeProvider>, String> {
+    let Some(litellm) = &cfg.litellm else {
+        return Ok(None);
+    };
+
+    let host = host_from_url(&litellm.base_url)
+        .map_err(|erro| format!("providers.litellm.baseUrl inválida: {erro}"))?;
+    let allowlist = Allowlist::new(vec![AllowlistEntry::new(host, litellm.egress_class)]);
+    let mut transport = Transport::new(
+        allowlist,
+        cfg.egress_class,
+        cfg.profile.map(|p| format!("{p:?}")),
+        Arc::new(StderrAuditSink),
+    );
+    if let Some(chave) = api_key {
+        transport = transport.with_header("Authorization", format!("Bearer {chave}"));
+    }
+
+    let provider: Arc<dyn LlmProvider> = Arc::new(OpenAiCompatProvider::new(
+        Arc::new(transport),
+        litellm.base_url.clone(),
+        LITELLM_PROVIDER_NAME,
+    ));
+    let candidato = RouteTarget::new(
+        LITELLM_PROVIDER_NAME,
+        litellm.model.clone(),
+        litellm.egress_class,
+    );
+    Ok(Some((provider, candidato)))
+}
+
 #[tokio::main]
 async fn main() {
     let args = Args::parse();
@@ -400,11 +467,28 @@ async fn main() {
 
     let mut router = Router::new(cfg.egress_class);
     router.register_provider(ollama);
+
+    let chave_litellm = std::env::var(LITELLM_API_KEY_ENV).ok();
+    let litellm_candidato = build_litellm_provider(&cfg, chave_litellm.as_deref())
+        .unwrap_or_else(|erro| {
+            eprintln!("erro de configuração: {erro}");
+            std::process::exit(2)
+        })
+        .map(|(provider, candidato)| {
+            router.register_provider(provider);
+            candidato
+        });
+
     let modelo_inicial = args
         .model
         .clone()
         .unwrap_or_else(|| DEFAULT_MODEL.to_string());
-    repl::set_chat_route(&mut router, &modelo_inicial, &CallPreset::default());
+    repl::set_chat_route(
+        &mut router,
+        &modelo_inicial,
+        &CallPreset::default(),
+        litellm_candidato.as_ref(),
+    );
 
     let rota = router
         .resolve_with_override(repl::TASK_CLASS, &overrides)
@@ -457,9 +541,12 @@ async fn main() {
             io::stdout(),
             &mut session,
             &mut router,
-            &workspace_root,
-            &CallPreset::default(),
             overrides,
+            &repl::ReplConfig {
+                workspace_root: &workspace_root,
+                preset_base: &CallPreset::default(),
+                candidato_extra: litellm_candidato.as_ref(),
+            },
         )
         .await
         .unwrap_or_else(|erro| {
@@ -757,5 +844,99 @@ mod tests {
         assert!(!ultima.contains("segredo-abc"));
         assert!(ultima.contains(agentry_core::egress::redact::REDACTED_PLACEHOLDER));
         assert_eq!(outcome.guardrail_hits.len(), 1);
+    }
+
+    // --- MT-49: consumo real do provider LiteLLM na CLI ---
+
+    fn cfg_com_litellm(litellm_json: &str) -> Config {
+        let json = format!(r#"{{ "providers": {{ "litellm": {litellm_json} }} }}"#);
+        let camada = agentry_core::config::Settings::from_json_str(&json)
+            .expect("JSON de teste deve ser válido");
+        Config::resolve(vec![camada])
+    }
+
+    #[test]
+    fn ausencia_de_providers_litellm_preserva_comportamento_atual_none() {
+        let cfg = Config::resolve(vec![Settings::default()]);
+        assert!(build_litellm_provider(&cfg, None)
+            .expect("ausência de litellm não é erro")
+            .is_none());
+    }
+
+    #[test]
+    fn litellm_configurado_monta_provider_e_candidato_corretos() {
+        let cfg = cfg_com_litellm(
+            r#"{ "baseUrl": "https://litellm.minhaempresa.com", "model": "empresa/gpt-30b", "egressClass": "cloud-opt-out" }"#,
+        );
+
+        let (provider, candidato) = build_litellm_provider(&cfg, None)
+            .expect("configuração válida não é erro")
+            .expect("providers.litellm completo deve montar Some");
+
+        assert_eq!(provider.name(), LITELLM_PROVIDER_NAME);
+        assert_eq!(candidato.provider, LITELLM_PROVIDER_NAME);
+        assert_eq!(candidato.model, "empresa/gpt-30b");
+        assert_eq!(
+            candidato.egress_class,
+            agentry_core::config::privacy::EgressClass::CloudOptOut
+        );
+    }
+
+    #[test]
+    fn litellm_com_base_url_invalida_e_erro_tratado() {
+        let cfg = cfg_com_litellm(r#"{ "baseUrl": "não-é-uma-url", "model": "m" }"#);
+
+        match build_litellm_provider(&cfg, None) {
+            Err(erro) => assert!(erro.contains("baseUrl")),
+            Ok(_) => panic!("base_url sem host deve ser erro"),
+        }
+    }
+
+    #[tokio::test]
+    async fn router_com_ollama_e_litellm_resolve_o_candidato_pedido_via_runtime_override() {
+        let cfg = cfg_com_litellm(
+            r#"{ "baseUrl": "http://litellm.interno:4000", "model": "modelo-30b", "egressClass": "local-only" }"#,
+        );
+        let mock_ollama = Arc::new(MockProvider::new("ollama"));
+        let mock_litellm = Arc::new(MockProvider::new(LITELLM_PROVIDER_NAME));
+
+        let mut router = agentry_core::router::Router::new(cfg.egress_class);
+        router.register_provider(mock_ollama);
+        router.register_provider(mock_litellm);
+
+        let litellm = cfg.litellm.as_ref().expect("cfg.litellm deve ser Some");
+        let candidato = agentry_core::router::RouteTarget::new(
+            LITELLM_PROVIDER_NAME,
+            litellm.model.clone(),
+            litellm.egress_class,
+        );
+        repl::set_chat_route(
+            &mut router,
+            "modelo-ollama",
+            &CallPreset::default(),
+            Some(&candidato),
+        );
+
+        // Sem override de provider: o candidato preferencial (Ollama, posição
+        // 0) vence — comportamento default para quem não pediu LiteLLM.
+        let rota_default = router
+            .resolve_with_override(repl::TASK_CLASS, &RuntimeOverride::default())
+            .expect("deve resolver");
+        assert_eq!(rota_default.provider.name(), "ollama");
+
+        // Pedindo explicitamente o provider "litellm" (mesmo mecanismo que a
+        // futura flag --provider vai expor, MT-50): resolve o segundo
+        // candidato, não o primeiro.
+        let rota_litellm = router
+            .resolve_with_override(
+                repl::TASK_CLASS,
+                &RuntimeOverride {
+                    provider: Some(LITELLM_PROVIDER_NAME.to_string()),
+                    ..RuntimeOverride::default()
+                },
+            )
+            .expect("deve resolver o candidato litellm");
+        assert_eq!(rota_litellm.provider.name(), LITELLM_PROVIDER_NAME);
+        assert_eq!(rota_litellm.model, "modelo-30b");
     }
 }

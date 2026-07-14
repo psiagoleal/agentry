@@ -28,18 +28,31 @@ const PROVIDER: &str = "ollama";
 /// tarefa fica para quando o `settings-schema` real existir.
 pub(crate) const TASK_CLASS: &str = "chat";
 
-/// Reconfigura a entrada de roteamento `chat` para ter `modelo` como único
-/// candidato (Ollama, `local-only`), preservando o preset-base (ex.:
-/// `max_tokens` vindo da configuração). Chamado sempre que o usuário troca
-/// de modelo via `/model` — o candidato precisa existir declarado antes de
+/// Reconfigura a entrada de roteamento `chat` para ter `modelo` (Ollama,
+/// `local-only`) como candidato preferencial, seguido de `candidato_extra`
+/// se houver (ex.: o endpoint LiteLLM resolvido de `providers.litellm`,
+/// MT-49) — preserva o preset-base (ex.: `max_tokens` vindo da
+/// configuração). Chamado sempre que o usuário troca de modelo via
+/// `/model` — como [`Router::set_route`] substitui a entrada inteira (não
+/// existe "adicionar candidato"), **todo** candidato desejado precisa ser
+/// redeclarado aqui a cada chamada, não só o Ollama, senão um candidato
+/// extra já registrado desapareceria silenciosamente na primeira troca de
+/// modelo. O candidato precisa existir declarado antes de
 /// [`Router::resolve_with_override`] poder escolhê-lo (ADR-0014/MT-33: o
 /// override nunca introduz um alvo não vetado; aqui é a própria CLI, a
-/// pedido explícito do humano, quem declara o novo candidato).
-pub fn set_chat_route(router: &mut Router, modelo: &str, preset_base: &CallPreset) {
+/// pedido explícito do humano, quem declara os candidatos).
+pub fn set_chat_route(
+    router: &mut Router,
+    modelo: &str,
+    preset_base: &CallPreset,
+    candidato_extra: Option<&RouteTarget>,
+) {
+    let mut candidates = vec![RouteTarget::new(PROVIDER, modelo, EgressClass::LocalOnly)];
+    candidates.extend(candidato_extra.cloned());
     router.set_route(
         TASK_CLASS,
         RouteEntry {
-            candidates: vec![RouteTarget::new(PROVIDER, modelo, EgressClass::LocalOnly)],
+            candidates,
             preset: preset_base.clone(),
         },
     );
@@ -122,16 +135,29 @@ fn aplicar_comando(
     }
 }
 
-/// Roda o REPL até `/exit`, `/quit` ou EOF na entrada.
-///
-/// `session_override` é o estado inicial (tipicamente vindo das flags de
-/// invocação); comandos de barra atualizam esse mesmo estado, que passa a
-/// valer para os turnos seguintes até ser trocado de novo (ADR-0014).
-/// `workspace_root` é a raiz usada pelo comando `/init` (MT-41, ADR-0019)
-/// para localizar/criar `.agentry/agentry.settings.json` — passada
-/// explicitamente (em vez de `run_repl` ler `std::env::current_dir()` por
-/// conta própria) para que os testes nunca escrevam no diretório real do
-/// processo.
+/// Configuração estável do REPL — não muda turno a turno, diferente de
+/// `session`/`router`/`session_override` (agrupada à parte só para não
+/// estourar o limite de argumentos de [`run_repl`], `clippy::too_many_arguments`).
+#[derive(Clone, Copy)]
+pub struct ReplConfig<'a> {
+    /// Raiz usada pelo comando `/init` (MT-41, ADR-0019) para localizar/criar
+    /// `.agentry/agentry.settings.json` — passada explicitamente (em vez de
+    /// `run_repl` ler `std::env::current_dir()` por conta própria) para que
+    /// os testes nunca escrevam no diretório real do processo.
+    pub workspace_root: &'a Path,
+    /// Preset-base da `task-class` de chat, reaplicado a cada `/model`.
+    pub preset_base: &'a CallPreset,
+    /// Candidato de rota extra (hoje só LiteLLM, se `providers.litellm`
+    /// estiver configurado, MT-49) — redeclarado a cada `/model` (ver
+    /// [`set_chat_route`]), já que `Router::set_route` substitui a entrada
+    /// inteira em vez de aceitar um candidato adicional.
+    pub candidato_extra: Option<&'a RouteTarget>,
+}
+
+/// Roda o REPL até `/exit`, `/quit` ou EOF na entrada. `session_override` é
+/// o estado inicial (tipicamente vindo das flags de invocação); comandos de
+/// barra atualizam esse mesmo estado, que passa a valer para os turnos
+/// seguintes até ser trocado de novo (ADR-0014).
 ///
 /// # Errors
 ///
@@ -142,10 +168,14 @@ pub async fn run_repl<R: BufRead, W: Write>(
     mut output: W,
     session: &mut Session,
     router: &mut Router,
-    workspace_root: &Path,
-    preset_base: &CallPreset,
     mut session_override: RuntimeOverride,
+    config: &ReplConfig<'_>,
 ) -> Result<(), String> {
+    let ReplConfig {
+        workspace_root,
+        preset_base,
+        candidato_extra,
+    } = *config;
     loop {
         write!(output, "> ").map_err(|e| e.to_string())?;
         output.flush().map_err(|e| e.to_string())?;
@@ -198,7 +228,7 @@ pub async fn run_repl<R: BufRead, W: Write>(
                     writeln!(output, "{mensagem}").map_err(|e| e.to_string())?;
                     if mudou_model {
                         if let Some(modelo) = session_override.model.clone() {
-                            set_chat_route(router, &modelo, preset_base);
+                            set_chat_route(router, &modelo, preset_base, candidato_extra);
                         }
                     }
                     let rota = router
@@ -257,7 +287,7 @@ mod tests {
     fn router_com_ollama(mock: Arc<MockProvider>, modelo_inicial: &str) -> Router {
         let mut router = Router::new(EgressClass::LocalOnly);
         router.register_provider(mock);
-        set_chat_route(&mut router, modelo_inicial, &CallPreset::default());
+        set_chat_route(&mut router, modelo_inicial, &CallPreset::default(), None);
         router
     }
 
@@ -280,9 +310,12 @@ mod tests {
             &mut saida,
             &mut session,
             &mut router,
-            &std::env::temp_dir(),
-            &CallPreset::default(),
             RuntimeOverride::default(),
+            &ReplConfig {
+                workspace_root: &std::env::temp_dir(),
+                preset_base: &CallPreset::default(),
+                candidato_extra: None,
+            },
         )
         .await
         .expect("repl deve rodar sem erro");
@@ -310,9 +343,12 @@ mod tests {
             &mut saida,
             &mut session,
             &mut router,
-            &std::env::temp_dir(),
-            &CallPreset::default(),
             RuntimeOverride::default(),
+            &ReplConfig {
+                workspace_root: &std::env::temp_dir(),
+                preset_base: &CallPreset::default(),
+                candidato_extra: None,
+            },
         )
         .await
         .expect("repl deve rodar sem erro");
@@ -342,9 +378,12 @@ mod tests {
             &mut saida,
             &mut session,
             &mut router,
-            &std::env::temp_dir(),
-            &CallPreset::default(),
             RuntimeOverride::default(),
+            &ReplConfig {
+                workspace_root: &std::env::temp_dir(),
+                preset_base: &CallPreset::default(),
+                candidato_extra: None,
+            },
         )
         .await
         .expect("comando desconhecido não deve interromper o repl");
@@ -374,9 +413,12 @@ mod tests {
             &mut saida,
             &mut session,
             &mut router,
-            &std::env::temp_dir(),
-            &CallPreset::default(),
             RuntimeOverride::default(),
+            &ReplConfig {
+                workspace_root: &std::env::temp_dir(),
+                preset_base: &CallPreset::default(),
+                candidato_extra: None,
+            },
         )
         .await
         .expect("deve encerrar limpo");
@@ -419,9 +461,12 @@ mod tests {
             &mut saida,
             &mut session,
             &mut router,
-            &std::env::temp_dir(),
-            &CallPreset::default(),
             RuntimeOverride::default(),
+            &ReplConfig {
+                workspace_root: &std::env::temp_dir(),
+                preset_base: &CallPreset::default(),
+                candidato_extra: None,
+            },
         )
         .await
         .expect("repl deve rodar sem erro");
@@ -452,9 +497,12 @@ mod tests {
             &mut saida,
             &mut session,
             &mut router,
-            &std::env::temp_dir(),
-            &CallPreset::default(),
             RuntimeOverride::default(),
+            &ReplConfig {
+                workspace_root: &std::env::temp_dir(),
+                preset_base: &CallPreset::default(),
+                candidato_extra: None,
+            },
         )
         .await
         .expect("erro de compactação não deve derrubar o repl");
@@ -483,9 +531,12 @@ mod tests {
             &mut saida,
             &mut session,
             &mut router,
-            &std::env::temp_dir(),
-            &CallPreset::default(),
             RuntimeOverride::default(),
+            &ReplConfig {
+                workspace_root: &std::env::temp_dir(),
+                preset_base: &CallPreset::default(),
+                candidato_extra: None,
+            },
         )
         .await
         .expect("histórico vazio não deve causar erro");
@@ -543,9 +594,12 @@ mod tests {
             &mut saida,
             &mut session,
             &mut router,
-            dir.path(),
-            &CallPreset::default(),
             RuntimeOverride::default(),
+            &ReplConfig {
+                workspace_root: dir.path(),
+                preset_base: &CallPreset::default(),
+                candidato_extra: None,
+            },
         )
         .await
         .expect("/init não deve derrubar o repl");

@@ -77,6 +77,26 @@ impl core::fmt::Display for TransportError {
 
 impl std::error::Error for TransportError {}
 
+/// Extrai só o host de `url` (sem esquema, porta ou caminho) — mesma
+/// extração (`reqwest::Url::host_str`) que a checagem de allowlist em tempo
+/// de chamada usa internamente. Exposta para quem monta uma
+/// [`AllowlistEntry`] a partir de uma URL completa configurada (ex.:
+/// `providers.litellm.baseUrl`, ADR-0006, MT-49) precisar declarar
+/// exatamente o mesmo host que será checado depois — nunca duas extrações
+/// divergentes do mesmo dado.
+///
+/// # Errors
+///
+/// Devolve [`TransportError::InvalidUrl`] se `url` não puder ser
+/// interpretada ou não tiver host.
+pub fn host_from_url(url: &str) -> Result<String, TransportError> {
+    let parsed = reqwest::Url::parse(url).map_err(|e| TransportError::InvalidUrl(e.to_string()))?;
+    parsed
+        .host_str()
+        .map(str::to_string)
+        .ok_or_else(|| TransportError::InvalidUrl(format!("'{url}' não tem host")))
+}
+
 /// O transporte único: integra allowlist + audit log sobre um `reqwest::Client`.
 pub struct Transport {
     client: reqwest::Client,
@@ -742,6 +762,26 @@ mod tests {
             em_minusculas.contains("anthropic-version: 2023-06-01"),
             "esperava header anthropic-version na requisição; recebido:\n{requisicao_bruta}"
         );
+    }
+
+    #[test]
+    fn host_from_url_extrai_so_o_host_sem_esquema_porta_ou_caminho() {
+        assert_eq!(
+            host_from_url("https://litellm.minhaempresa.com/v1/chat/completions").unwrap(),
+            "litellm.minhaempresa.com"
+        );
+        assert_eq!(
+            host_from_url("http://litellm.interno:4000").unwrap(),
+            "litellm.interno"
+        );
+    }
+
+    #[test]
+    fn host_from_url_sem_host_e_erro_tratado() {
+        assert!(matches!(
+            host_from_url("não-é-uma-url"),
+            Err(TransportError::InvalidUrl(_))
+        ));
     }
 
     #[test]
