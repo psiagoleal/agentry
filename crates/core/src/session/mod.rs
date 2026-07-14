@@ -204,6 +204,24 @@ fn extract_tool_calls(message: &Message) -> Vec<ToolCall> {
         .collect()
 }
 
+/// Emite `texto` como uma sequência sintética `MessageStart`/`TextDelta`/
+/// `MessageEnd` (MT-47) — usada por `run_streaming` no lugar dos eventos
+/// brutos do provider quando o Guardrail Gate de saída está habilitado: o
+/// texto final (original, mascarado ou o aviso fixo, conforme o resultado de
+/// `aplicar_guardrail_saida`) só é conhecido depois que o turno inteiro já
+/// foi acumulado, então não há como preservar o *chunking* original — um
+/// único `TextDelta` equivale, para quem consome `on_event`, ao mesmo texto
+/// final que chegaria ao histórico de qualquer forma.
+fn emitir_texto_como_eventos<F: FnMut(&StreamEvent)>(on_event: &mut F, texto: &str, usage: Usage) {
+    on_event(&StreamEvent::MessageStart);
+    if !texto.is_empty() {
+        on_event(&StreamEvent::TextDelta {
+            text: texto.to_string(),
+        });
+    }
+    on_event(&StreamEvent::MessageEnd { usage });
+}
+
 /// Renderiza o histórico como transcript de texto simples para o prompt de
 /// compactação (MT-36) — não é um formato de fio de provider nenhum, só uma
 /// representação legível o bastante para o modelo resumir.
@@ -745,6 +763,23 @@ impl Session {
     /// [`Self::run`]. `router` tem o mesmo papel de [`Self::run`] — só usado
     /// se houver auditorias do Reviewer habilitadas (MT-35, ADR-0015).
     ///
+    /// **Buffer condicional (MT-47, ADR-0007):** sem nenhuma regra em
+    /// `guardrails.output`, `on_event` recebe cada evento em tempo real,
+    /// exatamente como antes — sem essa condição, o streaming continua
+    /// 100% ao vivo. Com ao menos uma regra em `guardrails.output`, os
+    /// eventos de **cada turno** deixam de ser repassados conforme chegam:
+    /// são acumulados via [`StreamAggregator`] (como já acontecia) e também
+    /// guardados em ordem; só depois de decidido o desfecho do turno é que
+    /// `on_event` é chamado. Num turno com tool-calls (não é a resposta
+    /// final), os eventos originais são repassados em lote no fim do turno
+    /// — nenhuma checagem de saída se aplica a eles (o Guardrail Gate só
+    /// audita a resposta final, mesma disciplina do MT-45). No turno que
+    /// encerra com [`StopReason::Done`], depois de
+    /// [`Self::aplicar_guardrail_saida`] decidir Allowed/Redacted/Blocked,
+    /// `on_event` recebe eventos **sintéticos** ([`emitir_texto_como_eventos`])
+    /// com o texto já resolvido — nunca os eventos brutos originais, que no
+    /// caso `Redacted`/`Blocked` ainda carregam o texto sem máscara.
+    ///
     /// # Errors
     ///
     /// Devolve [`SessionError::Provider`] se o provider falhar em qualquer
@@ -761,6 +796,10 @@ impl Session {
         let mut turns = 0u32;
         let mut tentativas_de_revisao = 0u32;
         let mut guardrail_hits = Vec::new();
+        let buffer_saida = self
+            .guardrails
+            .as_ref()
+            .is_some_and(|(gate, _)| !gate.output.is_empty());
 
         if let Some(mut outcome) = self.aplicar_guardrail_entrada(&mut guardrail_hits) {
             outcome.guardrail_hits = guardrail_hits;
@@ -777,9 +816,14 @@ impl Session {
                 .map_err(SessionError::Provider)?;
 
             let mut aggregator = StreamAggregator::default();
+            let mut eventos_do_turno = Vec::new();
             while let Some(evento) = stream.recv().await {
                 let evento = evento.map_err(SessionError::Provider)?;
-                on_event(&evento);
+                if buffer_saida {
+                    eventos_do_turno.push(evento.clone());
+                } else {
+                    on_event(&evento);
+                }
                 aggregator.apply(&evento);
             }
             let (message, turn_usage) = aggregator.into_message();
@@ -788,20 +832,50 @@ impl Session {
                 .after_response(message, turn_usage, &mut consumed, turns)
                 .await
             else {
+                // Turno com tool-calls, não é a resposta final — nenhuma
+                // checagem de saída se aplica; repassa os eventos originais
+                // em lote (mesmo conteúdo do modo ao vivo, só atrasado até o
+                // fim do turno).
+                for evento in &eventos_do_turno {
+                    on_event(evento);
+                }
                 continue;
             };
 
             if outcome.reason != StopReason::Done {
+                for evento in &eventos_do_turno {
+                    on_event(evento);
+                }
                 outcome.guardrail_hits = guardrail_hits;
                 return Ok(outcome);
             }
 
             outcome = match self.aplicar_guardrail_saida(outcome, &mut guardrail_hits) {
                 ControlFlow::Break(mut outcome_final) => {
+                    if buffer_saida {
+                        let texto = self
+                            .messages
+                            .last()
+                            .map(Message::text_content)
+                            .unwrap_or_default();
+                        emitir_texto_como_eventos(&mut on_event, &texto, turn_usage);
+                    }
                     outcome_final.guardrail_hits = guardrail_hits;
                     return Ok(outcome_final);
                 }
-                ControlFlow::Continue(outcome) => outcome,
+                ControlFlow::Continue(outcome) => {
+                    // Sem regra de saída, os eventos já foram repassados ao
+                    // vivo durante a leitura do stream, acima.
+                    if buffer_saida {
+                        let texto = self
+                            .messages
+                            .last()
+                            .map(Message::text_content)
+                            .unwrap_or_default();
+                        emitir_texto_como_eventos(&mut on_event, &texto, turn_usage);
+                    }
+                    outcome
+                }
             };
 
             match self
@@ -1711,5 +1785,246 @@ mod tests {
             session.messages().last().unwrap().text_content(),
             "resposta com senha: 12345 e tudo mais"
         );
+    }
+
+    // --- MT-47: buffer condicional em run_streaming quando há guardrails de saída ---
+
+    #[tokio::test]
+    async fn run_streaming_com_guardrail_so_de_entrada_nao_ativa_o_buffer_de_saida() {
+        // Regra só em `input` — `gate.output` continua vazio, então o
+        // buffer condicional não deve ativar: streaming 100% ao vivo, igual
+        // a uma sessão sem nenhum guardrail configurado.
+        let mock = Arc::new(MockProvider::new("mock"));
+        mock.enqueue_stream(vec![
+            StreamEvent::MessageStart,
+            StreamEvent::TextDelta { text: "ol".into() },
+            StreamEvent::TextDelta { text: "á!".into() },
+            StreamEvent::MessageEnd {
+                usage: Usage {
+                    input_tokens: 2,
+                    output_tokens: 2,
+                },
+            },
+        ]);
+        let executor = Arc::new(CountingExecutor::default());
+        let gate = Arc::new(crate::guardrail::GuardrailGate {
+            input: vec![crate::guardrail::GuardrailRule::new(
+                "bloqueia-senha",
+                "senha:",
+                GuardrailAction::Block,
+            )],
+            output: vec![],
+        });
+        let sink = Arc::new(SinkColetorDeTeste::default());
+
+        let mut session =
+            Session::new(route(mock), executor, TokenBudget::new(1000)).with_guardrails(gate, sink);
+        session.push_user_message("oi, tudo bem?");
+
+        let mut eventos = Vec::new();
+        let outcome = session
+            .run_streaming(|evento| eventos.push(evento.clone()), &router_vazio())
+            .await
+            .expect("loop de streaming deve completar");
+
+        assert_eq!(outcome.reason, StopReason::Done);
+        // Mesmos 4 eventos brutos do provider, na ordem original — nenhum
+        // evento sintético, nenhum atraso de turno inteiro.
+        assert_eq!(eventos.len(), 4);
+        assert_eq!(eventos[0], StreamEvent::MessageStart);
+        assert_eq!(eventos[1], StreamEvent::TextDelta { text: "ol".into() });
+        assert_eq!(eventos[2], StreamEvent::TextDelta { text: "á!".into() });
+    }
+
+    #[tokio::test]
+    async fn run_streaming_com_regra_de_saida_block_nunca_emite_o_texto_original_so_o_aviso_sintetico(
+    ) {
+        let mock = Arc::new(MockProvider::new("mock"));
+        mock.enqueue_stream(vec![
+            StreamEvent::MessageStart,
+            StreamEvent::TextDelta {
+                text: "minha senha: 12345".into(),
+            },
+            StreamEvent::MessageEnd {
+                usage: Usage {
+                    input_tokens: 3,
+                    output_tokens: 5,
+                },
+            },
+        ]);
+        let executor = Arc::new(CountingExecutor::default());
+        let gate = Arc::new(crate::guardrail::GuardrailGate {
+            input: vec![],
+            output: vec![crate::guardrail::GuardrailRule::new(
+                "bloqueia-senha",
+                "senha:",
+                GuardrailAction::Block,
+            )],
+        });
+        let sink = Arc::new(SinkColetorDeTeste::default());
+
+        let mut session =
+            Session::new(route(mock), executor, TokenBudget::new(1000)).with_guardrails(gate, sink);
+        session.push_user_message("qual a senha?");
+
+        let mut eventos = Vec::new();
+        let outcome = session
+            .run_streaming(|evento| eventos.push(evento.clone()), &router_vazio())
+            .await
+            .expect("loop de streaming deve completar");
+
+        assert_eq!(outcome.reason, StopReason::Done);
+        assert_eq!(outcome.usage.total(), 8, "usage do turno continua correto");
+        assert_eq!(outcome.guardrail_hits.len(), 1);
+        assert_eq!(outcome.guardrail_hits[0].action, GuardrailAction::Block);
+
+        // Eventos sintéticos: MessageStart, um TextDelta com o aviso fixo,
+        // MessageEnd — nunca o texto original com a senha.
+        assert_eq!(eventos.len(), 3);
+        assert_eq!(eventos[0], StreamEvent::MessageStart);
+        match &eventos[1] {
+            StreamEvent::TextDelta { text } => {
+                assert!(!text.contains("12345"), "senha original nunca vaza");
+                assert!(text.contains("bloqueada"));
+            }
+            outro => panic!("esperava TextDelta, veio {outro:?}"),
+        }
+        assert!(matches!(eventos[2], StreamEvent::MessageEnd { .. }));
+    }
+
+    #[tokio::test]
+    async fn run_streaming_com_regra_de_saida_redact_emite_so_o_texto_mascarado_nunca_o_original() {
+        let mock = Arc::new(MockProvider::new("mock"));
+        mock.enqueue_stream(vec![
+            StreamEvent::MessageStart,
+            StreamEvent::TextDelta {
+                text: "o valor é ".into(),
+            },
+            StreamEvent::TextDelta {
+                text: "segredo-abc, guarde bem".into(),
+            },
+            StreamEvent::MessageEnd {
+                usage: Usage {
+                    input_tokens: 3,
+                    output_tokens: 6,
+                },
+            },
+        ]);
+        let executor = Arc::new(CountingExecutor::default());
+        let gate = Arc::new(crate::guardrail::GuardrailGate {
+            input: vec![],
+            output: vec![crate::guardrail::GuardrailRule::new(
+                "mascara-segredo",
+                "segredo-abc",
+                GuardrailAction::Redact,
+            )],
+        });
+        let sink = Arc::new(SinkColetorDeTeste::default());
+
+        let mut session =
+            Session::new(route(mock), executor, TokenBudget::new(1000)).with_guardrails(gate, sink);
+        session.push_user_message("qual o valor?");
+
+        let mut eventos = Vec::new();
+        let outcome = session
+            .run_streaming(|evento| eventos.push(evento.clone()), &router_vazio())
+            .await
+            .expect("loop de streaming deve completar");
+
+        assert_eq!(outcome.reason, StopReason::Done);
+        assert_eq!(outcome.usage.total(), 9, "usage do turno continua correto");
+        assert_eq!(outcome.guardrail_hits.len(), 1);
+        assert_eq!(outcome.guardrail_hits[0].action, GuardrailAction::Redact);
+
+        assert_eq!(eventos.len(), 3);
+        match &eventos[1] {
+            StreamEvent::TextDelta { text } => {
+                assert!(!text.contains("segredo-abc"), "texto original nunca vaza");
+                assert!(text.contains(crate::egress::redact::REDACTED_PLACEHOLDER));
+            }
+            outro => panic!("esperava TextDelta, veio {outro:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn run_streaming_com_guardrail_de_saida_e_tool_call_intermediario_repassa_o_turno_intermediario_em_lote(
+    ) {
+        // Turno 1 tem tool-call (não é a resposta final — nenhuma checagem
+        // de saída se aplica a ele); turno 2 é a resposta final, sem
+        // nenhuma regra casando (Allowed).
+        let mock = Arc::new(MockProvider::new("mock"));
+        mock.enqueue_stream(vec![
+            StreamEvent::MessageStart,
+            StreamEvent::ToolCallStart {
+                id: "call-1".into(),
+                name: "fs_read".into(),
+            },
+            StreamEvent::ToolCallDelta {
+                id: "call-1".into(),
+                delta: "{\"path\":\"a.txt\"}".into(),
+            },
+            StreamEvent::MessageEnd {
+                usage: Usage {
+                    input_tokens: 4,
+                    output_tokens: 6,
+                },
+            },
+        ]);
+        mock.enqueue_stream(vec![
+            StreamEvent::MessageStart,
+            StreamEvent::TextDelta {
+                text: "tudo certo".into(),
+            },
+            StreamEvent::MessageEnd {
+                usage: Usage {
+                    input_tokens: 2,
+                    output_tokens: 2,
+                },
+            },
+        ]);
+        let executor = Arc::new(CountingExecutor::default());
+        let gate = Arc::new(crate::guardrail::GuardrailGate {
+            input: vec![],
+            output: vec![crate::guardrail::GuardrailRule::new(
+                "mascara-segredo",
+                "segredo-abc",
+                GuardrailAction::Redact,
+            )],
+        });
+        let sink = Arc::new(SinkColetorDeTeste::default());
+
+        let mut session = Session::new(route(mock), executor.clone(), TokenBudget::new(1000))
+            .with_guardrails(gate, sink);
+        session.push_user_message("leia a.txt");
+
+        let mut eventos = Vec::new();
+        let outcome = session
+            .run_streaming(|evento| eventos.push(evento.clone()), &router_vazio())
+            .await
+            .expect("loop de streaming deve completar");
+
+        assert_eq!(outcome.reason, StopReason::Done);
+        assert_eq!(executor.chamadas.load(Ordering::SeqCst), 1);
+        assert!(outcome.guardrail_hits.is_empty(), "nenhuma regra casou");
+
+        // Turno 1 (tool-call) repassado em lote, exatamente como veio do
+        // provider; turno 2 (final, Allowed) via eventos sintéticos.
+        assert_eq!(eventos.len(), 7);
+        assert_eq!(eventos[0], StreamEvent::MessageStart);
+        assert_eq!(
+            eventos[1],
+            StreamEvent::ToolCallStart {
+                id: "call-1".into(),
+                name: "fs_read".into(),
+            }
+        );
+        assert_eq!(eventos[4], StreamEvent::MessageStart);
+        assert_eq!(
+            eventos[5],
+            StreamEvent::TextDelta {
+                text: "tudo certo".into()
+            }
+        );
+        assert!(matches!(eventos[6], StreamEvent::MessageEnd { .. }));
     }
 }
