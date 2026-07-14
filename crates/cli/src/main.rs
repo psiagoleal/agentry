@@ -569,6 +569,7 @@ mod tests {
             lsp_grounding_enabled: lsp_grounding,
             ollama_structured_output: true,
             guardrails: agentry_core::guardrail::GuardrailGate::default(),
+            litellm: None,
         }
     }
 

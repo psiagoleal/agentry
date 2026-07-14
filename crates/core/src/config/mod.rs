@@ -156,18 +156,54 @@ impl OllamaSettings {
     }
 }
 
+/// Configuração do endpoint LiteLLM (ADR-0006), dentro de `providers.litellm`.
+///
+/// A chave de API **nunca** entra aqui — vem de variável de ambiente
+/// (`AGENTRY_LITELLM_API_KEY`, MT-49), nunca do arquivo de configuração
+/// (mesma disciplina de "segredo nunca versionado" do projeto).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct LiteLlmSettings {
+    /// `providers.litellm.baseUrl` — URL base do gateway (ex.:
+    /// `https://litellm.minhaempresa.com`).
+    #[serde(default, rename = "baseUrl")]
+    pub base_url: Option<String>,
+    /// `providers.litellm.model` — identificador do modelo nesse gateway.
+    #[serde(default)]
+    pub model: Option<String>,
+    /// `providers.litellm.egressClass` — classe de egresso deste endpoint
+    /// (ADR-0006: sempre explícita por endpoint de proxy; ausente ⇒
+    /// `Config::resolve` aplica o *default* `cloud-ok` de risco, nunca
+    /// inferido do host aqui).
+    #[serde(default, rename = "egressClass")]
+    pub egress_class: Option<EgressClass>,
+}
+
+impl LiteLlmSettings {
+    fn merged_over(self, base: Self) -> Self {
+        Self {
+            base_url: self.base_url.or(base.base_url),
+            model: self.model.or(base.model),
+            egress_class: self.egress_class.or(base.egress_class),
+        }
+    }
+}
+
 /// Bloco `providers.*` do schema mínimo (ADR-0018 §5).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct ProvidersSettings {
     /// `providers.ollama`.
     #[serde(default)]
     pub ollama: OllamaSettings,
+    /// `providers.litellm` (ADR-0006).
+    #[serde(default)]
+    pub litellm: LiteLlmSettings,
 }
 
 impl ProvidersSettings {
     fn merged_over(self, base: Self) -> Self {
         Self {
             ollama: self.ollama.merged_over(base.ollama),
+            litellm: self.litellm.merged_over(base.litellm),
         }
     }
 }
@@ -347,6 +383,17 @@ impl Settings {
     }
 }
 
+/// Endpoint LiteLLM resolvido (ADR-0006) — `base_url`/`model` já garantidos
+/// presentes (`Config.litellm` só é `Some` quando os dois estão
+/// declarados); `egress_class` já resolvido para o *default* de risco
+/// (`cloud-ok`) quando a camada não declarou nenhum.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LiteLlmConfig {
+    pub base_url: String,
+    pub model: String,
+    pub egress_class: EgressClass,
+}
+
 /// Configuração final resolvida, pronta para o router e o transporte.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Config {
@@ -373,6 +420,11 @@ pub struct Config {
     /// regras, nada é checado). Consumido por `Session::with_guardrails`
     /// (MT-45).
     pub guardrails: GuardrailGate,
+    /// Endpoint LiteLLM resolvido (`providers.litellm`, ADR-0006) — `None`
+    /// quando `base_url` ou `model` não estão declarados (LiteLLM
+    /// simplesmente não está configurado, não é um erro). Consumido pela
+    /// CLI para registrar um segundo candidato de provider (MT-49).
+    pub litellm: Option<LiteLlmConfig>,
 }
 
 impl Config {
@@ -398,6 +450,21 @@ impl Config {
             guardrails: GuardrailGate {
                 input: merged.guardrails.input,
                 output: merged.guardrails.output,
+            },
+            litellm: match (
+                merged.providers.litellm.base_url,
+                merged.providers.litellm.model,
+            ) {
+                (Some(base_url), Some(model)) => Some(LiteLlmConfig {
+                    base_url,
+                    model,
+                    egress_class: merged
+                        .providers
+                        .litellm
+                        .egress_class
+                        .unwrap_or(EgressClass::CloudOk),
+                }),
+                _ => None,
             },
         }
     }
@@ -807,5 +874,104 @@ mod tests {
         let cfg = Config::resolve(vec![Settings::default()]);
         assert!(cfg.guardrails.input.is_empty());
         assert!(cfg.guardrails.output.is_empty());
+    }
+
+    // --- MT-48: schema `providers.litellm` (ADR-0006) ---
+
+    #[test]
+    fn litellm_completo_resolve_os_tres_campos_exatos() {
+        let json = r#"{
+            "providers": {
+                "litellm": {
+                    "baseUrl": "https://litellm.minhaempresa.com",
+                    "model": "empresa/gpt-30b",
+                    "egressClass": "cloud-opt-out"
+                }
+            }
+        }"#;
+        let camada = Settings::from_json_str(json).expect("JSON válido");
+        let cfg = Config::resolve(vec![camada]);
+
+        let litellm = cfg
+            .litellm
+            .expect("providers.litellm completo deve resolver Some");
+        assert_eq!(litellm.base_url, "https://litellm.minhaempresa.com");
+        assert_eq!(litellm.model, "empresa/gpt-30b");
+        assert_eq!(litellm.egress_class, EgressClass::CloudOptOut);
+    }
+
+    #[test]
+    fn litellm_sem_egress_class_resolve_cloud_ok_ador_0006_fail_closed_invertido() {
+        let json = r#"{
+            "providers": {
+                "litellm": {
+                    "baseUrl": "http://litellm.interno:4000",
+                    "model": "time-a/modelo-30b"
+                }
+            }
+        }"#;
+        let camada = Settings::from_json_str(json).expect("JSON válido");
+        let cfg = Config::resolve(vec![camada]);
+
+        let litellm = cfg
+            .litellm
+            .expect("base_url + model presentes devem resolver Some");
+        assert_eq!(
+            litellm.egress_class,
+            EgressClass::CloudOk,
+            "ADR-0006: ausência de classe declarada é tratada como cloud-ok (risco), \
+             nunca inferida como local-only pelo host"
+        );
+    }
+
+    #[test]
+    fn litellm_com_apenas_base_url_ou_apenas_model_resolve_none() {
+        let so_base_url =
+            Settings::from_json_str(r#"{ "providers": { "litellm": { "baseUrl": "http://x" } } }"#)
+                .expect("JSON válido");
+        assert!(Config::resolve(vec![so_base_url]).litellm.is_none());
+
+        let so_model =
+            Settings::from_json_str(r#"{ "providers": { "litellm": { "model": "m" } } }"#)
+                .expect("JSON válido");
+        assert!(Config::resolve(vec![so_model]).litellm.is_none());
+    }
+
+    #[test]
+    fn ausencia_do_bloco_litellm_resolve_none_comportamento_atual_preservado() {
+        let cfg = Config::resolve(vec![Settings::default()]);
+        assert!(cfg.litellm.is_none());
+    }
+
+    #[test]
+    fn litellm_camada_mais_especifica_sobrescreve_campo_a_campo() {
+        let arquivo = Settings::from_json_str(
+            r#"{ "providers": { "litellm": {
+                "baseUrl": "http://arquivo",
+                "model": "modelo-arquivo",
+                "egressClass": "local-only"
+            } } }"#,
+        )
+        .expect("arquivo válido");
+        let env =
+            Settings::from_json_str(r#"{ "providers": { "litellm": { "model": "modelo-env" } } }"#)
+                .expect("ambiente válido");
+
+        // Ordem de camadas do Config::resolve: perfil < arquivo < ambiente.
+        let cfg = Config::resolve(vec![Settings::default(), arquivo, env]);
+        let litellm = cfg.litellm.expect("deve resolver Some");
+        assert_eq!(
+            litellm.base_url, "http://arquivo",
+            "ambiente não declarou baseUrl — arquivo continua valendo"
+        );
+        assert_eq!(
+            litellm.model, "modelo-env",
+            "ambiente deve vencer o arquivo"
+        );
+        assert_eq!(
+            litellm.egress_class,
+            EgressClass::LocalOnly,
+            "ambiente não declarou egressClass — arquivo continua valendo"
+        );
     }
 }
