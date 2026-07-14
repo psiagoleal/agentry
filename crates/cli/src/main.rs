@@ -84,9 +84,22 @@ const DEFAULT_LSP_COMMAND: &str = "rust-analyzer";
 /// por `--init`/`/init` quando nenhum `--profile` é informado (ADR-0019 §1,
 /// MT-41): todas as flags de contexto/provider em `true`, permissões
 /// vazias. Busca de valores diferenciados por perfil fica para o MT-42.
+///
+/// **Todo campo configurável do schema aparece aqui** (achado real do
+/// MT-49/50 — `providers.litellm` não tinha exemplo nenhum no arquivo
+/// gerado, só documentado em ADR/roadmap; usuário só descobriu a chave
+/// certa lendo o código-fonte). Campos que ficam **inertes até serem
+/// preenchidos** (`profile`, `model`, `max_tokens`,
+/// `providers.litellm.*`) usam `null` — JSON não tem comentário, `null` é
+/// o equivalente mais próximo de "campo existe, ainda desligado": mostra a
+/// chave sem ativar nada (`Config::resolve` só liga o candidato LiteLLM
+/// quando `baseUrl` **e** `model` estão ambos presentes, MT-48).
 const GENERIC_SETTINGS_EXAMPLE: &str = r#"{
   "$schema": "https://agentry.dev/schema/agentry-settings-schema-1.json",
   "schemaVersion": 1,
+  "profile": null,
+  "model": null,
+  "max_tokens": null,
   "permissions": {
     "deny": [],
     "ask": []
@@ -97,7 +110,16 @@ const GENERIC_SETTINGS_EXAMPLE: &str = r#"{
     "lspGrounding": { "enabled": true }
   },
   "providers": {
-    "ollama": { "structuredOutput": true }
+    "ollama": { "structuredOutput": true },
+    "litellm": {
+      "baseUrl": null,
+      "model": null,
+      "egressClass": null
+    }
+  },
+  "guardrails": {
+    "input": [],
+    "output": []
   }
 }
 "#;
@@ -612,6 +634,31 @@ mod tests {
 
         let conteudo = std::fs::read_to_string(&caminho).expect("arquivo deve existir");
         assert_eq!(conteudo, GENERIC_SETTINGS_EXAMPLE);
+    }
+
+    #[test]
+    fn generic_settings_example_e_json_valido_e_todo_campo_null_fica_inerte() {
+        let camada = Settings::from_json_str(GENERIC_SETTINGS_EXAMPLE)
+            .expect("o exemplo gravado por --init deve ser JSON válido do schema real");
+        let cfg = Config::resolve(vec![camada]);
+
+        // Campos mostrados como `null` (achado do MT-49/50: providers.litellm
+        // não tinha exemplo nenhum) não devem ativar nada sozinhos.
+        assert_eq!(cfg.profile, None);
+        assert_eq!(cfg.model, None);
+        assert_eq!(cfg.max_tokens, None);
+        assert!(
+            cfg.litellm.is_none(),
+            "baseUrl/model/egressClass como null não deve registrar um candidato litellm"
+        );
+        assert!(cfg.guardrails.input.is_empty());
+        assert!(cfg.guardrails.output.is_empty());
+
+        // As flags que já eram `true` no exemplo continuam.
+        assert!(cfg.repo_map_enabled);
+        assert!(cfg.semantic_rag_enabled);
+        assert!(cfg.lsp_grounding_enabled);
+        assert!(cfg.ollama_structured_output);
     }
 
     #[test]
