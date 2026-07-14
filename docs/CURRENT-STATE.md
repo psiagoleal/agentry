@@ -9,12 +9,13 @@
 
 - **Data:** 2026-07-14
 - **Branch:** `main`
-- **Commit:** `ee33219`
+- **Commit:** `f60e5be`
 - **Fase:** Roadmap v0.1/v0.2/v0.3 **fechados/imutáveis**. ADR-0019 totalmente implementada.
-  Em andamento a **Fase 9** (`docs/roadmap-v0.4.md`, ADR-0007 emendada): **MT-43/44/45/46
-  concluídos** (módulo `guardrail` + schema em `Config` + `Session` aplica entrada/saída +
-  consumo real na CLI). Falta só o **MT-47** (buffer condicional em `run_streaming` quando
-  há guardrails de saída — achado durante o MT-45, ainda sem código) para fechar a Fase 9.
+  **Fase 9 concluída** (`docs/roadmap-v0.4.md`, ADR-0007 emendada, agora também
+  fechado/imutável) — Guardrail Gate completo: MT-43 (módulo `guardrail`), MT-44 (schema em
+  `Config`), MT-45 (`Session` aplica entrada/saída), MT-46 (consumo real na CLI), MT-47
+  (buffer condicional em `run_streaming`). Nenhum roadmap v0.5 aberto ainda — próxima macro-
+  feature a decidir com o usuário.
 
 ## Metas cumpridas / Em andamento / Próximo passo
 
@@ -321,13 +322,34 @@
   do core + 4 de integração + 27 na CLI (23 + 4), fmt/clippy limpos, `cargo build --release`
   verde. Nenhuma dependência nova (`ee33219`). **Fecha o segundo dos dois tickets da Fase 9**
   — falta só o MT-47.
+- [x] **MT-47** — `crates/core/src/session/mod.rs`: buffer condicional em `run_streaming`
+  (achado durante o MT-45 — `on_event` recebia cada `StreamEvent` em tempo real, turno a
+  turno, antes de `aplicar_guardrail_saida` rodar sobre o texto completo; bloqueio/redação de
+  saída só protegia `self.messages`/turnos seguintes, não o que já tinha sido transmitido ao
+  vivo). `buffer_saida = self.guardrails` tem ao menos uma regra em `output`: sem nenhuma,
+  zero mudança de comportamento (mesmo código de sempre, evento por evento, ao vivo). Com
+  regra de saída, os eventos de cada turno deixam de ser repassados conforme chegam — só
+  acumulados (via `StreamAggregator`, como já acontecia, e também guardados em ordem). Um
+  turno com tool-calls (não é a resposta final — o Guardrail Gate só audita a resposta final,
+  mesma disciplina do MT-45) repassa os eventos originais em lote no fim do turno, sem
+  nenhuma checagem. O turno que encerra com `StopReason::Done`, depois de
+  `aplicar_guardrail_saida` decidir Allowed/Redacted/Blocked, emite eventos **sintéticos**
+  (`MessageStart`/`TextDelta`/`MessageEnd`, nova `emitir_texto_como_eventos`) com o texto já
+  resolvido — nunca os eventos brutos originais, que em Redacted/Blocked ainda carregam o
+  texto sem máscara. 5 testes novos (guardrail só de entrada não ativa o buffer de saída;
+  regra de saída `block` nunca emite o texto original, só o aviso sintético; regra de saída
+  `redact` emite só o texto mascarado; turno intermediário com tool-call repassado em lote e
+  o turno final via evento sintético; teste de agregação já existente sem guardrails continua
+  verde sem nenhuma alteração). 261 testes na lib do core + 4 de integração + 27 na CLI,
+  fmt/clippy limpos, `cargo build --release` verde. Nenhuma dependência nova (`f60e5be`).
+  **Fecha a Fase 9 inteira** (Guardrail Gate, ADR-0007).
 
 **Em andamento:** nada pendente no turno.
 
-**Próximo passo:** **MT-47** (buffer condicional em `run_streaming`, `crates/core/src/
-session/mod.rs`) — único ticket restante para fechar a Fase 9 inteira. Outros itens em
-aberto, sem ticket: housekeeping de status de ADR (16 de 19 ainda `Proposed`); CI multi-SO
-ainda não observado verde (falta um push que dispare a matriz); backlog independente do
+**Próximo passo:** nenhum ticket aberto no momento — **Fase 9 concluída**, nenhum roadmap
+v0.5 definido ainda; decidir com o usuário a próxima macro-feature. Itens em aberto, sem
+ticket: housekeeping de status de ADR (16 de 19 ainda `Proposed`); CI multi-SO ainda não
+observado verde (falta um push que dispare a matriz); backlog independente do
 `ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de reanálise de maturidade,
 perfis base+overlay/skills executáveis/config de
 serviços pendentes de validação de implementação).
@@ -349,6 +371,7 @@ serviços pendentes de validação de implementação).
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-14 | `f60e5be` | MT-47: buffer condicional em run_streaming quando há guardrails de saída; fecha a Fase 9 | MT-47 |
 | 2026-07-14 | `ee33219` | MT-46: consumo real do Guardrail Gate na CLI; corrige Settings::from_file nunca lido em main() | MT-46 |
 | 2026-07-13 | `794a3cc` | docs(roadmap): adiciona MT-47 (buffer condicional em run_streaming) | — |
 | 2026-07-13 | `6d46a51` | MT-45: Session aplica o Guardrail Gate na entrada e na saída | MT-45 |

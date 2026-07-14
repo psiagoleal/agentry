@@ -2,11 +2,14 @@
 
 # Roadmap v0.4 — Micro-tickets
 
+**Fase 9 concluída** (MT-43..47, `7627c53`/`3039554`/`6d46a51`/`ee33219`/`f60e5be`) — este
+documento fica, a partir daqui, fechado/imutável como registro histórico, mesmo padrão do
+`roadmap-v0.2.md`/`roadmap-v0.3.md`.
+
 O roadmap v0.3 (`docs/roadmap-v0.3.md`, MT-41/42) está **fechado e imutável** como registro
 histórico — bootstrap de `.agentry/agentry.settings.json` via `--init`/`/init`, local e via
-rede (Fase 8 concluída). Este documento começa uma nova fase: implementar o Guardrail Gate
-decidido na ADR-0007 (emendada em 2026-07-13 —
-`docs/adr/0007-guardrails-configuraveis-de-conteudo.md`).
+rede (Fase 8 concluída). Este documento implementou o Guardrail Gate decidido na ADR-0007
+(emendada em 2026-07-13 — `docs/adr/0007-guardrails-configuraveis-de-conteudo.md`).
 
 ## Convenções
 
@@ -100,7 +103,7 @@ ADR (ADR-0004), skill `micro-ticket-planner` para granularidade.
 - **Fora de escopo:** UI/CLI de configuração; `--force`/edição interativa de regras.
 - **Depende de:** MT-44, MT-45 · ADR-0007.
 
-### MT-47: `run_streaming` — buffer condicional quando há guardrails de saída
+### MT-47: `run_streaming` — buffer condicional quando há guardrails de saída — ✅ concluído (`f60e5be`)
 - **Objetivo:** achado durante o MT-45 — em `run_streaming`, `on_event` recebe cada
   `StreamEvent` **em tempo real**, turno a turno, *antes* de `aplicar_guardrail_saida` rodar
   sobre o texto completo; um bloqueio/redação de saída hoje só protege `self.messages` e
