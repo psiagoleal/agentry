@@ -68,10 +68,13 @@ crates/
   cli/    # agentry — binário: parsing de flags, REPL, streaming
 docs/
   architecture.md       # visão geral de arquitetura
-  roadmap-v0.1.md        # micro-tickets do roadmap
+  roadmap-v0.1.md..v0.4.md  # micro-tickets do roadmap, por fase
   CURRENT-STATE.md       # handoff — estado corrente entre turnos/sessões
   testing.md             # guia de testes (Linux/Windows) + scripts de automação
   adr/                   # Architecture Decision Records
+  usuario/               # site MkDocs — guia do usuário
+  governanca/            # site MkDocs — trilha de governança/compliance
+mkdocs.yml               # config do site de documentação (ver seção "Documentação")
 scripts/
   test.sh / test.ps1     # sequência de validação do CI (fmt/clippy/test/build), local
 ```
@@ -80,6 +83,23 @@ scripts/
 
 Ver [`docs/testing.md`](docs/testing.md) para o guia completo (configuração inicial,
 comandos por SO, scripts de automação em `scripts/`).
+
+## Documentação
+
+Site de documentação completo (guia do usuário, trilha de governança/compliance para
+avaliação de uso corporativo, e a documentação de desenvolvimento — arquitetura, ADRs,
+roadmap) gerado via [MkDocs](https://www.mkdocs.org/) a partir de `docs/`:
+
+```bash
+# via uv (sem precisar de sudo/pip global)
+uv venv .venv-docs
+uv pip install --python .venv-docs/bin/python -r docs-requirements.txt
+.venv-docs/bin/mkdocs serve   # http://127.0.0.1:8000, com live-reload
+```
+
+(ou `sudo apt install mkdocs-material` em Debian/Ubuntu, e `mkdocs serve` direto — ver
+[`docs-requirements.txt`](docs-requirements.txt).) Nenhum deploy público está configurado
+ainda; hoje o site é só para visualização local.
 
 ## Como contribuir
 

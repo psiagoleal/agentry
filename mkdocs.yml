@@ -1,0 +1,111 @@
+# Caminho relativo: mkdocs.yml
+site_name: agentry
+site_description: >-
+  CLI agêntico de codificação em Rust, multi-provedor, com roteamento por classe de
+  privacidade e controle auditável de egresso.
+site_url: ""
+repo_url: https://github.com/psiagoleal/agentry
+repo_name: psiagoleal/agentry
+edit_uri: edit/main/docs/
+docs_dir: docs
+site_dir: site
+
+copyright: Distribuído sob a licença MIT — veja o arquivo LICENSE no repositório.
+
+theme:
+  name: material
+  language: pt-BR
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: mudar para tema escuro
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: mudar para tema claro
+  features:
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.indexes
+    - navigation.top
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.action.edit
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - tables
+  - toc:
+      permalink: true
+      toc_depth: 3
+
+plugins:
+  - search:
+      lang: pt
+
+nav:
+  - Início: index.md
+  - Guia do Usuário:
+      - Visão geral: usuario/index.md
+      - Instalação: usuario/instalacao.md
+      - Configuração (agentry.settings.json): usuario/configuracao.md
+      - Uso da CLI e do REPL: usuario/uso.md
+      - Guardrails de conteúdo: usuario/guardrails.md
+      - Perguntas frequentes: usuario/faq.md
+  - Governança & Compliance:
+      - Visão geral para times de segurança: governanca/index.md
+      - Modelo de privacidade e egresso: governanca/privacidade-e-egresso.md
+      - Auditoria e rastreabilidade: governanca/auditoria.md
+      - Controle de permissões de ferramentas: governanca/permissoes.md
+      - Guardrails de conteúdo (compliance): governanca/guardrails.md
+      - Postura de dependências e cadeia de suprimentos: governanca/dependencias.md
+      - Perguntas frequentes de segurança: governanca/faq.md
+  - Desenvolvimento:
+      - Arquitetura: architecture.md
+      - Guia de testes: testing.md
+      - Estado corrente (handoff): CURRENT-STATE.md
+      - Registros de Decisão (ADRs):
+          - Índice: adr/README.md
+          - "0001 — Fundação da camada LLM": adr/0001-fundacao-camada-llm.md
+          - "0002 — Privacidade e egresso": adr/0002-modelo-privacidade-egresso.md
+          - "0003 — Consumo de artefatos do profiles": adr/0003-consumo-artefatos-profiles.md
+          - "0004 — Sinergia com projetos open-source": adr/0004-postura-sinergia-open-source.md
+          - "0005 — Portabilidade cross-platform": adr/0005-portabilidade-cross-platform.md
+          - "0006 — LiteLLM como fonte de modelos": adr/0006-litellm-fonte-de-modelos.md
+          - "0007 — Guardrails configuráveis de conteúdo": adr/0007-guardrails-configuraveis-de-conteudo.md
+          - "0008 — Parâmetros de chamada por task-class": adr/0008-parametros-de-chamada-e-presets-por-task-class.md
+          - "0009 — Timeout adaptativo e keep-alive": adr/0009-timeout-adaptativo-e-keep-alive-para-troca-de-modelo.md
+          - "0010 — Repo map via tree-sitter": adr/0010-repo-map-tree-sitter.md
+          - "0011 — RAG semântico local": adr/0011-rag-semantico-local-para-codigo.md
+          - "0012 — Saída estruturada para tool-calling": adr/0012-saida-estruturada-para-tool-calling.md
+          - "0013 — Grounding via LSP": adr/0013-tool-de-grounding-via-lsp.md
+          - "0014 — Override runtime de parâmetros": adr/0014-override-runtime-de-parametros-de-chamada.md
+          - "0015 — Reviewer (auditoria semântica)": adr/0015-reviewer-auditoria-semantica-por-task-class.md
+          - "0016 — Compactação de histórico": adr/0016-compactacao-de-historico-de-sessao.md
+          - "0017 — Diretório de estado local": adr/0017-diretorio-de-estado-local-do-agente.md
+          - "0018 — Schema mínimo de configuração": adr/0018-artefato-e-schema-minimo-de-configuracao-do-agentry.md
+          - "0019 — Bootstrap via --init": adr/0019-bootstrap-de-agentry-settings-json-via-init.md
+      - Roadmap:
+          - v0.1: roadmap-v0.1.md
+          - v0.2: roadmap-v0.2.md
+          - v0.3: roadmap-v0.3.md
+          - v0.4: roadmap-v0.4.md
+      - Interoperabilidade com ai-coding-agent-profiles:
+          - Visão geral: interop/README.md
+          - Exchange log: interop/exchange-log.md

@@ -4,6 +4,11 @@
 /target
 **/*.rs.bk
 
+# Site MkDocs gerado (mkdocs build) — ver docs-requirements.txt para as
+# ferramentas usadas para gerar o site a partir de docs/
+/site
+.venv-docs/
+
 # Configuração local/pessoal do Claude Code (caminhos absolutos da máquina) — não versionar
 .claude/settings.local.json
 
