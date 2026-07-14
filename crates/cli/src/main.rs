@@ -36,6 +36,7 @@ use clap::Parser;
 use agentry_core::config::{Config, Settings};
 use agentry_core::egress::allowlist::{Allowlist, AllowlistEntry};
 use agentry_core::egress::audit::AuditEntry;
+use agentry_core::guardrail::{GuardrailAuditEntry, GuardrailAuditSink};
 use agentry_core::provider::ollama::OllamaProvider;
 use agentry_core::provider::LlmProvider;
 use agentry_core::router::{CallPreset, Router, RuntimeOverride};
@@ -219,6 +220,15 @@ impl AuditSink for StderrAuditSink {
     }
 }
 
+/// Emite cada [`GuardrailAuditEntry`] em stderr (MT-46) — `Display` já
+/// compacto, uma linha por entrada, mesma disciplina do `impl AuditSink`
+/// acima (nunca o `Debug` dump).
+impl GuardrailAuditSink for StderrAuditSink {
+    fn record(&self, entry: GuardrailAuditEntry) {
+        eprintln!("{entry}");
+    }
+}
+
 /// Registra as 3 tools de contexto (`repo_map`, `code_search`,
 /// `lsp_hover`/`lsp_definition`) segundo as 3 flags booleanas resolvidas por
 /// `Config` (MT-39/ADR-0018) — extraído de `main()` para ser testável sem
@@ -257,6 +267,35 @@ fn register_context_tools(
             workspace_root.to_path_buf(),
         )),
     );
+}
+
+/// Resolve a `Config` final a partir das duas camadas reais do binário:
+/// `.agentry/agentry.settings.json` (`Settings::from_file`, MT-39) e as
+/// variáveis de ambiente (`Settings::from_process_env`) — nesta ordem, para
+/// que o ambiente sobrescreva o arquivo (mesma precedência documentada em
+/// `Settings::from_file`). Extraída de `main()` para ser testável sem rodar
+/// o binário inteiro (MT-46, mesmo padrão do MT-40/`register_context_tools`).
+///
+/// **Achado do MT-46:** até este ticket, `main()` só montava a `Config` a
+/// partir de `Settings::from_process_env()` — a camada do arquivo nunca
+/// entrava na chamada, apesar do MT-39/40 estarem fechados como "consumo
+/// real"; as 4 flags de contexto/provider só funcionavam de fato via
+/// variável de ambiente. Corrigido aqui porque o critério de aceite do
+/// MT-46 depende diretamente disso (regra de guardrail no arquivo precisa
+/// chegar à `Session` real).
+///
+/// # Errors
+///
+/// Propaga o `ConfigError` de qualquer uma das duas camadas (arquivo
+/// malformado/`schemaVersion` divergente, ou variável de ambiente numérica
+/// inválida) — nunca *panic*.
+fn build_config(
+    workspace_root: &std::path::Path,
+) -> Result<Config, agentry_core::config::ConfigError> {
+    Ok(Config::resolve(vec![
+        Settings::from_file(workspace_root)?,
+        Settings::from_process_env()?,
+    ]))
 }
 
 /// Monta o `RuntimeOverride` inicial a partir das flags de invocação.
@@ -324,10 +363,15 @@ async fn main() {
         std::process::exit(2)
     });
 
-    let cfg = Config::resolve(vec![Settings::from_process_env().unwrap_or_else(|erro| {
+    let workspace_root = std::env::current_dir().unwrap_or_else(|erro| {
+        eprintln!("erro ao ler diretório de trabalho: {erro}");
+        std::process::exit(1)
+    });
+
+    let cfg = build_config(&workspace_root).unwrap_or_else(|erro| {
         eprintln!("erro de configuração: {erro}");
-        std::process::exit(2);
-    })]);
+        std::process::exit(2)
+    });
 
     let ollama_ip = args
         .ollama_host
@@ -369,11 +413,6 @@ async fn main() {
             std::process::exit(1)
         });
 
-    let workspace_root = std::env::current_dir().unwrap_or_else(|erro| {
-        eprintln!("erro ao ler diretório de trabalho: {erro}");
-        std::process::exit(1)
-    });
-
     let mut registry = ToolRegistry::new(PermissionGate::new(cfg.permissions.clone()));
     registry.register(Arc::new(FsReadTool::new(workspace_root.clone())));
     registry.register(Arc::new(FsWriteTool::new(workspace_root.clone())));
@@ -400,7 +439,8 @@ async fn main() {
         .max_tokens
         .map(u64::from)
         .unwrap_or(DEFAULT_TOKEN_BUDGET);
-    let mut session = Session::new(rota, executor, TokenBudget::new(budget));
+    let mut session = Session::new(rota, executor, TokenBudget::new(budget))
+        .with_guardrails(Arc::new(cfg.guardrails), Arc::new(StderrAuditSink));
 
     if let Some(tarefa) = args.tarefa {
         session.push_user_message(tarefa);
@@ -585,5 +625,136 @@ mod tests {
         assert!(nomes.contains(&"code_search".to_string()));
         assert!(nomes.contains(&"lsp_hover".to_string()));
         assert!(nomes.contains(&"lsp_definition".to_string()));
+    }
+
+    // --- MT-46: Guardrail Gate consumido de ponta a ponta na CLI real ---
+
+    use agentry_core::router::ResolvedRoute;
+    use agentry_core::session::StopReason;
+
+    /// Monta uma `Session` real como `main()` faria (registry vazio,
+    /// `RegistryToolExecutor` real, `MockProvider` no lugar do Ollama) — o
+    /// suficiente para provar a fiação de `with_guardrails`, sem repetir o
+    /// resto do `main()` que não é específico deste ticket.
+    fn sessao_de_teste(cfg: &Config, mock: Arc<MockProvider>) -> Session {
+        let route = ResolvedRoute::new(mock, "modelo-teste", CallPreset::default());
+        let registry = ToolRegistry::new(PermissionGate::new(Permissions::default()));
+        let executor: Arc<dyn ToolExecutor> = Arc::new(RegistryToolExecutor::new(
+            registry,
+            Arc::new(InteractiveConfirmer),
+        ));
+        Session::new(route, executor, TokenBudget::new(10_000))
+            .with_guardrails(Arc::new(cfg.guardrails.clone()), Arc::new(StderrAuditSink))
+    }
+
+    fn router_vazio() -> agentry_core::router::Router {
+        agentry_core::router::Router::new(EgressClass::LocalOnly)
+    }
+
+    fn escreve_settings(dir: &std::path::Path, conteudo: &str) {
+        state_dir::ensure_state_dir(dir).expect("cria .agentry de teste");
+        std::fs::write(state_dir::agentry_settings_path(dir), conteudo)
+            .expect("grava agentry.settings.json de teste");
+    }
+
+    #[test]
+    fn build_config_le_regras_de_guardrail_do_arquivo_real() {
+        let dir = TempDir::new();
+        escreve_settings(
+            dir.path(),
+            r#"{
+              "$schema": "https://agentry.dev/schema/agentry-settings-schema-1.json",
+              "schemaVersion": 1,
+              "guardrails": {
+                "input": [{"id": "bloqueia-senha", "match": "senha:", "action": "block"}],
+                "output": [{"id": "mascara-segredo", "match": "segredo-abc", "action": "redact"}]
+              }
+            }"#,
+        );
+
+        let cfg = build_config(dir.path()).expect("arquivo válido deve resolver");
+
+        assert_eq!(cfg.guardrails.input.len(), 1);
+        assert_eq!(cfg.guardrails.input[0].id, "bloqueia-senha");
+        assert_eq!(cfg.guardrails.output.len(), 1);
+        assert_eq!(cfg.guardrails.output[0].id, "mascara-segredo");
+    }
+
+    #[test]
+    fn ausencia_do_arquivo_de_settings_preserva_guardrails_vazio() {
+        let dir = TempDir::new();
+
+        let cfg = build_config(dir.path()).expect("ausência do arquivo não é erro");
+
+        assert!(cfg.guardrails.input.is_empty());
+        assert!(cfg.guardrails.output.is_empty());
+    }
+
+    #[tokio::test]
+    async fn agentry_settings_json_com_regra_de_entrada_block_bloqueia_de_ponta_a_ponta_via_sessao_real(
+    ) {
+        let dir = TempDir::new();
+        escreve_settings(
+            dir.path(),
+            r#"{
+              "$schema": "https://agentry.dev/schema/agentry-settings-schema-1.json",
+              "schemaVersion": 1,
+              "guardrails": {
+                "input": [{"id": "bloqueia-senha", "match": "senha:", "action": "block"}],
+                "output": []
+              }
+            }"#,
+        );
+        let cfg = build_config(dir.path()).expect("arquivo válido deve resolver");
+        let mock = Arc::new(MockProvider::new("mock"));
+        // Nenhuma resposta enfileirada de propósito: se o provider fosse
+        // chamado, o mock devolveria erro de fila vazia.
+        let mut session = sessao_de_teste(&cfg, mock.clone());
+        session.push_user_message("minha senha: 12345");
+
+        let outcome = session
+            .run(&router_vazio())
+            .await
+            .expect("bloqueio de entrada não deve ser erro");
+
+        assert_eq!(outcome.reason, StopReason::Done);
+        assert_eq!(mock.chat_requests().len(), 0, "o provider nunca é chamado");
+        assert_eq!(outcome.guardrail_hits.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn agentry_settings_json_com_regra_de_saida_redact_mascara_a_resposta_de_ponta_a_ponta() {
+        let dir = TempDir::new();
+        escreve_settings(
+            dir.path(),
+            r#"{
+              "$schema": "https://agentry.dev/schema/agentry-settings-schema-1.json",
+              "schemaVersion": 1,
+              "guardrails": {
+                "input": [],
+                "output": [{"id": "mascara-segredo", "match": "segredo-abc", "action": "redact"}]
+              }
+            }"#,
+        );
+        let cfg = build_config(dir.path()).expect("arquivo válido deve resolver");
+        let mock = Arc::new(MockProvider::new("mock"));
+        mock.enqueue_chat(Ok(agentry_core::provider::ChatResponse {
+            message: agentry_core::model::Message::assistant("o valor é segredo-abc, guarde bem"),
+            usage: agentry_core::model::Usage::default(),
+        }));
+        let mut session = sessao_de_teste(&cfg, mock.clone());
+        session.push_user_message("qual o valor?");
+
+        let outcome = session.run(&router_vazio()).await.expect("deve completar");
+
+        assert_eq!(outcome.reason, StopReason::Done);
+        let ultima = session
+            .messages()
+            .last()
+            .expect("deve ter uma resposta")
+            .text_content();
+        assert!(!ultima.contains("segredo-abc"));
+        assert!(ultima.contains(agentry_core::egress::redact::REDACTED_PLACEHOLDER));
+        assert_eq!(outcome.guardrail_hits.len(), 1);
     }
 }
