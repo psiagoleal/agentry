@@ -84,7 +84,7 @@ ADR (ADR-0004), skill `micro-ticket-planner` para granularidade.
   construção do `Arc<GuardrailGate>` a partir da CLI real (MT-46).
 - **Depende de:** MT-43 · ADR-0007, ADR-0015 (ordem em relação ao Reviewer).
 
-### MT-46: Consumo real na CLI
+### MT-46: Consumo real na CLI — ✅ concluído
 - **Objetivo:** `crates/cli/src/main.rs` constrói o `GuardrailGate` a partir do
   `GuardrailSettings` resolvido pela `Config` (MT-44) e chama `Session::with_guardrails`
   (MT-45) — mesmo padrão de "consumo real" já usado pelo MT-40/42 para as outras flags.

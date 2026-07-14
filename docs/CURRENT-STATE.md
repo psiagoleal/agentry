@@ -7,14 +7,14 @@
 
 ## Último turno
 
-- **Data:** 2026-07-13
+- **Data:** 2026-07-14
 - **Branch:** `main`
-- **Commit:** `794a3cc`
+- **Commit:** `ee33219`
 - **Fase:** Roadmap v0.1/v0.2/v0.3 **fechados/imutáveis**. ADR-0019 totalmente implementada.
-  Em andamento a **Fase 9** (`docs/roadmap-v0.4.md`, ADR-0007 emendada): **MT-43/44/45
-  concluídos** (módulo `guardrail` + schema em `Config` + `Session` aplica entrada/saída).
-  Faltam **MT-46** (consumo real na CLI) e o novo **MT-47** (buffer condicional em
-  `run_streaming` quando há guardrails de saída — achado durante o MT-45, ainda sem código).
+  Em andamento a **Fase 9** (`docs/roadmap-v0.4.md`, ADR-0007 emendada): **MT-43/44/45/46
+  concluídos** (módulo `guardrail` + schema em `Config` + `Session` aplica entrada/saída +
+  consumo real na CLI). Falta só o **MT-47** (buffer condicional em `run_streaming` quando
+  há guardrails de saída — achado durante o MT-45, ainda sem código) para fechar a Fase 9.
 
 ## Metas cumpridas / Em andamento / Próximo passo
 
@@ -298,14 +298,34 @@
   buffer) e exigir `run` não-streaming para guardrails de saída (força demais a mão do
   chamador). Depende só do MT-45 (não do MT-46) — pode ser feito antes ou depois dele.
   Nenhum código implementado ainda.
+- [x] **MT-46** — `crates/cli/src/main.rs`: `main()` constrói o `GuardrailGate` a partir da
+  `Config` resolvida (MT-44) e chama `Session::with_guardrails` (MT-45); `StderrAuditSink`
+  ganha `impl GuardrailAuditSink` (`Display` compacto, uma linha, mesma disciplina do `impl
+  AuditSink` já existente). **Achado real ao validar o critério de aceite** (regra do
+  arquivo precisa bloquear/redigir de ponta a ponta via a `Session` real de `main()`):
+  `Config::resolve` em `main()` só recebia a camada `Settings::from_process_env()` — a
+  camada do arquivo (`Settings::from_file`, MT-39) nunca era passada, apesar do MT-39/40
+  estarem fechados como "consumo real". Na prática, `.agentry/agentry.settings.json` nunca
+  chegava a ser lido pelo binário real; as 4 flags de contexto/provider (`repo_map`/
+  `semantic_rag`/`lsp_grounding`/`structured_output`) só funcionavam de fato via variável de
+  ambiente, nunca via arquivo. Opções discutidas com o usuário: corrigir dentro do MT-46
+  (escolhida), ticket separado antes, ou só documentar e seguir. Corrigido extraindo
+  `build_config(workspace_root)` — resolve as duas camadas reais na ordem certa (arquivo
+  primeiro, ambiente por cima, mesma precedência já documentada em `Settings::from_file`) —
+  e reordenando o cálculo de `workspace_root` para antes da resolução de `Config` (antes era
+  feito bem depois, tarde demais para essa camada existir). 4 testes novos: leitura real de
+  `guardrails.input`/`output` do arquivo via `build_config`; ausência do arquivo preserva
+  `GuardrailGate` vazio; regra de entrada `block` bloqueia de ponta a ponta via `Session`
+  real (`RegistryToolExecutor`/`ToolRegistry` reais, só o provider é mock — provider nunca
+  chamado); regra de saída `redact` mascara a resposta de ponta a ponta. 257 testes na lib
+  do core + 4 de integração + 27 na CLI (23 + 4), fmt/clippy limpos, `cargo build --release`
+  verde. Nenhuma dependência nova (`ee33219`). **Fecha o segundo dos dois tickets da Fase 9**
+  — falta só o MT-47.
 
 **Em andamento:** nada pendente no turno.
 
-**Próximo passo:** a decidir com o usuário entre **MT-46** (`docs/roadmap-v0.4.md`, consumo
-real na CLI — `crates/cli/src/main.rs`, constrói o `GuardrailGate` a partir da `Config`
-resolvida e chama `Session::with_guardrails`; `StderrAuditSink` ganha `impl
-GuardrailAuditSink`) e **MT-47** (buffer condicional em `run_streaming`, `crates/core/src/
-session/mod.rs`) — os dois fecham a Fase 9 quando ambos estiverem prontos. Outros itens em
+**Próximo passo:** **MT-47** (buffer condicional em `run_streaming`, `crates/core/src/
+session/mod.rs`) — único ticket restante para fechar a Fase 9 inteira. Outros itens em
 aberto, sem ticket: housekeeping de status de ADR (16 de 19 ainda `Proposed`); CI multi-SO
 ainda não observado verde (falta um push que dispare a matriz); backlog independente do
 `ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de reanálise de maturidade,
@@ -329,6 +349,7 @@ serviços pendentes de validação de implementação).
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-14 | `ee33219` | MT-46: consumo real do Guardrail Gate na CLI; corrige Settings::from_file nunca lido em main() | MT-46 |
 | 2026-07-13 | `794a3cc` | docs(roadmap): adiciona MT-47 (buffer condicional em run_streaming) | — |
 | 2026-07-13 | `6d46a51` | MT-45: Session aplica o Guardrail Gate na entrada e na saída | MT-45 |
 | 2026-07-13 | `3039554` | MT-44: GuardrailSettings — schema mínimo em Config | MT-44 |
