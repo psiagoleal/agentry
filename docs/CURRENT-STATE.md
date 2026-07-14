@@ -9,12 +9,12 @@
 
 - **Data:** 2026-07-14
 - **Branch:** `main`
-- **Commit:** `a714182`
-- **Fase:** Roadmap v0.1/v0.2/v0.3/v0.4 **fechados/imutáveis**. **Fase 10** em andamento
-  (`docs/roadmap-v0.5.md`, ADR-0006) — conexão configurável com LiteLLM, a pedido do
-  usuário (testar modelos 30B+ atrás do gateway LiteLLM da empresa dele). **MT-48/49
-  concluídos** (schema `providers.litellm` + consumo real na CLI); faltam **MT-50**
-  (`--provider`/`/provider`) e **MT-51** (atualizar site MkDocs).
+- **Commit:** `3b851cb`
+- **Fase:** Roadmap v0.1/v0.2/v0.3/v0.4 **fechados/imutáveis**. `docs/roadmap-v0.5.md` tem
+  duas fases abertas: **Fase 10** (ADR-0006, conexão com LiteLLM) — **MT-48/49
+  concluídos**, faltam **MT-50** (`--provider`/`/provider`) e **MT-51** (site MkDocs); e a
+  nova **Fase 11** (ADR-0020, `.agentryignore` + `context.gitignore.enabled`) — só a ADR
+  registrada ainda, nenhum código (MT-52..54 não iniciados).
 
 ## Metas cumpridas / Em andamento / Próximo passo
 
@@ -435,6 +435,29 @@
   `litellm` quando pedido via `RuntimeOverride.provider`, mesmo mecanismo que o MT-50 vai
   expor por flag). 268 testes na lib do core (266+2) + 4 de integração + 31 na CLI (27+4),
   fmt/clippy limpos, `cargo build --release` verde. Nenhuma dependência nova (`a714182`).
+- [x] **ADR-0020** (Proposed) — discussão do usuário sobre uso de contexto: `.claudeignore`
+  (já usado por `fs`/`repo_map`/`code_search`) resolve confidencialidade, mas nada resolve
+  ruído de contexto por artefatos já cobertos por `.gitignore`. Pesquisa via `WebSearch`
+  antes de decidir: `.claudeignore` **não é um recurso real do Claude Code** (convenção
+  mal-atribuída, espalhada por documentação gerada por IA); o `OpenCode` real resolve os
+  dois lados — `.gitignore` respeitado por padrão nas tools de busca, mais um arquivo
+  próprio nativo (`.opencodeignore`) para exclusões do agente. Verificação também revelou
+  que `.claudeignore` não é invenção só do `agentry` — é artefato de verdade distribuído
+  pelos 3 perfis do `ai-coding-agent-profiles` (arquivo real, referenciado no `SPEC.md`
+  canônico, no `setup-profile.sh`, na skill `secrets-guard`), o que elevou "renomear 3
+  constantes" para uma mudança de contrato de interop entre dois repositórios — por isso
+  virou ADR antes de qualquer código. Decisão: `.agentryignore` como artefato próprio do
+  `agentry` (mesmo padrão de posse do `.agentry/`, ADR-0017), *fallback* para
+  `.claudeignore` quando `.agentryignore` está ausente (nunca merge — `.agentryignore`
+  vence sozinho quando presente); nova opção `context.gitignore.enabled` (*default*
+  `false`) para também respeitar `.gitignore`, sempre em união com
+  `.agentryignore`/`.claudeignore`, nunca substituindo. Escopo desta rodada é só o lado
+  `agentry` — migração dos `.claudeignore` reais do `profiles` fica para uma sessão futura
+  naquele repositório. ADR-0003 emendada (ainda `Proposed`) removendo `.claudeignore` da
+  lista de artefatos de primeira classe do contrato de interop. **Fase 11 adicionada ao
+  roadmap-v0.5.md** (MT-52 renomeia com *fallback*; MT-53 schema + consumo de
+  `context.gitignore`; MT-54 documentação do site) — nenhum código implementado ainda
+  (`3b851cb`).
 
 **Em andamento:** nada pendente no turno.
 
@@ -443,7 +466,9 @@ one-shot e comando `/provider <nome>` no REPL, expondo `RuntimeOverride.provider
 existe desde a ADR-0014 mas nunca foi ligado a nada real; `crates/cli/src/main.rs`,
 `crates/cli/src/repl.rs`). Depois: MT-51 (atualizar `docs/usuario`/`docs/governanca` — a
 afirmação atual de "nenhum destino de rede além do Ollama local" deixa de ser verdade a
-partir do MT-49). Outros itens em aberto, sem ticket: deploy do site MkDocs (GitHub Pages)
+partir do MT-49), fechando a Fase 10; e a **Fase 11** completa (MT-52/53/54, `.agentryignore`
++ `context.gitignore.enabled`, ADR-0020) — nenhum código ainda. Outros itens em aberto, sem
+ticket: deploy do site MkDocs (GitHub Pages)
 — decisão explícita do usuário de não fazer ainda, retomar quando pedido; CI multi-SO
 ainda não observado verde (falta um push que dispare a matriz); backlog independente do
 `ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de
@@ -467,6 +492,7 @@ pendentes de validação de implementação).
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-14 | `3b851cb` | ADR-0020: .agentryignore (renomeando .claudeignore) + gitignore opcional | — |
 | 2026-07-14 | `a714182` | MT-49: consumo real do provider LiteLLM na CLI (ADR-0006) | MT-49 |
 | 2026-07-14 | `ac28251` | MT-48: schema providers.litellm em Settings/Config (ADR-0006) | MT-48 |
 | 2026-07-14 | `b18a65c` | docs(roadmap): conexão configurável com LiteLLM (Fase 10, roadmap-v0.5.md) | — |
