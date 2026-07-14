@@ -9,7 +9,7 @@
 
 - **Data:** 2026-07-14
 - **Branch:** `main`
-- **Commit:** `4aee255`
+- **Commit:** `ed0988c`
 - **Fase:** Roadmap v0.1/v0.2/v0.3/v0.4 **fechados/imutáveis**. `docs/roadmap-v0.5.md` tem
   duas fases abertas: **Fase 10** (ADR-0006, conexão com LiteLLM) — **MT-48/49/50
   concluídos**, falta só **MT-51** (site MkDocs) pra fechar a fase inteira; e a **Fase 11**
@@ -477,6 +477,38 @@
   flag continua indo para o Ollama. 268 testes na lib do core + 4 de integração + 35 na CLI
   (33+2), fmt/clippy limpos, `cargo build --release` verde. Nenhuma dependência nova
   (`4aee255`). **Fecha o penúltimo ticket da Fase 10** — falta só o MT-51.
+- [x] **Makefile de distribuição** (a pedido do usuário — precisava testar contra o LiteLLM
+  da empresa dele, num computador Windows). `Makefile` na raiz (`make` sem argumento lista
+  os alvos): `windows-build` cross-compila (`x86_64-pc-windows-gnu`, reaproveita o
+  `.cargo/config.toml` local já resolvido pra pegadinha posix/win32 do `mingw-w64`,
+  documentada em `docs/testing.md`); `windows` compila e empacota `agentry.exe` +
+  `README.md` + `LICENSE` num zip flat (`zip -j`) em
+  `dist/agentry-windows-x86_64-<versão>.zip`; `windows-clean` limpa `dist/`. Rodado de
+  ponta a ponta nesta máquina: gera um PE32+ válido, zip de ~83MB — **grande demais para o
+  limite de upload do chat (30MB)**; usuário optou por pegar o arquivo direto do
+  filesystem, não pediu divisão em partes nem redução de tamanho do binário. `.gitignore`
+  ganhou `/dist` e `/.cargo/` (esse último já era documentado como "não versionar" no
+  `testing.md`, mas nunca tinha sido de fato ignorado — corrigido). `README.md` ganhou a
+  seção "Distribuir para Windows"; `docs/testing.md` referencia o atalho (`0a0897a`).
+- [x] **Fix: `agentry.settings.json` gerado por `--init` não tinha exemplo de
+  `providers.litellm`** — achado real do usuário testando o MT-49/50: a única forma de
+  descobrir a chave certa (`baseUrl`/`model`/`egressClass`, camelCase) era ler o
+  código-fonte ou a ADR-0006. Princípio pedido pelo usuário: **tudo que for configurável
+  precisa já vir no arquivo, com default ou como campo exemplo.** JSON não tem comentário —
+  `GENERIC_SETTINGS_EXAMPLE` passa a usar `null` como o equivalente mais próximo de "campo
+  existe, ainda desligado" (a chave fica descobrível sem ativar nada — `Config::resolve` só
+  registra o candidato `litellm` quando `baseUrl` **e** `model` estão os dois presentes,
+  MT-48). Campos novos no exemplo: `profile`/`model`/`max_tokens` (topo),
+  `providers.litellm.{baseUrl,model,egressClass}`, `guardrails.{input,output}` (vazios).
+  Teste novo prova que o exemplo é JSON válido do schema real e que nenhum `null` ativa
+  nada sozinho. **Achado adicional do smoke-test manual, importante para o teste do
+  usuário:** `egressClass: null` fica **bloqueado por padrão** (fail-closed correto,
+  ADR-0006 "invertido para proxies") mesmo sob perfil `local-only` — o usuário precisa
+  declarar `"egressClass": "local-only"` **explicitamente** no arquivo (caso dele, gateway
+  só em VPN interna) para o candidato `litellm` ficar de fato alcançável; confirmado
+  também que, com essa declaração explícita, a conexão é tentada de verdade. 36 testes na
+  CLI (35+1), 268 na lib do core + 4 de integração, fmt/clippy limpos, `cargo build
+  --release` verde. Nenhuma dependência nova (`ed0988c`).
 
 **Em andamento:** nada pendente no turno.
 
@@ -510,6 +542,8 @@ pendentes de validação de implementação).
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-14 | `ed0988c` | fix: agentry.settings.json gerado por --init mostra todo campo configurável | — |
+| 2026-07-14 | `0a0897a` | build: Makefile para cross-compile Windows + empacotamento em zip | — |
 | 2026-07-14 | `4aee255` | MT-50: flag --provider e comando /provider (ADR-0014/MT-49) | MT-50 |
 | 2026-07-14 | `3b851cb` | ADR-0020: .agentryignore (renomeando .claudeignore) + gitignore opcional | — |
 | 2026-07-14 | `a714182` | MT-49: consumo real do provider LiteLLM na CLI (ADR-0006) | MT-49 |
