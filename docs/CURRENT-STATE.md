@@ -9,11 +9,12 @@
 
 - **Data:** 2026-07-14
 - **Branch:** `main`
-- **Commit:** `8a4be44`
-- **Fase:** Roadmap v0.1/v0.2/v0.3/v0.4 **fechados/imutáveis** (Fase 9/Guardrail Gate
-  concluída em turno anterior). Nenhum roadmap v0.5 aberto ainda. Turno atual: housekeeping
-  de status de ADR (concluído) + site de documentação MkDocs com três trilhas — usuário,
-  governança/compliance, desenvolvimento (concluído).
+- **Commit:** `ac28251`
+- **Fase:** Roadmap v0.1/v0.2/v0.3/v0.4 **fechados/imutáveis**. **Fase 10** aberta
+  (`docs/roadmap-v0.5.md`, ADR-0006) — conexão configurável com LiteLLM, a pedido do
+  usuário (testar modelos 30B+ atrás do gateway LiteLLM da empresa dele). **MT-48
+  concluído** (schema `providers.litellm`); faltam **MT-49** (consumo real na CLI),
+  **MT-50** (`--provider`/`/provider`), **MT-51** (atualizar site MkDocs).
 
 ## Metas cumpridas / Em andamento / Próximo passo
 
@@ -388,13 +389,39 @@
   deploy (GitHub Pages) configurado — decisão do usuário, só montagem local por enquanto.
   `README.md` ganhou seção "Documentação" com o passo a passo; `.gitignore` ignora `/site`
   e `.venv-docs/` (`8a4be44`).
+- [x] **Roadmap v0.5** (`docs/roadmap-v0.5.md`, novo — v0.4 permanece fechado/imutável) —
+  Fase 10, conexão configurável com LiteLLM (ADR-0006, já `Accepted` desde 2026-07-06 mas
+  nunca ligado à CLI), quebrada em MT-48..51 via skill `micro-ticket-planner`. Nenhum ADR
+  novo — ADR-0006 já decide o ponto mais sensível (classe de egresso por endpoint sempre
+  explícita/configurável, ausência ⇒ `cloud-ok`/bloqueado em perfis restritivos, nunca
+  inferida do host); confirmado com o usuário que é exatamente isso que ele queria (classe
+  configurável, não hardcoded) antes de começar a implementar (`b18a65c`).
+- [x] **MT-48** — `crates/core/src/config/mod.rs`: `LiteLlmSettings`
+  (`baseUrl`/`model`/`egressClass`, todos opcionais) em `ProvidersSettings.litellm`,
+  `merged_over` escalar (mesmo padrão de `OllamaSettings`). `Config::resolve` expõe
+  `litellm: Option<LiteLlmConfig>` — `Some` só quando `baseUrl` **e** `model` estão
+  presentes (LiteLLM não configurado não é erro); `egressClass` ausente nesse caso resolve
+  `EgressClass::CloudOk` (ADR-0006 "fail-closed invertido para proxies", nunca
+  `local-only` por inferência do host). Chave de API deliberadamente fora do schema —
+  documentado no próprio doc comment que vem de `AGENTRY_LITELLM_API_KEY` (MT-49), nunca do
+  arquivo. 5 testes novos (schema completo; ausência de `egressClass` → `cloud-ok`; só
+  `baseUrl` ou só `model` → `None`; ausência do bloco inteiro preserva `None`; camada mais
+  específica sobrescreve campo a campo, inclusive parcialmente). 266 testes na lib do core
+  (261+5) + 4 de integração + 27 na CLI, fmt/clippy limpos, `cargo build --release` verde.
+  Nenhuma dependência nova (`ac28251`).
 
 **Em andamento:** nada pendente no turno.
 
-**Próximo passo:** nenhum ticket aberto. Itens em aberto, sem ticket: deploy do site MkDocs
-(GitHub Pages) — decisão explícita do usuário de não fazer ainda, retomar quando pedido; CI
-multi-SO ainda não observado verde (falta um push que dispare a matriz); backlog
-independente do `ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de
+**Próximo passo:** **MT-49** (`docs/roadmap-v0.5.md`, consumo real na CLI —
+`crates/cli/src/main.rs`: instancia `OpenAiCompatProvider` quando `cfg.litellm` é `Some`,
+segunda instância de `Transport` com allowlist restrita ao host declarado, header
+`Authorization` só se `AGENTRY_LITELLM_API_KEY` estiver no ambiente, registra como segundo
+candidato da `task-class` "chat"). Depois: MT-50 (`--provider`/`/provider`) e MT-51
+(atualizar `docs/usuario`/`docs/governanca` — a afirmação atual de "nenhum destino de rede
+além do Ollama local" deixa de ser verdade). Outros itens em aberto, sem ticket: deploy do
+site MkDocs (GitHub Pages) — decisão explícita do usuário de não fazer ainda, retomar
+quando pedido; CI multi-SO ainda não observado verde (falta um push que dispare a matriz);
+backlog independente do `ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de
 reanálise de maturidade, perfis base+overlay/skills executáveis/config de serviços
 pendentes de validação de implementação).
 
@@ -415,6 +442,8 @@ pendentes de validação de implementação).
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-14 | `ac28251` | MT-48: schema providers.litellm em Settings/Config (ADR-0006) | MT-48 |
+| 2026-07-14 | `b18a65c` | docs(roadmap): conexão configurável com LiteLLM (Fase 10, roadmap-v0.5.md) | — |
 | 2026-07-14 | `8a4be44` | docs: site MkDocs com três trilhas (usuário, governança/compliance, dev) | — |
 | 2026-07-14 | `5b8913a` | docs(adr): housekeeping de status — 13 ADRs promovidos a Accepted | — |
 | 2026-07-14 | `f60e5be` | MT-47: buffer condicional em run_streaming quando há guardrails de saída; fecha a Fase 9 | MT-47 |
