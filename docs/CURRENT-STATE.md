@@ -9,12 +9,12 @@
 
 - **Data:** 2026-07-15
 - **Branch:** `main`
-- **Commit:** `6151e26`
+- **Commit:** `a13eb98`
 - **Fase:** Roadmap v0.1..v0.4 **fechados/imutáveis**; **Fase 10 concluída** (LiteLLM).
   **Execução autônoma em andamento** (`/loop /implementar-roadmap`, modelo Sonnet 5) — ver
-  `docs/decisoes-autonomas.md` para decisões tomadas sozinho (vazio até agora). **Fase 11**
-  (ADR-0020, `.agentryignore`, `roadmap-v0.5.md`): **MT-52/53 concluídos**; falta só **MT-54**
-  (docs) pra fechar a fase inteira. **Fase 12** (ADR-0021/0022, config de task-class, `roadmap-v0.6.md`,
+  `docs/decisoes-autonomas.md` para decisões tomadas sozinho (vazio até agora). **Fase 11
+  concluída inteira** (ADR-0020, `.agentryignore`, MT-52..54, `roadmap-v0.5.md`). **Fase 12**
+  (ADR-0021/0022, config de task-class, `roadmap-v0.6.md`,
   MT-55..58) e **Fases 13–17+** (mapa/stubs, ADR 0023–0028 reservadas) ainda não iniciadas.
 
 ## Metas cumpridas / Em andamento / Próximo passo
@@ -600,17 +600,29 @@
   CLI, fmt/clippy limpos, `cargo build --release` verde. Smoke-test do binário real confirma
   que o novo bloco `context.gitignore` parseia sem erro. Nenhuma dependência nova.
   **Fecha o penúltimo ticket da Fase 11** — falta só o MT-54.
+- [x] **MT-54** — `docs/usuario/configuracao.md`: exemplo JSON ganha `context.gitignore`;
+  `### context` documenta `gitignore.enabled` (default `false`, opt-in — diferente das
+  outras três flags de `context.*`, default `true`); nova seção "Arquivo de ignore do
+  `agentry` (`.agentryignore`)" explicando o mecanismo (sintaxe `.gitignore`, independente
+  de versionamento, *fallback* pra `.claudeignore`, precedência sem merge).
+  `docs/governanca/permissoes.md`: a seção final estava **desatualizada** — dizia que
+  granularidade por conteúdo de arquivo "fica para configuração futura", mas
+  `.agentryignore` já é esse mecanismo, existe desde o MT-52; reescrita explicando pro
+  público de compliance e deixando explícito o ponto pedido: `.agentryignore`
+  (confidencialidade, independente do Git) e `context.gitignore.enabled` (ruído de
+  contexto, opt-in, zero efeito de confidencialidade) são mecanismos distintos. Varredura
+  por `grep` confirmando nenhuma outra menção desatualizada. `mkdocs build --strict` limpo,
+  validado duas vezes; anchor novo conferido direto no HTML gerado. JSON do exemplo
+  validado (`json.loads`). **Fecha a Fase 11 inteira** (MT-52..54) — roadmap marcado
+  concluído (`a13eb98`).
 
-**Em andamento:** Fase 11 (MT-54 é o próximo).
+**Em andamento:** nada pendente no turno.
 
-**Próximo passo:** **MT-54** (`docs/roadmap-v0.5.md` — documentação: `docs/usuario/
-configuracao.md` ganha `context.gitignore` e a explicação de `.agentryignore`/*fallback*
-`.claudeignore`; revisão da trilha de governança deixando explícito que confidencialidade
-e redução de ruído de contexto são mecanismos distintos) — fecha a Fase 11 inteira. Depois:
-Fase 12 (config de task-class — a mais enfatizada pelo usuário), independente. As Fases
-13–17+ só como mapa; cada uma escreve sua ADR ao iniciar (subprocedimento do comando de
-loop). Outros itens em aberto, sem ticket: deploy do site MkDocs (GitHub Pages) — decisão
-explícita do usuário de
+**Próximo passo:** **Fase 12** (`docs/roadmap-v0.6.md`, MT-55 — `TaskClassSettings` em
+`crates/core/src/config/mod.rs`, ADR-0021/0022) — config de task-class completa, o tema mais
+enfatizado pelo usuário no planejamento original. As Fases 13–17+ só como mapa; cada uma
+escreve sua ADR ao iniciar (subprocedimento do comando de loop). Outros itens em aberto, sem
+ticket: deploy do site MkDocs (GitHub Pages) — decisão explícita do usuário de
 não fazer ainda; CI multi-SO ainda não observado verde (falta um push que dispare a matriz);
 backlog independente do `ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de
 reanálise de maturidade, perfis base+overlay/skills executáveis/config de serviços
@@ -633,6 +645,7 @@ pendentes de validação de implementação).
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-15 | `a13eb98` | MT-54: documentação do site — context.gitignore + .agentryignore (fecha a Fase 11) | MT-54 |
 | 2026-07-15 | `6151e26` | test: cobre o schema context.gitignore em config/mod.rs (MT-53) | MT-53 |
 | 2026-07-15 | `3bbd934` | MT-53: respeito opcional a .gitignore (ADR-0020 §3) | MT-53 |
 | 2026-07-15 | `d742265` | MT-52: renomeia para .agentryignore com fallback de compatibilidade | MT-52 |

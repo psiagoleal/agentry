@@ -112,7 +112,7 @@ override de rota válido, só nunca exposto por uma flag/comando real.
 
 ---
 
-## Fase 11 — `.agentryignore` e respeito opcional a `.gitignore` (ADR-0020)
+## Fase 11 — `.agentryignore` e respeito opcional a `.gitignore` (ADR-0020) — ✅ concluída (MT-52..54)
 
 Discussão do usuário durante a Fase 10: `.claudeignore` (já usado por `fs`/`repo_map`/
 `code_search`) resolve confidencialidade (independente do versionamento), mas nada resolve
@@ -165,7 +165,7 @@ espalhada por documentação gerada por IA); o `OpenCode` real resolve os dois l
   `agentry.settings.json`.
 - **Depende de:** MT-52.
 
-### MT-54: Documentação do site (usuário + governança)
+### MT-54: Documentação do site (usuário + governança) — ✅ concluído (`a13eb98`)
 - **Objetivo:** `docs/usuario/configuracao.md` ganha o bloco `context.gitignore` e a
   explicação de `.agentryignore`/*fallback* `.claudeignore`; revisão da trilha de
   governança deixando explícito que confidencialidade (`.agentryignore`, independente do
