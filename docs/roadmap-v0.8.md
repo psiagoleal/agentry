@@ -19,7 +19,7 @@ nesta fase** — decisão explícita das três ADRs (reaproveitam `ignore`/`toki
 
 ## Fase 14 — Tools essenciais (ADR-0024, ADR-0025, ADR-0026)
 
-### MT-63: `trait Prompter` + tool `ask_user` no core
+### MT-63: `trait Prompter` + tool `ask_user` no core ✅ concluído
 - **Objetivo:** `crates/core/src/tools/ask_user.rs` (novo): `trait Prompter` (dyn-compatible
   via `BoxFuture`, `fn ask(&self, question: &str, options: &[String]) -> BoxFuture<'_, String>`)
   + `AskUserTool` implementando `Tool` (mesma trait do MT-11) sobre um `Arc<dyn Prompter>`

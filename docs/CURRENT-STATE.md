@@ -9,7 +9,7 @@
 
 - **Data:** 2026-07-15
 - **Branch:** `main`
-- **Commit:** `a0da724`
+- **Commit:** `721b2bd`
 - **Fase:** Roadmap v0.1..v0.4 **fechados/imutáveis**; **Fase 10 concluída** (LiteLLM).
   **Execução autônoma em andamento** (`/loop /implementar-roadmap`, modelo Sonnet 5) — ver
   `docs/decisoes-autonomas.md` para decisões tomadas sozinho (**2 decisões registradas**:
@@ -21,12 +21,11 @@
   `docs/roadmap-v0.7.md`, MT-59..62) — memória de projeto (`AGENTS.md`/`CLAUDE.md`) e skills
   (*progressive disclosure* completo, descoberta + tool `skill`); **ADR-0003 também promovida a
   `Accepted`** (objetivo original — consumo de artefatos do `profiles` — cumprido). **Fase 14
-  preparada** (ADR-0024/0025/0026 escritas, `Proposed`; micro-tickets detalhados em
-  `docs/roadmap-v0.8.md`, MT-63..69) — pronta para começar a implementação a partir do MT-63;
-  nenhuma dependência nova proposta em nenhuma das três ADRs. **Fases 15–17+** (mapa/stubs, ADR
-  0027/0028 reservadas) ainda não iniciadas. **Housekeeping:** ADR-0020/0021/0022 promovidas
-  de `Proposed` para `Accepted` (suas fases já concluídas há várias iterações; status ficou
-  desatualizado).
+  em andamento** (ADR-0024/0025/0026 `Proposed`, `docs/roadmap-v0.8.md`) — **MT-63 concluído**
+  (`trait Prompter` + `AskUserTool` no core); MT-64..69 pendentes. **Fases 15–17+** (mapa/stubs,
+  ADR 0027/0028 reservadas) ainda não iniciadas. **Housekeeping:** ADR-0020/0021/0022
+  promovidas de `Proposed` para `Accepted` (suas fases já concluídas há várias iterações;
+  status ficou desatualizado).
 
 ## Metas cumpridas / Em andamento / Próximo passo
 
@@ -784,10 +783,21 @@
   convergindo em MT-69 (documentação). Nenhuma dependência nova proposta — nenhum gatilho de
   parada dura acionado. `mkdocs build --strict` limpo. Nenhuma mudança de código.
 
+- [x] **MT-63** — `crates/core/src/tools/ask_user.rs` (novo): `trait Prompter`
+  (dyn-compatible via `BoxFuture`) definido no core — padrão `AuditSink` (interface no core,
+  implementação concreta de quem consome), não o padrão `Confirmer` (tipo só da CLI), já que
+  `AskUserTool` implementa `Tool` e toda `Tool` vive em `agentry_core::tools`.
+  `AskUserTool::new(Arc<dyn Prompter>)`; `execute()` lê `question` (obrigatório)/`options`
+  (opcional) e devolve a resposta do `Prompter`; `question` ausente é erro tratado. 5 testes
+  novos, 317 testes no core (312+5) + 43 na CLI (fiação real fica para o MT-64), fmt/clippy
+  limpos, `cargo build --release` verde. Nenhuma dependência nova; sem mudança de
+  comportamento observável da CLI ainda.
+
 **Em andamento:** nada pendente no turno.
 
-**Próximo passo:** **MT-63** (`docs/roadmap-v0.8.md`, `crates/core/src/tools/ask_user.rs`
-novo) — `trait Prompter` + `AskUserTool` no core, primeiro ticket da Fase 14. As Fases 15–17+
+**Próximo passo:** **MT-64** (`docs/roadmap-v0.8.md`, `crates/cli/src/tool_executor.rs`,
+`crates/cli/src/main.rs`) — `InteractivePrompter` (lê `stdin`, mesmo padrão síncrono de
+`InteractiveConfirmer`) + registro real de `AskUserTool` no `ToolRegistry`. As Fases 15–17+
 seguem só como mapa. Outros itens em aberto, sem
 ticket: deploy do site MkDocs (GitHub Pages) — decisão explícita do usuário de
 não fazer ainda; CI multi-SO ainda não observado verde (falta um push que dispare a matriz);
@@ -812,6 +822,7 @@ pendentes de validação de implementação).
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-15 | `721b2bd` | MT-63: trait Prompter + tool ask_user no core (ADR-0024) | MT-63 |
 | 2026-07-15 | `a0da724` | ADR-0024/0025/0026: tools essenciais (AskUser, web/SearXNG, Glob+shell background); prepara a Fase 14 | — |
 | 2026-07-15 | `24f2bdd` | MT-62: documentação AGENTS.md/skills; ADR-0003/0023 -> Accepted (fecha a Fase 13) | MT-62 |
 | 2026-07-15 | `38f8bcb` | MT-61: tool skill — carrega o corpo completo sob demanda (ADR-0023) | MT-61 |
