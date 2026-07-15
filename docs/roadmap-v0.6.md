@@ -1,0 +1,100 @@
+<!-- Caminho relativo: docs/roadmap-v0.6.md -->
+
+# Roadmap v0.6 — Micro-tickets
+
+O roadmap v0.5 (`docs/roadmap-v0.5.md`) cobre a Fase 10 (LiteLLM, **concluída**) e a Fase 11
+(`.agentryignore` + `.gitignore` opcional, ADR-0020, **pendente** — MT-52/53/54). Este
+documento detalha a **Fase 12** do roadmap de longo prazo (`docs/roadmap-longo-prazo.md`):
+tornar o roteamento por task-class configurável de ponta a ponta (ADR-0021) e instituir a
+convenção de configuração autoexplicativa (ADR-0022).
+
+> A Fase 11 permanece em `roadmap-v0.5.md`; ela e a Fase 12 são independentes (mexem em
+> arquivos diferentes) e podem ser feitas em qualquer ordem.
+
+## Convenções
+
+Mesmas dos roadmaps anteriores (`docs/roadmap-v0.1.md` §Convenções): **DoD** padrão
+(`cargo fmt --check`, `cargo clippy -- -D warnings`, `cargo test`), dependência nova exige
+ADR (ADR-0004), skill `micro-ticket-planner` para granularidade. Nenhuma dependência nova
+nesta fase — só camada de configuração sobre o `Router` já existente.
+
+---
+
+## Fase 12 — Configuração completa e autoexplicativa (ADR-0021, ADR-0022)
+
+### MT-55: `TaskClassSettings` — schema de task-class em `Config`
+- **Objetivo:** `Settings` (`crates/core/src/config/mod.rs`) ganha um bloco `taskClasses`
+  (mapa `nome → { candidates: [{ provider, model, egressClass }], preset: { temperature,
+  topP, maxTokens, systemPrompt, reasoning } }`), com `merged_over` por nome de task-class
+  (candidato/preset da camada mais específica vence, egresso **nunca afrouxa** — mesma
+  disciplina de `Permissions::union`/MT-44). `Config::resolve` expõe as task-classes
+  resolvidas como `RouteEntry` prontos (reaproveita `RouteEntry`/`RouteTarget`/`CallPreset`
+  do `Router`, ADR-0008/0014 — **sem tipo novo de roteamento**). **Defaults sintetizados:**
+  quando `taskClasses` não declara `chat`/`compact`/`guardrail-compliance`, o `Config`
+  sintetiza os defaults internos hoje hardcoded, para zero-config idêntico e para `/compact`/
+  Reviewer terem rota.
+- **Arquivos no escopo:** `crates/core/src/config/mod.rs`.
+- **Critério de aceite:** testes — `taskClasses` completo resolve `RouteEntry` com os
+  candidatos/preset exatos; ausência do bloco sintetiza `chat`/`compact`/
+  `guardrail-compliance` default (zero-config idêntico); task-class declarada sobrescreve o
+  default de mesmo nome; merge por nome adiciona task-class nova sem apagar herdadas; camada
+  mais específica **não** afrouxa a classe de egresso de um candidato.
+- **Fora de escopo:** consumo pela CLI (MT-56); flag `--task-class` (MT-56); exemplo gerado
+  (MT-57).
+- **Depende de:** ADR-0021 · ADR-0008/0014 (tipos do Router) · ADR-0018 (padrão de schema).
+
+### MT-56: CLI consome task-classes reais + flag `--task-class`/comando `/task-class`
+- **Objetivo:** `crates/cli/src/main.rs`/`repl.rs` param de hardcodar `set_chat_route`:
+  montam o `Router` a partir das task-classes resolvidas (MT-55), registrando **todas** as
+  rotas declaradas — inclusive `compact`/`guardrail-compliance`, que passam a ter rota de
+  fato (hoje `/compact` e o Reviewer não são configurados na CLI real). Nova flag
+  `--task-class <nome>` (one-shot) e comando `/task-class <nome>` (REPL) escolhem entre as
+  task-classes **declaradas** para a invocação (mesmo padrão vetado de `--provider`/`--model`,
+  ADR-0014; `chat` é o default de usuário).
+- **Arquivos no escopo:** `crates/cli/src/main.rs`, `crates/cli/src/repl.rs`.
+- **Critério de aceite:** teste de ponta a ponta — `agentry.settings.json` com uma task-class
+  custom (ex.: `revisao`, apontando para outro modelo) resolve a rota nela via
+  `--task-class revisao`; ausência do arquivo preserva o comportamento atual (rota `chat` →
+  Ollama); `/compact` num REPL com config real não falha mais por falta de rota
+  (`compact` registrada); provider/modelo inexistente na task-class escolhida é o mesmo erro
+  tratado de `Router::resolve_with_override` (reaproveitado, sem *panic*).
+- **Fora de escopo:** exemplo gerado por `--init` (MT-57); UI de configuração interativa.
+- **Depende de:** MT-55.
+
+### MT-57: Exemplo `--init` enriquecido — convenção autoexplicativa (ADR-0022)
+- **Objetivo:** `GENERIC_SETTINGS_EXAMPLE` (`crates/cli/src/main.rs`) ganha o bloco
+  `taskClasses` com a task-class `chat` default (Ollama/`local-only`) **mais exemplos
+  comentados** de alternativas (ex.: uma task-class de nuvem `cloud-ok`; uma de dados
+  sensíveis `local-only` com outro modelo) via `_comentario`. O bloco `guardrails` (hoje só
+  `input`/`output` vazios) ganha **regras de exemplo comentadas** (`block` e `redact`).
+  Auditoria de **todos** os blocos do exemplo segundo a ADR-0022 (default + `_comentario` +
+  exemplos) — permissions/context/providers/guardrails/taskClasses.
+- **Arquivos no escopo:** `crates/cli/src/main.rs`.
+- **Critério de aceite:** teste — o exemplo gerado é JSON válido do schema real
+  (`Settings::from_json_str`) **e** todo campo de exemplo fica inerte
+  (`Config::resolve` sobre ele não ativa nada indevido — extensão do teste
+  `generic_settings_example_e_json_valido_e_todo_campo_null_fica_inerte` do commit `ed0988c`,
+  agora cobrindo também `taskClasses`); `--init` continua gravando o arquivo (smoke-test).
+- **Fora de escopo:** documentação do site (MT-58).
+- **Depende de:** MT-55 (schema existe) · ADR-0022.
+
+### MT-58: Documentação do site (task-class + convenção)
+- **Objetivo:** `docs/usuario/configuracao.md` ganha a seção `taskClasses` (candidatos,
+  preset, seleção via `--task-class`/`/task-class`, defaults sintetizados) e uma nota sobre a
+  convenção autoexplicativa (ADR-0022 — por que todo bloco vem com `_comentario` + exemplos).
+  `docs/usuario/uso.md` documenta a flag/comando novos.
+- **Arquivos no escopo:** `docs/usuario/configuracao.md`, `docs/usuario/uso.md`.
+- **Critério de aceite:** `mkdocs build --strict` continua sem warnings; releitura confirmando
+  que nada na trilha de usuário ficou desatualizado.
+- **Fora de escopo:** trilha de governança (nenhuma afirmação de egresso muda — task-class só
+  usa candidatos com classe declarada, ADR-0002 preservado).
+- **Depende de:** MT-56.
+
+---
+
+## Sequência crítica
+
+```
+MT-55 → MT-56 → MT-58
+MT-55 → MT-57
+```

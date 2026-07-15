@@ -102,12 +102,16 @@ nav:
           - "0018 — Schema mínimo de configuração": adr/0018-artefato-e-schema-minimo-de-configuracao-do-agentry.md
           - "0019 — Bootstrap via --init": adr/0019-bootstrap-de-agentry-settings-json-via-init.md
           - "0020 — .agentryignore com gitignore opcional": adr/0020-agentryignore-com-respeito-opcional-a-gitignore.md
+          - "0021 — Schema de configuração de task-class": adr/0021-schema-de-configuracao-de-task-class.md
+          - "0022 — Convenção de configuração autoexplicativa": adr/0022-convencao-de-configuracao-autoexplicativa.md
       - Roadmap:
+          - Mapa de longo prazo: roadmap-longo-prazo.md
           - v0.1: roadmap-v0.1.md
           - v0.2: roadmap-v0.2.md
           - v0.3: roadmap-v0.3.md
           - v0.4: roadmap-v0.4.md
           - v0.5: roadmap-v0.5.md
+          - v0.6: roadmap-v0.6.md
       - Interoperabilidade com ai-coding-agent-profiles:
           - Visão geral: interop/README.md
           - Exchange log: interop/exchange-log.md

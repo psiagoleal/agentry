@@ -39,9 +39,9 @@ flowchart TB
 |---|---|---|
 | **Provider Layer** | `trait LlmProvider` (chat, stream, tool-calling, embeddings); adaptadores Anthropic / OpenAI-compatible (inclui gateways LiteLLM, sob classe declarada) / Ollama | ADR-0001, ADR-0006 |
 | **Transporte** | Único ponto de saída de rede: allowlist por perfil, *fail-closed*, redação de segredos, audit log, **zero telemetria** | ADR-0002 |
-| **Router / Policy** | Mapeia `task-class → (provider, modelo, classe de egresso)`; fallback por custo/latência/disponibilidade | ADR-0002, ADR-0003 |
+| **Router / Policy** | Mapeia `task-class → (provider, modelo, classe de egresso)`; fallback por custo/latência/disponibilidade; task-classes configuráveis (schema, Fase 12) | ADR-0002, ADR-0003, ADR-0008, ADR-0021 |
 | **Agent Loop** | Laço ReAct (mensagem → tool-call → observação), streaming, orçamento de tokens; `Reviewer` opcional pós-`Done` (auditoria semântica por tipo, desligado por padrão) | ADR-0001, ADR-0015 |
-| **Tool Registry + Permission** | fs/shell/search/edit atrás de gate `allow\|ask\|deny` | ADR-0002 |
+| **Tool Registry + Permission** | fs/shell/search/edit atrás de gate `allow\|ask\|deny`; futuras: AskUser (pergunta ao humano), web (WebFetch/WebSearch via SearXNG), Glob, shell background — Fase 14 | ADR-0002, ADR-0024..0026 |
 | **Skills Loader** | Carrega `SKILL.md` por *progressive disclosure* (name+description até acionar) | ADR-0003 |
 | **MCP Client** | Reaproveita o ecossistema MCP via `rmcp` (SDK oficial) | — |
 | **Context Manager** | Orçamento de tokens, *prompt caching*, compressão de tool-output (padrão `rtk`), memória (padrão `LLM-Wiki`); repo-map (`tree-sitter`), RAG semântico (`tantivy`+`lancedb`), *grounding* via LSP — especialização de modelos open-source sem fine-tuning, todas ativadas por padrão e desabilitáveis pelo usuário | ADR-0004, ADR-0010..0013 |
@@ -84,13 +84,18 @@ sequenceDiagram
 > Excluídos do runtime da v0.1 por ADR-0001: frameworks de agente (`rig`) e clientes que
 > ocultem chamadas de rede (`genai`).
 
-## Roadmap (resumo)
+## Roadmap
 
-- **v0.1:** Provider Layer (Anthropic + OpenAI-compatible + Ollama) · Transporte/egresso ·
-  Router com classes de privacidade · Tools fs/shell/edit com permissão · CLI streaming ·
-  Fase 6 — especialização de modelos open-source sem fine-tuning (repo-map, RAG semântico,
-  saída estruturada, LSP-grounding).
-- **v0.2:** Skills Loader · MCP client · compressão de tool-output.
-- **v0.3:** TUI · *prompt caching* · memória estilo `LLM-Wiki`.
+O que foi entregue (Fases 1–10) e o que vem a seguir estão nos roadmaps versionados
+(`docs/roadmap-v0.1.md` … `roadmap-v0.6.md`) e no **mapa de visão de longo prazo**:
+[`docs/roadmap-longo-prazo.md`](./roadmap-longo-prazo.md) — que **supersede** o esboço
+v0.2/v0.3 que ficava aqui.
 
-O detalhamento vira **micro-tickets** (skill `micro-ticket-planner`) na sequência.
+Resumo da direção: **Fase 11** `.agentryignore`/`.gitignore` (ADR-0020) · **Fase 12**
+configuração completa de task-class + convenção autoexplicativa (ADR-0021/0022) · **Fase 13**
+memória de projeto AGENTS.md + Skills (ADR-0023, fecha ADR-0003) · **Fase 14** tools
+essenciais — AskUser, web/SearXNG, Glob, shell background (ADR-0024..0026) · **Fase 15** TUI
+`ratatui` (ADR-0027) · **Fase 16** MCP client `rmcp` (ADR-0028) · **Fase 17+** segunda onda
+(memória entre sessões, subagentes, multimodal, checkpoints, custo visível).
+
+O detalhamento de cada fase vira **micro-tickets** (skill `micro-ticket-planner`) ao iniciar.
