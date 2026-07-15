@@ -34,7 +34,7 @@ use std::sync::Arc;
 use clap::Parser;
 
 use agentry_core::config::{Config, Settings};
-use agentry_core::egress::allowlist::{Allowlist, AllowlistEntry};
+use agentry_core::egress::allowlist::{Allowlist, AllowlistEntry, ANY_HOST};
 use agentry_core::egress::audit::AuditEntry;
 use agentry_core::guardrail::{GuardrailAuditEntry, GuardrailAuditSink};
 use agentry_core::provider::ollama::OllamaProvider;
@@ -51,6 +51,7 @@ use agentry_core::tools::permission::PermissionGate;
 use agentry_core::tools::repo_map::{register_repo_map_tool, RepoMapTool};
 use agentry_core::tools::shell::{ShellPolicy, ShellTool};
 use agentry_core::tools::skill::SkillTool;
+use agentry_core::tools::web_fetch::{WebFetchTool, WEB_TOOL_USER_AGENT};
 use agentry_core::tools::ToolRegistry;
 use agentry_core::transport::{host_from_url, AuditSink, Transport};
 
@@ -469,6 +470,32 @@ fn build_litellm_provider(
     Ok(Some((provider, candidato)))
 }
 
+/// Monta a tool `web_fetch` (MT-65, ADR-0025) só quando as **duas**
+/// condições valem: `tools.webFetch.enabled` (*opt-in* explícito) **e**
+/// `cfg.egress_class == CloudOk` (acesso amplo à internet é a capacidade
+/// mais permissiva da taxonomia, ADR-0002) — ausência de qualquer uma das
+/// duas e a tool simplesmente não é registrada, nunca aparece para o
+/// modelo. `Transport` dedicado (mesmo padrão de [`build_litellm_provider`])
+/// com o coringa [`agentry_core::egress::allowlist::ANY_HOST`] exigindo
+/// `CloudOk` e o `User-Agent` genérico fixo (ADR-0025 — nunca o *default*
+/// do `reqwest`).
+fn build_web_fetch_tool(cfg: &Config) -> Option<WebFetchTool> {
+    use agentry_core::config::privacy::EgressClass;
+
+    if !cfg.web_fetch_enabled || cfg.egress_class != EgressClass::CloudOk {
+        return None;
+    }
+    let allowlist = Allowlist::new(vec![AllowlistEntry::new(ANY_HOST, EgressClass::CloudOk)]);
+    let transport = Transport::new(
+        allowlist,
+        cfg.egress_class,
+        cfg.profile.map(|p| format!("{p:?}")),
+        Arc::new(StderrAuditSink),
+    )
+    .with_header("User-Agent", WEB_TOOL_USER_AGENT);
+    Some(WebFetchTool::new(Arc::new(transport)))
+}
+
 /// Nomes das task-classes internas **auxiliares** — além de `chat`, que já é
 /// sintetizada por [`repl::set_chat_route`] antes desta função rodar (MT-14),
 /// e que continua sem rota real hoje: `compact` (`/compact`, ADR-0016) e
@@ -677,6 +704,9 @@ async fn main() {
     registry.register(Arc::new(ShellTool::new(ShellPolicy::new(vec![]))));
     registry.register(Arc::new(SkillTool::new(skills_descobertas.clone())));
     registry.register(Arc::new(AskUserTool::new(Arc::new(InteractivePrompter))));
+    if let Some(web_fetch) = build_web_fetch_tool(&cfg) {
+        registry.register(Arc::new(web_fetch));
+    }
 
     register_context_tools(
         &mut registry,
@@ -901,6 +931,7 @@ mod tests {
             guardrails: agentry_core::guardrail::GuardrailGate::default(),
             litellm: None,
             task_classes: std::collections::HashMap::new(),
+            web_fetch_enabled: false,
         }
     }
 
@@ -1336,5 +1367,52 @@ mod tests {
             .compact(&router)
             .await
             .expect("MT-56: 'compact' deve ter rota registrada mesmo sem taskClasses no arquivo");
+    }
+
+    // --- MT-65: tool web_fetch só sob opt-in + CloudOk (ADR-0025) ---
+
+    fn cfg_com_web_fetch(enabled: bool, profile: &str) -> Config {
+        let json = format!(
+            r#"{{ "profile": "{profile}", "tools": {{ "webFetch": {{ "enabled": {enabled} }} }} }}"#
+        );
+        let camada = agentry_core::config::Settings::from_json_str(&json)
+            .expect("JSON de teste deve ser válido");
+        Config::resolve(vec![camada])
+    }
+
+    #[test]
+    fn web_fetch_habilitada_e_perfil_cloud_ok_registra_a_tool() {
+        let cfg = cfg_com_web_fetch(true, "pessoal");
+        assert_eq!(cfg.egress_class, EgressClass::CloudOk);
+
+        assert!(build_web_fetch_tool(&cfg).is_some());
+    }
+
+    #[test]
+    fn web_fetch_habilitada_mas_perfil_nao_cloud_ok_nao_registra_a_tool() {
+        let cfg = cfg_com_web_fetch(true, "empresa");
+        assert_eq!(cfg.egress_class, EgressClass::LocalOnly);
+
+        assert!(
+            build_web_fetch_tool(&cfg).is_none(),
+            "tools.webFetch.enabled=true sozinho não deve bastar sob perfil local-only"
+        );
+    }
+
+    #[test]
+    fn web_fetch_desabilitada_mesmo_sob_cloud_ok_nao_registra_a_tool() {
+        let cfg = cfg_com_web_fetch(false, "pessoal");
+        assert_eq!(cfg.egress_class, EgressClass::CloudOk);
+
+        assert!(
+            build_web_fetch_tool(&cfg).is_none(),
+            "egress_class=CloudOk sozinho não deve bastar sem o opt-in explícito"
+        );
+    }
+
+    #[test]
+    fn ausencia_de_tools_web_fetch_preserva_comportamento_atual_desabilitada() {
+        let cfg = Config::resolve(vec![Settings::default()]);
+        assert!(build_web_fetch_tool(&cfg).is_none());
     }
 }

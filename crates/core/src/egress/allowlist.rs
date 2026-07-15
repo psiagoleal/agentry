@@ -9,10 +9,21 @@
 
 use crate::config::privacy::EgressClass;
 
+/// Padrão coringa que casa **qualquer** host (MT-65, ADR-0025) — terceiro
+/// caso de [`AllowlistEntry::matches`], distinto de exato e `*.sufixo`.
+/// Precisa ser adicionado explicitamente a uma `Allowlist` (nunca é
+/// sintetizado por nenhum caminho de código) — o coringa em si não afrouxa
+/// o *fail-closed*, é só mais uma entrada com sua própria
+/// `required_class`; quem decide se essa classe é apropriada é quem monta
+/// a `Allowlist` (ex.: a CLI, só sob `EgressClass::CloudOk` para
+/// `WebFetch`).
+pub const ANY_HOST: &str = "*";
+
 /// Uma entrada da allowlist: host aprovado e a classe mínima que ele exige.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AllowlistEntry {
-    /// Host exato (`api.exemplo.com`) ou padrão de subdomínio (`*.exemplo.com`).
+    /// Host exato (`api.exemplo.com`), padrão de subdomínio
+    /// (`*.exemplo.com`) ou o coringa [`ANY_HOST`] (`"*"`, casa qualquer host).
     pub host: String,
     /// Classe de egresso mínima que a sessão precisa ter para alcançar este host.
     pub required_class: EgressClass,
@@ -28,9 +39,13 @@ impl AllowlistEntry {
         }
     }
 
-    /// Indica se esta entrada casa com `host` (match exato, ou padrão
-    /// `*.sufixo` casando qualquer subdomínio — nunca o domínio nu).
+    /// Indica se esta entrada casa com `host` — coringa [`ANY_HOST`] (casa
+    /// qualquer host), padrão `*.sufixo` (casa qualquer subdomínio, nunca o
+    /// domínio nu), ou match exato.
     fn matches(&self, host: &str) -> bool {
+        if self.host == ANY_HOST {
+            return true;
+        }
         match self.host.strip_prefix("*.") {
             Some(sufixo) => {
                 host.len() > sufixo.len()
@@ -261,6 +276,53 @@ mod tests {
                 host: "outroexemplo.com".into()
             }),
             "sufixo textual sem o ponto de subdomínio não deve casar"
+        );
+    }
+
+    // --- MT-65: coringa ANY_HOST ("*") na Allowlist (ADR-0025) ---
+
+    #[test]
+    fn coringa_any_host_casa_qualquer_host() {
+        let allowlist = Allowlist::new(vec![AllowlistEntry::new(ANY_HOST, EgressClass::CloudOk)]);
+
+        allowlist
+            .check(EgressClass::CloudOk, "qualquer-host-aleatorio.exemplo.org")
+            .expect("coringa deve casar host nunca visto antes");
+        allowlist
+            .check(EgressClass::CloudOk, "outro.completamente.diferente.net")
+            .expect("coringa deve casar qualquer host, sem exceção");
+    }
+
+    #[test]
+    fn coringa_any_host_ainda_exige_a_classe_declarada_fail_closed_preservado() {
+        let allowlist = Allowlist::new(vec![AllowlistEntry::new(ANY_HOST, EgressClass::CloudOk)]);
+
+        let erro = allowlist
+            .check(EgressClass::LocalOnly, "qualquer-host.exemplo.org")
+            .expect_err("classe insuficiente deve continuar bloqueando mesmo com o coringa");
+        assert_eq!(
+            erro,
+            EgressError::ClassInsufficient {
+                host: "qualquer-host.exemplo.org".into(),
+                active: EgressClass::LocalOnly,
+                required: EgressClass::CloudOk,
+            }
+        );
+    }
+
+    #[test]
+    fn ausencia_do_coringa_preserva_comportamento_fechado_de_sempre() {
+        let allowlist = Allowlist::new(vec![AllowlistEntry::new(
+            "api.anthropic.com",
+            EgressClass::CloudOk,
+        )]);
+
+        assert_eq!(
+            allowlist.check(EgressClass::CloudOk, "host-nao-cadastrado.exemplo.org"),
+            Err(EgressError::NotAllowlisted {
+                host: "host-nao-cadastrado.exemplo.org".into()
+            }),
+            "sem o coringa explícito, allowlist continua fechada por padrão"
         );
     }
 }

@@ -458,6 +458,10 @@ pub struct Settings {
     /// produto).
     #[serde(default, rename = "taskClasses")]
     pub task_classes: HashMap<String, TaskClassSettings>,
+    /// Bloco `tools.*` (ADR-0025) — tools de risco real, *opt-in* por
+    /// natureza (diferente de `context.*`, onde só `gitignore` é opt-in).
+    #[serde(default)]
+    pub tools: ToolsSettings,
 }
 
 impl Settings {
@@ -545,6 +549,27 @@ impl Settings {
             providers: self.providers.merged_over(base.providers),
             guardrails: self.guardrails.merged_over(base.guardrails),
             task_classes: merge_task_classes(base.task_classes, self.task_classes),
+            tools: self.tools.merged_over(base.tools),
+        }
+    }
+}
+
+/// Bloco `tools.*` (ADR-0025) — capacidades de risco real, com *opt-in*
+/// explícito próprio de cada uma (diferente de `context.*`, onde só
+/// `gitignore` não vem ligado por padrão).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct ToolsSettings {
+    /// `tools.webFetch.enabled` (ADR-0025, MT-65) — busca de URL arbitrária.
+    /// Ausente ⇒ `false` (`Config::resolve`) — acesso amplo à internet é
+    /// *opt-in*, nunca ligado por padrão.
+    #[serde(default, rename = "webFetch")]
+    pub web_fetch: FeatureToggle,
+}
+
+impl ToolsSettings {
+    fn merged_over(self, base: Self) -> Self {
+        Self {
+            web_fetch: self.web_fetch.merged_over(base.web_fetch),
         }
     }
 }
@@ -609,6 +634,11 @@ pub struct Config {
     /// concretos de provider/modelo (`crates/core` não deveria conhecer
     /// `"ollama"` como escolha de produto).
     pub task_classes: HashMap<String, RouteEntry>,
+    /// `tools.webFetch.enabled` (ADR-0025); nenhuma camada define ⇒ `false`
+    /// — acesso amplo à internet é *opt-in*. A CLI ainda exige
+    /// `egress_class == CloudOk` **além** desta flag para de fato registrar
+    /// a tool `web_fetch` (MT-65) — esta flag sozinha não basta.
+    pub web_fetch_enabled: bool,
 }
 
 impl Config {
@@ -657,6 +687,7 @@ impl Config {
                 .into_iter()
                 .map(|(nome, config)| (nome, config.into_route_entry()))
                 .collect(),
+            web_fetch_enabled: merged.tools.web_fetch.enabled.unwrap_or(false),
         }
     }
 }
@@ -945,6 +976,22 @@ mod tests {
                 .expect("JSON válido");
         let cfg = Config::resolve(vec![camada]);
         assert!(!cfg.agents_file_enabled);
+    }
+
+    #[test]
+    fn ausencia_de_tools_web_fetch_resolve_false_ador_0025_opt_in() {
+        // Diferente das flags de context.* default-true: acesso amplo à
+        // internet é opt-in, mesma disciplina de context.gitignore.
+        let cfg = Config::resolve(vec![Settings::default()]);
+        assert!(!cfg.web_fetch_enabled);
+    }
+
+    #[test]
+    fn tools_web_fetch_enabled_true_resolve_web_fetch_enabled_true() {
+        let camada = Settings::from_json_str(r#"{ "tools": { "webFetch": { "enabled": true } } }"#)
+            .expect("JSON válido");
+        let cfg = Config::resolve(vec![camada]);
+        assert!(cfg.web_fetch_enabled);
     }
 
     #[test]
