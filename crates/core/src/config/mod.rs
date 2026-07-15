@@ -138,6 +138,13 @@ pub struct ContextSettings {
     /// configurou nada.
     #[serde(default, rename = "gitignore")]
     pub gitignore: FeatureToggle,
+    /// `context.agentsFile.enabled` (ADR-0023) — leitura de `AGENTS.md`
+    /// (primário) ou `CLAUDE.md` (*fallback*, nunca os dois) como instruções
+    /// de projeto, injetadas na mensagem de sistema. Ausente ⇒ `true`
+    /// (`Config::resolve`) — mesma categoria de custo baixo/benefício alto
+    /// das três primeiras flags acima (leitura local de um arquivo pequeno).
+    #[serde(default, rename = "agentsFile")]
+    pub agents_file: FeatureToggle,
 }
 
 impl ContextSettings {
@@ -147,6 +154,7 @@ impl ContextSettings {
             semantic_rag: self.semantic_rag.merged_over(base.semantic_rag),
             lsp_grounding: self.lsp_grounding.merged_over(base.lsp_grounding),
             gitignore: self.gitignore.merged_over(base.gitignore),
+            agents_file: self.agents_file.merged_over(base.agents_file),
         }
     }
 }
@@ -575,6 +583,11 @@ pub struct Config {
     /// `.gitignore`, em união com `.agentryignore`/`.claudeignore`; nenhuma
     /// camada define ⇒ `false` (opt-in, MT-53).
     pub respect_gitignore: bool,
+    /// `context.agentsFile.enabled` (ADR-0023); nenhuma camada define ⇒
+    /// `true`. Controla só a leitura de `AGENTS.md`/`CLAUDE.md`
+    /// (`crates/core/src/project_instructions.rs`) — não afeta descoberta de
+    /// skills (`.claude/skills/`), que não tem *opt-out* próprio.
+    pub agents_file_enabled: bool,
     /// `providers.ollama.structuredOutput` (ADR-0012); nenhuma camada define ⇒ `true`.
     pub ollama_structured_output: bool,
     /// Guardrail Gate resolvido (`guardrails.input`/`guardrails.output`,
@@ -618,6 +631,7 @@ impl Config {
             semantic_rag_enabled: merged.context.semantic_rag.enabled.unwrap_or(true),
             lsp_grounding_enabled: merged.context.lsp_grounding.enabled.unwrap_or(true),
             respect_gitignore: merged.context.gitignore.enabled.unwrap_or(false),
+            agents_file_enabled: merged.context.agents_file.enabled.unwrap_or(true),
             ollama_structured_output: merged.providers.ollama.structured_output.unwrap_or(true),
             guardrails: GuardrailGate {
                 input: merged.guardrails.input,
@@ -914,6 +928,23 @@ mod tests {
                 .expect("JSON válido");
         let cfg = Config::resolve(vec![camada]);
         assert!(cfg.respect_gitignore);
+    }
+
+    #[test]
+    fn ausencia_de_context_agents_file_resolve_true_mesma_categoria_das_outras_tres() {
+        // ADR-0023: diferente de gitignore (opt-in), agentsFile segue o
+        // default true das três primeiras flags de context.* (custo baixo).
+        let cfg = Config::resolve(vec![Settings::default()]);
+        assert!(cfg.agents_file_enabled);
+    }
+
+    #[test]
+    fn context_agents_file_enabled_false_resolve_agents_file_enabled_false() {
+        let camada =
+            Settings::from_json_str(r#"{ "context": { "agentsFile": { "enabled": false } } }"#)
+                .expect("JSON válido");
+        let cfg = Config::resolve(vec![camada]);
+        assert!(!cfg.agents_file_enabled);
     }
 
     #[test]

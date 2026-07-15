@@ -679,6 +679,14 @@ async fn main() {
         .unwrap_or(DEFAULT_TOKEN_BUDGET);
     let mut session = Session::new(rota, executor, TokenBudget::new(budget))
         .with_guardrails(Arc::new(cfg.guardrails), Arc::new(StderrAuditSink));
+    if cfg.agents_file_enabled {
+        let ignore = agentry_core::tools::fs::load_ignore(&workspace_root, cfg.respect_gitignore);
+        if let Some(instrucoes) =
+            agentry_core::project_instructions::load_project_instructions(&workspace_root, &ignore)
+        {
+            session = session.with_project_instructions(instrucoes);
+        }
+    }
 
     if let Some(tarefa) = args.tarefa {
         session.push_user_message(tarefa);
@@ -866,6 +874,7 @@ mod tests {
             semantic_rag_enabled: semantic_rag,
             lsp_grounding_enabled: lsp_grounding,
             respect_gitignore: false,
+            agents_file_enabled: true,
             ollama_structured_output: true,
             guardrails: agentry_core::guardrail::GuardrailGate::default(),
             litellm: None,

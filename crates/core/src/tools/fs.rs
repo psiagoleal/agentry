@@ -41,7 +41,12 @@ fn resolve_within_root(root: &Path, relative: &str) -> Result<PathBuf, String> {
 /// (`context.gitignore.enabled`, ADR-0020 §3, MT-53), `.gitignore` da raiz
 /// também é somado ao matcher — **união**, nunca substituição: um arquivo
 /// ignorado por qualquer um dos dois arquivos continua ignorado.
-fn load_ignore(root: &Path, respect_gitignore: bool) -> Gitignore {
+///
+/// `pub` (MT-59/ADR-0023): reaproveitado pela CLI para montar o `Gitignore`
+/// passado a `project_instructions::load_project_instructions` — mesma
+/// checagem de confidencialidade aplicada a `AGENTS.md`/`CLAUDE.md`, sem
+/// duplicar a construção do matcher.
+pub fn load_ignore(root: &Path, respect_gitignore: bool) -> Gitignore {
     let mut builder = GitignoreBuilder::new(root);
     let _ = builder.add(root.join(resolve_ignore_file_name(root)));
     if respect_gitignore {

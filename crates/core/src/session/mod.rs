@@ -328,6 +328,10 @@ pub struct Session {
     /// padrão (nenhuma checagem), mesmo "desligado até configurado" de
     /// [`Self::reviews`].
     guardrails: Option<(Arc<GuardrailGate>, Arc<dyn GuardrailAuditSink>)>,
+    /// Instruções de projeto (`AGENTS.md`/`CLAUDE.md`, MT-59/ADR-0023) —
+    /// `None` por padrão (nenhum arquivo lido/configurado). Concatenadas
+    /// antes do `system_prompt` do preset em [`Self::ensure_system_prompt`].
+    project_instructions: Option<String>,
 }
 
 impl Session {
@@ -347,6 +351,7 @@ impl Session {
             reviews: Vec::new(),
             review_retry_limit: 0,
             guardrails: None,
+            project_instructions: None,
         }
     }
 
@@ -379,6 +384,17 @@ impl Session {
         sink: Arc<dyn GuardrailAuditSink>,
     ) -> Self {
         self.guardrails = Some((gate, sink));
+        self
+    }
+
+    /// Define as instruções de projeto (`AGENTS.md`/`CLAUDE.md`, MT-59/
+    /// ADR-0023) desta sessão — *default* nenhuma. Concatenadas antes do
+    /// `system_prompt` do preset numa única mensagem de sistema (ver
+    /// [`Self::ensure_system_prompt`]); chamar de novo antes do primeiro
+    /// turno substitui o valor anterior (mesmo padrão dos demais builders).
+    #[must_use]
+    pub fn with_project_instructions(mut self, texto: impl Into<String>) -> Self {
+        self.project_instructions = Some(texto.into());
         self
     }
 
@@ -455,14 +471,27 @@ impl Session {
         &self.messages
     }
 
-    /// Garante que a mensagem de sistema do preset (se houver) esteja no
-    /// início do histórico — insere só uma vez; chamadas seguintes (novos
-    /// turnos, ou novas mensagens de usuário) não duplicam.
+    /// Garante que a mensagem de sistema esteja no início do histórico —
+    /// insere só uma vez; chamadas seguintes (novos turnos, ou novas
+    /// mensagens de usuário) não duplicam. Concatena, nesta ordem, as
+    /// instruções de projeto (`AGENTS.md`/`CLAUDE.md`, MT-59/ADR-0023 — mais
+    /// gerais) e o `system_prompt` do preset da `task-class` ativa (mais
+    /// específico), separados por uma linha em branco quando os dois
+    /// existem — uma única mensagem de sistema, nunca duas.
     fn ensure_system_prompt(&mut self) {
-        if let Some(system_prompt) = self.preset.system_prompt.clone() {
-            if !self.messages.iter().any(|m| m.role == Role::System) {
-                self.messages.insert(0, Message::system(system_prompt));
-            }
+        if self.messages.iter().any(|m| m.role == Role::System) {
+            return;
+        }
+        let combinado = [
+            self.project_instructions.as_deref(),
+            self.preset.system_prompt.as_deref(),
+        ]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join("\n\n");
+        if !combinado.is_empty() {
+            self.messages.insert(0, Message::system(combinado));
         }
     }
 
@@ -1398,6 +1427,79 @@ mod tests {
             "system_prompt não deve duplicar entre chamadas a run()"
         );
         assert_eq!(historico[0].role, Role::System);
+    }
+
+    // --- MT-59: instruções de projeto concatenadas ao system_prompt (ADR-0023) ---
+
+    #[tokio::test]
+    async fn instrucoes_de_projeto_e_system_prompt_do_preset_coexistem_numa_unica_mensagem() {
+        let mock = Arc::new(MockProvider::new("mock"));
+        mock.enqueue_chat(Ok(resposta_final("ok", Usage::default())));
+        let executor = Arc::new(CountingExecutor::default());
+        let preset = CallPreset {
+            system_prompt: Some("Instrução da task-class.".into()),
+            ..CallPreset::default()
+        };
+        let mut session = Session::new(
+            ResolvedRoute::new(mock.clone(), "modelo-x", preset),
+            executor,
+            TokenBudget::new(10_000),
+        )
+        .with_project_instructions("Regras do projeto (AGENTS.md).");
+        session.push_user_message("oi");
+
+        session.run(&router_vazio()).await.expect("deve completar");
+
+        let requisicoes = mock.chat_requests();
+        assert_eq!(
+            requisicoes[0].messages[0],
+            Message::system("Regras do projeto (AGENTS.md).\n\nInstrução da task-class."),
+            "instruções de projeto vêm primeiro, task-class depois, numa única mensagem"
+        );
+        let mensagens_de_sistema = session
+            .messages()
+            .iter()
+            .filter(|m| m.role == Role::System)
+            .count();
+        assert_eq!(mensagens_de_sistema, 1);
+    }
+
+    #[tokio::test]
+    async fn so_instrucoes_de_projeto_sem_preset_system_prompt_ainda_vira_mensagem_de_sistema() {
+        let mock = Arc::new(MockProvider::new("mock"));
+        mock.enqueue_chat(Ok(resposta_final("ok", Usage::default())));
+        let executor = Arc::new(CountingExecutor::default());
+        let mut session = Session::new(
+            ResolvedRoute::new(mock.clone(), "modelo-x", CallPreset::default()),
+            executor,
+            TokenBudget::new(10_000),
+        )
+        .with_project_instructions("Regras do projeto.");
+        session.push_user_message("oi");
+
+        session.run(&router_vazio()).await.expect("deve completar");
+
+        assert_eq!(
+            mock.chat_requests()[0].messages[0],
+            Message::system("Regras do projeto.")
+        );
+    }
+
+    #[tokio::test]
+    async fn sem_instrucoes_de_projeto_nem_preset_nenhuma_mensagem_de_sistema_e_inserida() {
+        let mock = Arc::new(MockProvider::new("mock"));
+        mock.enqueue_chat(Ok(resposta_final("ok", Usage::default())));
+        let executor = Arc::new(CountingExecutor::default());
+        let mut session = Session::new(
+            ResolvedRoute::new(mock.clone(), "modelo-x", CallPreset::default()),
+            executor,
+            TokenBudget::new(10_000),
+        );
+        session.push_user_message("oi");
+
+        session.run(&router_vazio()).await.expect("deve completar");
+
+        assert_eq!(mock.chat_requests()[0].messages[0].role, Role::User);
     }
 
     #[tokio::test]
