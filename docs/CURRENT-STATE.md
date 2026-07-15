@@ -9,7 +9,7 @@
 
 - **Data:** 2026-07-15
 - **Branch:** `main`
-- **Commit:** `2e3916a`
+- **Commit:** `5b18d80`
 - **Fase:** Roadmap v0.1..v0.4 **fechados/imutáveis**; **Fase 10 concluída** (LiteLLM).
   **Execução autônoma em andamento** (`/loop /implementar-roadmap`, modelo Sonnet 5) — ver
   `docs/decisoes-autonomas.md` para decisões tomadas sozinho (**2 decisões registradas**:
@@ -33,6 +33,13 @@
   antes de fechar a ADR (MIT, 37,9M *downloads*, ativo desde 2023). Pronta para começar a
   implementação a partir do MT-70. **Fase 16** (`rmcp`) segue autorizada, mas ainda não
   preparada (ADR-0028 + micro-tickets) — próxima fase a preparar depois que a Fase 15 terminar.
+
+  **MT-70 concluído** — primeiro ticket de implementação da Fase 15: `ratatui` (feature
+  `crossterm`, `default-features = false` para árvore de dependências mínima) adicionada a
+  `crates/cli`; flag `--tui` entra em `crates/cli/src/tui/mod.rs` (tela estática + `q`/`Ctrl+C`
+  para sair) em vez do REPL de texto, sem tocar o caminho existente. Usa
+  `ratatui::try_init`/`restore` (já instalam o *panic hook* que restaura o terminal antes de
+  propagar) em vez de montar o backend `crossterm` na mão.
 
 ## Metas cumpridas / Em andamento / Próximo passo
 
@@ -883,13 +890,32 @@
   7 tickets (MT-70..76), estritamente sequenciais. `mkdocs build --strict` limpo. Nenhuma
   mudança de código.
 
+- [x] **MT-70** — `Cargo.toml` (raiz): `ratatui = { version = "0.30", default-features = false,
+  features = ["crossterm"] }` em `[workspace.dependencies]` (evita `all-widgets`/`macros`/
+  `palette` do *default* — árvore mínima, ADR-0004); `crates/cli/Cargo.toml`: `ratatui = {
+  workspace = true }`. Nova flag `--tui` (`crates/cli/src/main.rs`, `conflicts_with_all =
+  ["init", "tarefa"]`) despacha para `crates/cli/src/tui/run()` em vez do REPL de texto; sem a
+  flag, caminho existente inalterado byte a byte. `crates/cli/src/tui/mod.rs` (novo): usa
+  `ratatui::try_init`/`ratatui::restore` (já instalam o *panic hook* que restaura o terminal
+  antes de propagar — dispensa implementar isso na mão) para telas alternativa/modo bruto;
+  laço mínimo desenha um `Paragraph` estático (título + "pressione 'q' para sair") e resolve
+  cada tecla via `action_for_key` (função pura, testável sem terminal real) — `q` ou `Ctrl+C`
+  saem, qualquer outra tecla é ignorada (mesmo padrão de "comando desconhecido não derruba o
+  REPL", MT-14); filtra `KeyEventKind::Press` explicitamente (terminais que emitem eventos de
+  *release* dobrariam a ação sem esse filtro). 5 testes novos cobrindo `action_for_key`.
+  Smoke-test manual do binário `--release` via `tmux` (não há TTY interativo neste ambiente):
+  tela renderiza corretamente; `q` e `Ctrl+C` cada um sai com código 0, janela `tmux` fecha
+  sozinha (processo não trava, sem *escape sequence* vazando). `cargo build --release` limpo
+  com a dependência nova.
+
 **Em andamento:** nada pendente — árvore de trabalho limpa, tudo commitado.
 
-**Próximo passo:** **MT-70** (`docs/roadmap-v0.9.md`, `Cargo.toml`, `crates/cli/Cargo.toml`,
-`crates/cli/src/tui/mod.rs` novo) — *scaffold* `ratatui`/`crossterm` + flag `--tui` + laço de
-eventos mínimo, primeiro ticket da Fase 15. Outros itens em aberto, sem
-ticket: deploy do site MkDocs (GitHub Pages) — decisão explícita do usuário de
-não fazer ainda; CI multi-SO ainda não observado verde (falta um push que dispare a matriz);
+**Próximo passo:** **MT-71** (`docs/roadmap-v0.9.md`, `crates/cli/src/tui/keybind.rs` novo,
+`crates/cli/src/tui/mod.rs`) — tabela de *keybindings* (mapa único ação→tecla, mesmo espírito
+de `packages/tui/src/config/keybind.ts` do OpenCode) + navegação básica de um histórico ainda
+estático/mock (sem o agente real — isso é o MT-72), segundo ticket da Fase 15. Outros itens em
+aberto, sem ticket: deploy do site MkDocs (GitHub Pages) — decisão explícita do usuário de não
+fazer ainda; CI multi-SO ainda não observado verde (falta um push que dispare a matriz);
 backlog independente do `ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de
 reanálise de maturidade, perfis base+overlay/skills executáveis/config de serviços
 pendentes de validação de implementação).
@@ -911,6 +937,7 @@ pendentes de validação de implementação).
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-15 | `5b18d80` | MT-70: scaffold ratatui/crossterm + flag --tui + laço de eventos mínimo | MT-70 |
 | 2026-07-15 | `2e3916a` | ADR-0027: TUI via ratatui (autorizada pelo mantenedor); prepara a Fase 15 | — |
 | 2026-07-15 | `c87d458` | docs(handoff): fecha a Fase 14 inteira; loop autônomo parado (dependência nova exigida) | — |
 | 2026-07-15 | `5304914` | docs(roadmap): marca MT-69 concluído; fecha a Fase 14 inteira | — |

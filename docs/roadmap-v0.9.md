@@ -19,7 +19,7 @@ verificação de maturidade completa. Nenhuma outra dependência nova.
 
 ## Fase 15 — TUI via `ratatui` (ADR-0027)
 
-### MT-70: *Scaffold* `ratatui`/`crossterm` + laço de eventos mínimo
+### MT-70: *Scaffold* `ratatui`/`crossterm` + laço de eventos mínimo ✅ concluído (5b18d80)
 - **Objetivo:** `ratatui` (com a *feature* `crossterm`) adicionada a `crates/cli/Cargo.toml`
   (`[workspace.dependencies]` no `Cargo.toml` raiz, como as demais). Nova flag `--tui`
   (`crates/cli/src/main.rs`) — quando presente, entra num novo módulo `crates/cli/src/tui/mod.rs`
