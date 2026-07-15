@@ -58,7 +58,7 @@ nesta fase** — decisão explícita das três ADRs (reaproveitam `ignore`/`toki
   `InteractiveConfirmer` (mesmo padrão `std::io::stdin().read_line()`, já em produção desde o
   MT-14) somada aos 5 testes de `AskUserTool` no core (MT-63) + os 2 novos de formatação aqui.
 
-### MT-65: Tool `WebFetch` + coringa `"*"` na `Allowlist`
+### MT-65: Tool `WebFetch` + coringa `"*"` na `Allowlist` ✅ concluído
 - **Objetivo:** `crates/core/src/egress/allowlist.rs`: `AllowlistEntry::matches` reconhece o
   padrão coringa `"*"` (casa qualquer host — terceiro caso, distinto de exato e `*.sufixo`).
   Novo `crates/core/src/tools/web_fetch.rs`: `WebFetchTool` faz `GET` via `Transport` (nunca
@@ -81,6 +81,10 @@ nesta fase** — decisão explícita das três ADRs (reaproveitam `ignore`/`toki
 - **Fora de escopo:** `WebSearch`/SearXNG (MT-66); conversão HTML→Markdown (dependência nova,
   fora de escopo desta ADR).
 - **Depende de:** ADR-0025.
+- **Nota de implementação:** smoke-test manual confirmou a fiação real (perfil `pessoal`
+  resolve `cloud-ok`, audit log mostra `(cloud-ok, allowed)`), mas reproduziu a mesma
+  limitação de confiabilidade de *tool-calling* dos modelos locais já registrada no MT-61/64 —
+  não é regressão desta ticket; correção coberta com confiança pelos 14 testes automatizados.
 
 ### MT-66: Tool `WebSearch` via SearXNG configurável
 - **Objetivo:** novo bloco `tools.webSearch` (`searxngUrl`, `searxngEgressClass`) em
