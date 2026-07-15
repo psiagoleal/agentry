@@ -30,9 +30,9 @@ Registros de decisões estruturais (ver skill `adr-writer`). Use
 | [0021](0021-schema-de-configuracao-de-task-class.md) | Schema de configuração de task-class (rotas e presets configuráveis) | Accepted |
 | [0022](0022-convencao-de-configuracao-autoexplicativa.md) | Convenção de configuração autoexplicativa (`_comentario` obrigatório) | Accepted |
 | [0023](0023-memoria-de-projeto-agents-md-e-skills.md) | Memória de projeto: leitura de `AGENTS.md`/`CLAUDE.md` + *progressive disclosure* de `SKILL.md` | Accepted |
-| [0024](0024-tool-askuser.md) | Tool `AskUser` — pergunta/confirmação entre agente e usuário | Proposed |
-| [0025](0025-web-tools-webfetch-websearch-searxng.md) | Web tools — `WebFetch` e `WebSearch` via SearXNG configurável | Proposed |
-| [0026](0026-tool-glob-e-shell-em-background.md) | Tool `Glob` (busca por padrão de arquivo) e shell em background/streaming | Proposed |
+| [0024](0024-tool-askuser.md) | Tool `AskUser` — pergunta/confirmação entre agente e usuário | Accepted |
+| [0025](0025-web-tools-webfetch-websearch-searxng.md) | Web tools — `WebFetch` e `WebSearch` via SearXNG configurável | Accepted |
+| [0026](0026-tool-glob-e-shell-em-background.md) | Tool `Glob` (busca por padrão de arquivo) e shell em background/streaming | Accepted |
 
 > **Faixa reservada (roadmap de longo prazo, `docs/roadmap-longo-prazo.md`):** ADR-0027 (TUI /
 > `ratatui`, Fase 15), ADR-0028 (MCP client / `rmcp`, Fase 16). O arquivo de cada uma é escrito

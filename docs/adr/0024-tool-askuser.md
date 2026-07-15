@@ -2,7 +2,7 @@
 
 # ADR 0024: Tool `AskUser` — pergunta/confirmação entre agente e usuário
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Data:** 2026-07-15
 - **Decisores:** Iago Leal (mantenedor)
 - **Tags:** tools, interação, UX

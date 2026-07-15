@@ -86,3 +86,26 @@ arquivo, buscar no código, rodar comando de shell). Tools na lista `ask` de
 [`permissions`](configuracao.md#permissions) pedem confirmação interativa antes de rodar;
 tools em `deny` nunca rodam. Ver [Guardrails de conteúdo](guardrails.md) para o mecanismo
 separado que filtra o **conteúdo** das mensagens (independente de qual tool é chamada).
+
+## Ferramentas do agente
+
+Nenhuma das tools abaixo muda flags/comandos de invocação — o agente decide sozinho, no meio
+de uma tarefa, quando usar cada uma; o comportamento observável é só a interação que ela
+gera:
+
+- **`ask_user`** — o agente pode perguntar algo diretamente a você, no meio de uma tarefa
+  (esclarecer uma ambiguidade, confirmar uma decisão). A pergunta (e sugestões, se houver)
+  aparece no terminal; sua resposta em texto livre volta para o agente. Diferente de uma tool
+  em `ask` (que pede para *aprovar a execução* de outra tool), aqui é o próprio agente pedindo
+  uma informação.
+- **`glob`** — busca arquivos por padrão de nome/caminho (`"**/*.rs"`), sem olhar conteúdo.
+  Respeita [`.agentryignore`](configuracao.md#arquivo-de-ignore-do-agentry-agentryignore) como
+  qualquer tool de arquivo.
+- **`shell_background`** — roda um comando de shell sem bloquear o agente (ex.: um `dev
+  server`), consulta a saída depois e finaliza quando quiser. Sob a **mesma** política de
+  `permissions`/comando bloqueado por padrão do `shell_exec` — rodar em segundo plano não é
+  um jeito de contornar essa política.
+- **`web_fetch`**/**`web_search`** — acesso à web, **desligados por padrão**; ver
+  [`tools.webFetch`](configuracao.md#toolswebfetch)/[`tools.webSearch`](configuracao.md#toolswebsearch)
+  para como habilitar e o [Modelo de privacidade e
+  egresso](../governanca/privacidade-e-egresso.md) para o que cada um implica.

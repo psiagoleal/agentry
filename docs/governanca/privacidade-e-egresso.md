@@ -78,8 +78,43 @@ já está conectado de ponta a ponta.
 (ou `/init <perfil>` no REPL) contata a rede para buscar um artefato de configuração
 público do repositório de perfis — nunca conteúdo de código, prompt ou resposta, só o
 arquivo de política a aplicar localmente. É opcional (`--init` sem `--profile` não toca a
-rede) e independente do LiteLLM — os dois são os únicos caminhos de rede além do Ollama
-local disponíveis hoje na CLI.
+rede) e independente do LiteLLM.
+
+## Egresso via ferramentas de web (`web_fetch`/`web_search`)
+
+Duas tools dão ao agente acesso à web — a diferença entre elas importa para avaliar o
+caminho de egresso de cada uma:
+
+- **`web_fetch`** busca o conteúdo de **qualquer URL** que o agente decida pedir — o destino
+  não é conhecido de antemão, então não cabe no modelo de allowlist por host único usado por
+  todo outro provider/endpoint deste documento. Por isso, essa tool só é registrada quando
+  **duas** condições valem ao mesmo tempo: (1) `tools.webFetch.enabled: true`, um *opt-in*
+  explícito no arquivo de configuração — desligado por padrão; **e** (2) a sessão já resolve
+  para a classe de egresso mais permissiva (`cloud-ok`). Sob `local-only`/`cloud-opt-out`, a
+  tool nem aparece para o agente, mesmo que `tools.webFetch.enabled` esteja ligado — ela exige
+  a combinação das duas, nunca uma sozinha. Isso é uma restrição de código, verificada por
+  teste automatizado, não uma recomendação de uso.
+- **`web_search`** consulta uma instância [SearXNG](https://docs.searxng.org/) — **um host
+  único e conhecido**, informado por você (`tools.webSearch.searxngUrl`; ver
+  [Configuração](../usuario/configuracao.md#toolswebsearch)). Cabe no mesmo modelo de
+  allowlist do LiteLLM: classe de egresso sempre explícita (ausente ⇒ `cloud-ok`, o mais
+  restritivo para liberar), e a tool só é registrada quando a URL é de fato configurada —
+  **nenhuma instância pública vem pré-configurada** no `agentry`, por dois motivos: risco de
+  disponibilidade (a instância pode sair do ar) e de cadeia de suprimentos (uma instância de
+  terceiros poderia registrar ou manipular consultas).
+
+**Modelo de anonimato, como requisito de código, não de melhor esforço:** as duas tools
+nunca enviam cookies (a biblioteca de rede do `agentry` não tem *cookie jar* — não há nada
+para desligar, a capacidade simplesmente não existe no binário), sempre usam um
+*User-Agent* genérico fixo (nunca identifica a máquina, o usuário ou a versão do SO), e
+nunca anexam cabeçalho `Referer` nem qualquer parâmetro de rastreio próprio às consultas.
+Reduzir rastreabilidade nessas duas tools foi tratado como requisito desde o desenho, não
+como ajuste posterior.
+
+Com essas duas, os caminhos de rede disponíveis hoje na CLI são: Ollama local (sempre),
+LiteLLM (opcional, um segundo provider de modelo), busca do artefato de `--init --profile`
+(opcional, só configuração), e as duas tools de web acima (opcionais, cada uma com seu
+próprio *opt-in*).
 
 ## O que audita e o que não sabe
 

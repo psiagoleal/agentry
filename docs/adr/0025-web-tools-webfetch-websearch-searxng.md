@@ -2,7 +2,7 @@
 
 # ADR 0025: Web tools — `WebFetch` e `WebSearch` via SearXNG configurável
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Data:** 2026-07-15
 - **Decisores:** Iago Leal (mantenedor)
 - **Tags:** tools, egresso, rede, anonimato, segurança

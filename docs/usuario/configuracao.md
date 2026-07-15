@@ -93,6 +93,13 @@ nunca cai silenciosamente no exemplo genérico. O mesmo comando existe dentro do
       ],
       "preset": { "temperature": 0.2 }
     }
+  },
+  "tools": {
+    "webFetch": { "enabled": false },
+    "webSearch": {
+      "searxngUrl": "https://searx.minhaempresa.com",
+      "searxngEgressClass": "local-only"
+    }
   }
 }
 ```
@@ -270,6 +277,54 @@ candidato indisponível é erro tratado, nunca *panic*.
 nome em duas camadas resolve com a camada mais específica vencendo campo a campo em
 `candidates`/`preset`. A classe de egresso de um candidato **nunca é afrouxada** por merge
 (mesma disciplina fail-closed das demais listas de configuração do `agentry`).
+
+### `tools.webFetch`
+
+Liga a tool `web_fetch` — busca o conteúdo de uma URL (qualquer URL que o agente peça) e
+devolve como texto puro (sem conversão para Markdown). **Desligada por padrão**
+(`enabled: false`) e só funciona quando **duas** condições valem ao mesmo tempo:
+
+1. `tools.webFetch.enabled: true` neste arquivo (*opt-in* explícito).
+2. O perfil ativo resolve para a classe de egresso mais permissiva (`cloud-ok` — ver [Modelo
+   de privacidade e egresso](../governanca/privacidade-e-egresso.md)).
+
+Falta qualquer uma das duas e a tool **nem aparece** para o agente — não é um erro em tempo de
+chamada, é a tool simplesmente não sendo oferecida. Isso é deliberado: acessar qualquer host da
+internet é uma capacidade de risco real, diferente das capacidades de contexto local (`repoMap`,
+`agentsFile` etc.), que vêm ligadas por padrão.
+
+```json
+"tools": {
+  "webFetch": { "enabled": true }
+}
+```
+
+### `tools.webSearch`
+
+Liga a tool `web_search` — pesquisa um termo via uma instância
+[SearXNG](https://docs.searxng.org/) configurada por você. **Sem instância pública
+pré-configurada**: a tool só é registrada quando você informa `searxngUrl`.
+
+- `searxngUrl` — URL base da sua instância SearXNG (própria ou de confiança). Ausente ⇒
+  `web_search` não é registrada.
+- `searxngEgressClass` — classe de egresso mínima desse endpoint. **Sempre declare
+  explicitamente** — ausente é tratado como `"cloud-ok"` (a mais restritiva para liberar,
+  mesmo *default* de [`providers.litellm`](#providerslitellm)); uma instância SearXNG
+  *self-hosted* na sua rede interna pode legitimamente declarar `"local-only"`.
+
+```json
+"tools": {
+  "webSearch": {
+    "searxngUrl": "https://searx.minhaempresa.com",
+    "searxngEgressClass": "local-only"
+  }
+}
+```
+
+Diferente de `web_fetch` (que mira qualquer host, por isso exige o perfil mais permissivo),
+o endpoint do SearXNG é **um host único e conhecido** — cabe no mesmo modelo de allowlist já
+usado por `providers.litellm`, sem precisar do perfil mais permissivo por si só (a classe
+exigida é a que você declarar em `searxngEgressClass`).
 
 ## Convenção: todo bloco vem com exemplo
 

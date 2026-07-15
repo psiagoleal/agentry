@@ -2,7 +2,7 @@
 
 # ADR 0026: Tool `Glob` (busca por padrão de arquivo) e shell em background/streaming
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Data:** 2026-07-15
 - **Decisores:** Iago Leal (mantenedor)
 - **Tags:** tools, filesystem, shell
