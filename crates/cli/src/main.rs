@@ -743,6 +743,7 @@ mod tests {
             ollama_structured_output: true,
             guardrails: agentry_core::guardrail::GuardrailGate::default(),
             litellm: None,
+            task_classes: std::collections::HashMap::new(),
         }
     }
 

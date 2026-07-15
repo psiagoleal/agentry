@@ -27,9 +27,12 @@
 
 pub mod privacy;
 
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 
 use crate::guardrail::{GuardrailGate, GuardrailRule};
+use crate::router::{CallPreset, RouteEntry, RouteTarget};
 use privacy::{EgressClass, Profile};
 
 /// Versão do `settings-schema` suportada por este binário (contrato interop v1).
@@ -267,6 +270,144 @@ fn merge_regras_de_guardrail(
     resultado
 }
 
+/// Um candidato de roteamento configurável para uma task-class
+/// (`taskClasses.<nome>.candidates[]`, ADR-0021) — mesma forma de
+/// [`RouteTarget`], que este tipo produz diretamente (`into_route_target`);
+/// sem tipo novo de roteamento, só a camada de configuração sobre o que já
+/// existe (ADR-0008/0014). Os três campos são obrigatórios dentro de um
+/// candidato — um candidato sem `provider`/`model`/`egressClass` não é
+/// utilizável, então a ausência de qualquer um é erro de parsing (fail
+/// closed), não um valor *default* silencioso.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TaskClassCandidateSettings {
+    pub provider: String,
+    pub model: String,
+    #[serde(rename = "egressClass")]
+    pub egress_class: EgressClass,
+}
+
+impl TaskClassCandidateSettings {
+    fn into_route_target(self) -> RouteTarget {
+        RouteTarget::new(self.provider, self.model, self.egress_class)
+    }
+}
+
+/// Preset de parâmetros de chamada configurável para uma task-class
+/// (`taskClasses.<nome>.preset`, ADR-0021) — mesma forma de [`CallPreset`],
+/// que este tipo produz diretamente (`into_call_preset`).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct TaskClassPresetSettings {
+    #[serde(default)]
+    pub temperature: Option<f32>,
+    #[serde(default, rename = "topP")]
+    pub top_p: Option<f32>,
+    #[serde(default, rename = "maxTokens")]
+    pub max_tokens: Option<u32>,
+    #[serde(default, rename = "systemPrompt")]
+    pub system_prompt: Option<String>,
+    #[serde(default)]
+    pub reasoning: Option<bool>,
+}
+
+impl TaskClassPresetSettings {
+    fn merged_over(self, base: Self) -> Self {
+        Self {
+            temperature: self.temperature.or(base.temperature),
+            top_p: self.top_p.or(base.top_p),
+            max_tokens: self.max_tokens.or(base.max_tokens),
+            system_prompt: self.system_prompt.or(base.system_prompt),
+            reasoning: self.reasoning.or(base.reasoning),
+        }
+    }
+
+    fn into_call_preset(self) -> CallPreset {
+        CallPreset {
+            temperature: self.temperature,
+            top_p: self.top_p,
+            system_prompt: self.system_prompt,
+            max_tokens: self.max_tokens,
+            reasoning: self.reasoning,
+        }
+    }
+}
+
+/// Uma task-class configurável por completo (`taskClasses.<nome>`,
+/// ADR-0021): candidatos de roteamento, em ordem de preferência, + preset
+/// de parâmetros de chamada.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct TaskClassSettings {
+    #[serde(default)]
+    pub candidates: Vec<TaskClassCandidateSettings>,
+    #[serde(default)]
+    pub preset: TaskClassPresetSettings,
+}
+
+impl TaskClassSettings {
+    fn merged_over(self, base: Self) -> Self {
+        Self {
+            candidates: merge_candidatos_de_task_class(base.candidates, self.candidates),
+            preset: self.preset.merged_over(base.preset),
+        }
+    }
+
+    fn into_route_entry(self) -> RouteEntry {
+        RouteEntry {
+            candidates: self
+                .candidates
+                .into_iter()
+                .map(TaskClassCandidateSettings::into_route_target)
+                .collect(),
+            preset: self.preset.into_call_preset(),
+        }
+    }
+}
+
+/// Une duas listas de candidatos de task-class por par (`provider`,
+/// `model`): candidato novo é adicionado; o mesmo par presente nas duas
+/// listas resolve para a classe de egresso **mais restritiva** das duas —
+/// nunca a mais permissiva (mesma disciplina fail-closed de
+/// `merge_regras_de_guardrail`/MT-44, adaptada de "ação mais severa" para
+/// "classe menos permissiva", `EgressClass::rank` — ADR-0021).
+fn merge_candidatos_de_task_class(
+    base: Vec<TaskClassCandidateSettings>,
+    overlay: Vec<TaskClassCandidateSettings>,
+) -> Vec<TaskClassCandidateSettings> {
+    let mut resultado = base;
+    for candidato_novo in overlay {
+        match resultado
+            .iter_mut()
+            .find(|c| c.provider == candidato_novo.provider && c.model == candidato_novo.model)
+        {
+            Some(existente) => {
+                if candidato_novo.egress_class.rank() < existente.egress_class.rank() {
+                    existente.egress_class = candidato_novo.egress_class;
+                }
+            }
+            None => resultado.push(candidato_novo),
+        }
+    }
+    resultado
+}
+
+/// Une dois mapas de task-classes por nome (ADR-0021): task-class nova
+/// (nome inédito) é sempre adicionada; o mesmo nome nas duas camadas
+/// resolve via [`TaskClassSettings::merged_over`] (candidatos por par
+/// provider/model, preset campo a campo).
+fn merge_task_classes(
+    base: HashMap<String, TaskClassSettings>,
+    overlay: HashMap<String, TaskClassSettings>,
+) -> HashMap<String, TaskClassSettings> {
+    let mut resultado = base;
+    for (nome, config_nova) in overlay {
+        let mesclada = match resultado.remove(&nome) {
+            Some(config_existente) => config_nova.merged_over(config_existente),
+            None => config_nova,
+        };
+        resultado.insert(nome, mesclada);
+    }
+    resultado
+}
+
 /// Uma camada de configuração (mínimo do `settings-schema:1` + fatia do
 /// ADR-0018).
 ///
@@ -301,6 +442,14 @@ pub struct Settings {
     /// Bloco `guardrails.*` (ADR-0007 §2).
     #[serde(default)]
     pub guardrails: GuardrailSettings,
+    /// Bloco `taskClasses` (ADR-0021) — task-classes configuráveis por
+    /// nome. Ausência total ⇒ `Config` não sintetiza nenhuma automaticamente
+    /// (decisão registrada em `docs/decisoes-autonomas.md`: sintetizar
+    /// defaults concretos de provider/modelo é responsabilidade da CLI,
+    /// MT-56 — `crates/core` não deve conhecer `"ollama"` como escolha de
+    /// produto).
+    #[serde(default, rename = "taskClasses")]
+    pub task_classes: HashMap<String, TaskClassSettings>,
 }
 
 impl Settings {
@@ -387,6 +536,7 @@ impl Settings {
             context: self.context.merged_over(base.context),
             providers: self.providers.merged_over(base.providers),
             guardrails: self.guardrails.merged_over(base.guardrails),
+            task_classes: merge_task_classes(base.task_classes, self.task_classes),
         }
     }
 }
@@ -437,6 +587,15 @@ pub struct Config {
     /// simplesmente não está configurado, não é um erro). Consumido pela
     /// CLI para registrar um segundo candidato de provider (MT-49).
     pub litellm: Option<LiteLlmConfig>,
+    /// Task-classes declaradas pelo usuário (`taskClasses`, ADR-0021), já
+    /// convertidas para os tipos do `Router` (`RouteEntry`/`RouteTarget`/
+    /// `CallPreset`, ADR-0008/0014) — prontas para `Router::set_route`.
+    /// Mapa vazio quando nada é declarado; `Config` **não** sintetiza
+    /// nenhuma task-class interna (`chat`/`compact`/`guardrail-compliance`)
+    /// — essa responsabilidade é da CLI (MT-56), que já tem os defaults
+    /// concretos de provider/modelo (`crates/core` não deveria conhecer
+    /// `"ollama"` como escolha de produto).
+    pub task_classes: HashMap<String, RouteEntry>,
 }
 
 impl Config {
@@ -479,6 +638,11 @@ impl Config {
                 }),
                 _ => None,
             },
+            task_classes: merged
+                .task_classes
+                .into_iter()
+                .map(|(nome, config)| (nome, config.into_route_entry()))
+                .collect(),
         }
     }
 }
@@ -1003,6 +1167,155 @@ mod tests {
             litellm.egress_class,
             EgressClass::LocalOnly,
             "ambiente não declarou egressClass — arquivo continua valendo"
+        );
+    }
+
+    // --- MT-55: schema `taskClasses` (ADR-0021) ---
+
+    #[test]
+    fn task_class_completa_resolve_route_entry_com_candidatos_e_preset_exatos() {
+        let json = r#"{
+            "taskClasses": {
+                "revisao": {
+                    "candidates": [
+                        { "provider": "litellm", "model": "gpt-30b", "egressClass": "local-only" },
+                        { "provider": "ollama", "model": "llama3.1:8b", "egressClass": "local-only" }
+                    ],
+                    "preset": {
+                        "temperature": 0.2,
+                        "topP": 0.9,
+                        "maxTokens": 4096,
+                        "systemPrompt": "revise com cuidado",
+                        "reasoning": true
+                    }
+                }
+            }
+        }"#;
+        let camada = Settings::from_json_str(json).expect("JSON válido");
+        let cfg = Config::resolve(vec![camada]);
+
+        let entry = cfg
+            .task_classes
+            .get("revisao")
+            .expect("task-class 'revisao' deve estar presente");
+        assert_eq!(entry.candidates.len(), 2);
+        assert_eq!(entry.candidates[0].provider, "litellm");
+        assert_eq!(entry.candidates[0].model, "gpt-30b");
+        assert_eq!(entry.candidates[0].egress_class, EgressClass::LocalOnly);
+        assert_eq!(entry.candidates[1].provider, "ollama");
+        assert_eq!(entry.preset.temperature, Some(0.2));
+        assert_eq!(entry.preset.top_p, Some(0.9));
+        assert_eq!(entry.preset.max_tokens, Some(4096));
+        assert_eq!(
+            entry.preset.system_prompt.as_deref(),
+            Some("revise com cuidado")
+        );
+        assert_eq!(entry.preset.reasoning, Some(true));
+    }
+
+    #[test]
+    fn ausencia_de_task_classes_resolve_mapa_vazio_sem_sintetizar_nada() {
+        // Decisão registrada em docs/decisoes-autonomas.md: Config não
+        // sintetiza chat/compact/guardrail-compliance — isso é
+        // responsabilidade da CLI (MT-56), que conhece os defaults
+        // concretos de provider/modelo.
+        let cfg = Config::resolve(vec![Settings::default()]);
+        assert!(cfg.task_classes.is_empty());
+    }
+
+    #[test]
+    fn task_class_declarada_em_camada_mais_especifica_sobrescreve_preset_do_mesmo_nome() {
+        let arquivo = Settings::from_json_str(
+            r#"{ "taskClasses": { "chat": {
+                "candidates": [{ "provider": "ollama", "model": "modelo-arquivo", "egressClass": "local-only" }],
+                "preset": { "temperature": 0.5 }
+            } } }"#,
+        )
+        .expect("arquivo válido");
+        let env = Settings::from_json_str(
+            r#"{ "taskClasses": { "chat": { "preset": { "temperature": 0.1 } } } }"#,
+        )
+        .expect("ambiente válido");
+
+        let cfg = Config::resolve(vec![Settings::default(), arquivo, env]);
+        let entry = cfg.task_classes.get("chat").expect("deve existir");
+        assert_eq!(
+            entry.preset.temperature,
+            Some(0.1),
+            "ambiente deve vencer o arquivo no mesmo campo"
+        );
+        assert_eq!(
+            entry.candidates[0].model, "modelo-arquivo",
+            "ambiente não redeclarou candidates — candidato do arquivo continua"
+        );
+    }
+
+    #[test]
+    fn merge_por_nome_adiciona_task_class_nova_sem_apagar_a_herdada() {
+        let arquivo = Settings::from_json_str(
+            r#"{ "taskClasses": { "chat": {
+                "candidates": [{ "provider": "ollama", "model": "m", "egressClass": "local-only" }]
+            } } }"#,
+        )
+        .expect("arquivo válido");
+        let env = Settings::from_json_str(
+            r#"{ "taskClasses": { "compact": {
+                "candidates": [{ "provider": "ollama", "model": "m2", "egressClass": "local-only" }]
+            } } }"#,
+        )
+        .expect("ambiente válido");
+
+        let cfg = Config::resolve(vec![Settings::default(), arquivo, env]);
+        assert!(cfg.task_classes.contains_key("chat"), "herdada do arquivo");
+        assert!(cfg.task_classes.contains_key("compact"), "nova do ambiente");
+    }
+
+    #[test]
+    fn mesmo_candidato_em_duas_camadas_nunca_afrouxa_a_classe_de_egresso() {
+        let perfil = Settings::from_json_str(
+            r#"{ "taskClasses": { "chat": {
+                "candidates": [{ "provider": "litellm", "model": "m", "egressClass": "local-only" }]
+            } } }"#,
+        )
+        .expect("perfil válido");
+        let arquivo = Settings::from_json_str(
+            r#"{ "taskClasses": { "chat": {
+                "candidates": [{ "provider": "litellm", "model": "m", "egressClass": "cloud-ok" }]
+            } } }"#,
+        )
+        .expect("arquivo válido");
+
+        let cfg = Config::resolve(vec![perfil, arquivo]);
+        let entry = cfg.task_classes.get("chat").expect("deve existir");
+        assert_eq!(
+            entry.candidates.len(),
+            1,
+            "mesmo par provider/model, não duplica"
+        );
+        assert_eq!(
+            entry.candidates[0].egress_class,
+            EgressClass::LocalOnly,
+            "camada mais específica nunca afrouxa a classe de um candidato já herdado"
+        );
+
+        // Ordem invertida: perfil cloud-ok, arquivo local-only (mais
+        // restrito) — a mais restrita sempre vence, nas duas ordens.
+        let perfil = Settings::from_json_str(
+            r#"{ "taskClasses": { "chat": {
+                "candidates": [{ "provider": "litellm", "model": "m", "egressClass": "cloud-ok" }]
+            } } }"#,
+        )
+        .expect("perfil válido");
+        let arquivo = Settings::from_json_str(
+            r#"{ "taskClasses": { "chat": {
+                "candidates": [{ "provider": "litellm", "model": "m", "egressClass": "local-only" }]
+            } } }"#,
+        )
+        .expect("arquivo válido");
+        let cfg = Config::resolve(vec![perfil, arquivo]);
+        assert_eq!(
+            cfg.task_classes.get("chat").unwrap().candidates[0].egress_class,
+            EgressClass::LocalOnly
         );
     }
 }
