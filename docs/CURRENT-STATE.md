@@ -9,7 +9,7 @@
 
 - **Data:** 2026-07-15
 - **Branch:** `main`
-- **Commit:** `5304914`
+- **Commit:** `2e3916a`
 - **Fase:** Roadmap v0.1..v0.4 **fechados/imutáveis**; **Fase 10 concluída** (LiteLLM).
   **Execução autônoma em andamento** (`/loop /implementar-roadmap`, modelo Sonnet 5) — ver
   `docs/decisoes-autonomas.md` para decisões tomadas sozinho (**2 decisões registradas**:
@@ -26,15 +26,13 @@
   completa. **Housekeeping:** ADR-0020/0021/0022 promovidas de `Proposed` para `Accepted` (suas
   fases já concluídas há várias iterações; status ficou desatualizado).
 
-  **LOOP AUTÔNOMO PARADO AQUI — decisão do mantenedor necessária.** As Fases 15 (TUI, ADR-0027)
-  e 16 (MCP, ADR-0028) — as duas únicas fases com tickets ainda não detalhados no roadmap-mestre
-  — exigem, cada uma, uma **dependência de runtime nova** (`ratatui` e `rmcp`,
-  respectivamente) só para a fase começar a ser preparada (a própria ADR de cada fase
-  decidiria adotar a dependência, ADR-0004). Isso é uma **parada dura** explícita do comando
-  `.claude/commands/implementar-roadmap.md` (§6) — o loop não decide isso sozinho, mesmo com
-  uma "opção recomendada clara", porque o gatilho é categórico (qualquer dependência nova),
-  não uma questão de julgamento. Nenhuma outra fase do roadmap de longo prazo tem tickets
-  detalhados pendentes no momento. Ver `docs/roadmap-longo-prazo.md` §Sequência das fases.
+  **Parada dura resolvida em 2026-07-15:** o mantenedor autorizou explicitamente `ratatui`
+  (Fase 15) e `rmcp` (Fase 16) — as duas dependências que haviam pausado o loop autônomo (ver
+  histórico abaixo). **Fase 15 preparada** (ADR-0027 `Proposed`, `docs/roadmap-v0.9.md`,
+  MT-70..76) — maturidade de `ratatui` verificada de fato via `crates.io/api/v1/crates/ratatui`
+  antes de fechar a ADR (MIT, 37,9M *downloads*, ativo desde 2023). Pronta para começar a
+  implementação a partir do MT-70. **Fase 16** (`rmcp`) segue autorizada, mas ainda não
+  preparada (ADR-0028 + micro-tickets) — próxima fase a preparar depois que a Fase 15 terminar.
 
 ## Metas cumpridas / Em andamento / Próximo passo
 
@@ -873,19 +871,23 @@
   a `Accepted`. `mkdocs build --strict` limpo; *anchors* conferidos no HTML. Nenhuma mudança de
   código. **Fecha a Fase 14 inteira (MT-63..69).**
 
+- [x] **Preparação da Fase 15** — ADR-0027 (`Proposed`) decide: `ratatui`+`crossterm` (MIT,
+  maturidade verificada via `crates.io/api/v1/crates/ratatui`: 37,9M *downloads* totais/14,2M
+  em 90 dias, ativo desde 2023, repositório da própria organização) só em `crates/cli`, nunca
+  no `core`; TUI é modo **opt-in** (`--tui`), nunca substitui o REPL de texto; `Session::run_streaming`
+  (*callback* já genérico, MT-10) roda numa *task* separada enviando `StreamEvent`s por canal
+  ao laço de eventos, **zero mudança no `core`**; `TuiConfirmer`/`TuiPrompter` implementam as
+  *traits* já existentes (`Confirmer`/`Prompter`, ADR-0024); *toggle* de permissão `auto`/
+  `normal` nunca contorna um `deny`. Fora de escopo deliberado (YAGNI): *widget* de lista de
+  tarefas (`agentry` não tem esse conceito no `core` hoje). `docs/roadmap-v0.9.md` detalha os
+  7 tickets (MT-70..76), estritamente sequenciais. `mkdocs build --strict` limpo. Nenhuma
+  mudança de código.
+
 **Em andamento:** nada pendente — árvore de trabalho limpa, tudo commitado.
 
-**Próximo passo — requer decisão do mantenedor, loop autônomo parado:** as únicas fases com
-tickets ainda não detalhados são a **Fase 15** (TUI via `ratatui`, ADR-0027) e a **Fase 16**
-(cliente MCP via `rmcp`, ADR-0028) — cada uma precisa de uma **dependência de runtime nova**
-mesmo só para escrever sua ADR (que decidiria adotar a dependência, ADR-0004). Isso é uma
-parada dura explícita do comando `.claude/commands/implementar-roadmap.md` (§6): o loop nunca
-decide sozinho adotar uma dependência nova, mesmo havendo uma "opção recomendada clara" —
-volte a rodar `/loop /implementar-roadmap` só depois de decidir (a) qual das duas fases
-priorizar, ou (b) se `ratatui`/`rmcp` são de fato as dependências corretas a adotar (a ADR de
-cada fase ainda faria a verificação formal de maturidade/licença, ADR-0004, mas a decisão de
-**seguir em frente com uma dependência nova** é do mantenedor, não do loop). Outros itens em
-aberto, sem
+**Próximo passo:** **MT-70** (`docs/roadmap-v0.9.md`, `Cargo.toml`, `crates/cli/Cargo.toml`,
+`crates/cli/src/tui/mod.rs` novo) — *scaffold* `ratatui`/`crossterm` + flag `--tui` + laço de
+eventos mínimo, primeiro ticket da Fase 15. Outros itens em aberto, sem
 ticket: deploy do site MkDocs (GitHub Pages) — decisão explícita do usuário de
 não fazer ainda; CI multi-SO ainda não observado verde (falta um push que dispare a matriz);
 backlog independente do `ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de
@@ -909,6 +911,8 @@ pendentes de validação de implementação).
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-15 | `2e3916a` | ADR-0027: TUI via ratatui (autorizada pelo mantenedor); prepara a Fase 15 | — |
+| 2026-07-15 | `c87d458` | docs(handoff): fecha a Fase 14 inteira; loop autônomo parado (dependência nova exigida) | — |
 | 2026-07-15 | `5304914` | docs(roadmap): marca MT-69 concluído; fecha a Fase 14 inteira | — |
 | 2026-07-15 | `e375095` | MT-69: documentação tools essenciais + ADR-0024/0025/0026 -> Accepted | MT-69 |
 | 2026-07-15 | `4e3f5ee` | MT-68: tool shell_background -- start/output/stop (ADR-0026) | MT-68 |
