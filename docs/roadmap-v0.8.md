@@ -86,7 +86,7 @@ nesta fase** — decisão explícita das três ADRs (reaproveitam `ignore`/`toki
   limitação de confiabilidade de *tool-calling* dos modelos locais já registrada no MT-61/64 —
   não é regressão desta ticket; correção coberta com confiança pelos 14 testes automatizados.
 
-### MT-66: Tool `WebSearch` via SearXNG configurável
+### MT-66: Tool `WebSearch` via SearXNG configurável ✅ concluído
 - **Objetivo:** novo bloco `tools.webSearch` (`searxngUrl`, `searxngEgressClass`) em
   `Settings`/`Config`, mesmo padrão de `providers.litellm` (ausência de `searxngUrl` ⇒ tool
   não registrada; `searxngEgressClass` ausente ⇒ `cloud-ok`, ADR-0002 fail-closed). Novo
@@ -107,6 +107,14 @@ nesta fase** — decisão explícita das três ADRs (reaproveitam `ignore`/`toki
   (devolvidos na ordem que o SearXNG já devolve).
 - **Depende de:** ADR-0025 · MT-65 (reaproveita o padrão de `User-Agent`/`Transport`
   dedicado, mesmo sem depender do coringa).
+- **Nota de implementação:** montar a URL de busca (`q`/`format` percent-*encoded*) exigiria
+  `reqwest::Url` — proibido fora de `transport/mod.rs` (guard test
+  `reqwest_e_usado_somente_no_modulo_de_transporte`). Resolvido com uma nova função pública
+  `build_searxng_search_url` **dentro** de `transport/mod.rs` (mesmo padrão de
+  `host_from_url`, já exposta a outros módulos) — `tools::web_search` nunca importa `reqwest`
+  diretamente, guard test preservado. Smoke-test manual confirma a fiação real, reproduz a
+  mesma limitação de *tool-calling* dos modelos locais já registrada (MT-61/64/65) — não
+  regressão, coberta pelos testes automatizados.
 
 ### MT-67: Tool `glob`
 - **Objetivo:** novo `crates/core/src/tools/glob.rs`: `GlobTool` recebe um padrão glob

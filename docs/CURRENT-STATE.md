@@ -9,7 +9,7 @@
 
 - **Data:** 2026-07-15
 - **Branch:** `main`
-- **Commit:** `733fa63`
+- **Commit:** `b23b184`
 - **Fase:** Roadmap v0.1..v0.4 **fechados/imutáveis**; **Fase 10 concluída** (LiteLLM).
   **Execução autônoma em andamento** (`/loop /implementar-roadmap`, modelo Sonnet 5) — ver
   `docs/decisoes-autonomas.md` para decisões tomadas sozinho (**2 decisões registradas**:
@@ -21,11 +21,12 @@
   `docs/roadmap-v0.7.md`, MT-59..62) — memória de projeto (`AGENTS.md`/`CLAUDE.md`) e skills
   (*progressive disclosure* completo, descoberta + tool `skill`); **ADR-0003 também promovida a
   `Accepted`** (objetivo original — consumo de artefatos do `profiles` — cumprido). **Fase 14
-  em andamento** (ADR-0024/0025/0026 `Proposed`, `docs/roadmap-v0.8.md`) — **MT-63/64/65
-  concluídos** (`AskUser` completo; tool `WebFetch` + coringa `ANY_HOST` na `Allowlist`);
-  MT-66..69 pendentes. **Fases 15–17+** (mapa/stubs, ADR 0027/0028 reservadas) ainda não
-  iniciadas. **Housekeeping:** ADR-0020/0021/0022 promovidas de `Proposed` para `Accepted`
-  (suas fases já concluídas há várias iterações; status ficou desatualizado).
+  em andamento** (ADR-0024/0025/0026 `Proposed`, `docs/roadmap-v0.8.md`) — **MT-63/64/65/66
+  concluídos** (`AskUser` completo; `WebFetch` + coringa `ANY_HOST`; `WebSearch` via SearXNG —
+  as duas trilhas de web tools da ADR-0025 concluídas); MT-67..69 pendentes. **Fases 15–17+**
+  (mapa/stubs, ADR 0027/0028 reservadas) ainda não iniciadas. **Housekeeping:**
+  ADR-0020/0021/0022 promovidas de `Proposed` para `Accepted` (suas fases já concluídas há
+  várias iterações; status ficou desatualizado).
 
 ## Metas cumpridas / Em andamento / Próximo passo
 
@@ -817,12 +818,26 @@
   modelos locais já registrada (MT-61/64) — não regressão, coberta pelos testes automatizados.
   Nenhuma dependência nova.
 
+- [x] **MT-66** — `tools.webSearch` (`searxngUrl`/`searxngEgressClass`) em `Settings`/
+  `Config`, mesmo padrão de `providers.litellm` (ausência ⇒ não registrada; classe ausente ⇒
+  `cloud-ok`, mas *self-hosted* pode declarar `local-only`, diferente do coringa fixo do
+  `web_fetch`). `transport/mod.rs` ganha `build_searxng_search_url` (percent-*encoding*
+  correto via `reqwest::Url::query_pairs_mut`) — mantém `reqwest` confinado ao módulo de
+  transporte, guard test preservado. Novo `crates/core/src/tools/web_search.rs`:
+  `WebSearchTool` consulta a API JSON do SearXNG via `Transport::get_text` (host único, sem
+  coringa), resultados formatados (título/URL/resumo, capados a 8). `main.rs`:
+  `build_web_search_tool` só registra quando `searxngUrl` declarada. 24 testes novos, 339
+  testes no core (327+12) + 52 na CLI (49+3), fmt/clippy limpos, `cargo build --release`
+  verde. Smoke-test confirma a fiação real, reproduz a mesma limitação de *tool-calling* já
+  registrada (MT-61/64/65) — não regressão. Nenhuma dependência nova. **Fecha as duas trilhas
+  de web tools da ADR-0025 (MT-65/66).**
+
 **Em andamento:** nada pendente no turno.
 
-**Próximo passo:** **MT-66** (`docs/roadmap-v0.8.md`, `crates/core/src/tools/web_search.rs`
-novo) — tool `WebSearch` via SearXNG configurável (`tools.webSearch.searxngUrl`/
-`searxngEgressClass`), desabilitada até o usuário informar a URL. As Fases 15–17+ seguem só
-como mapa. Outros itens em aberto, sem
+**Próximo passo:** **MT-67** (`docs/roadmap-v0.8.md`, `crates/core/src/tools/glob.rs` novo) —
+tool `glob` via `ignore::overrides::OverrideBuilder` (já dependência, sem dependência nova),
+respeitando `.agentryignore`/`.claudeignore`. As Fases 15–17+ seguem só como mapa. Outros
+itens em aberto, sem
 ticket: deploy do site MkDocs (GitHub Pages) — decisão explícita do usuário de
 não fazer ainda; CI multi-SO ainda não observado verde (falta um push que dispare a matriz);
 backlog independente do `ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de
@@ -846,6 +861,7 @@ pendentes de validação de implementação).
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-15 | `b23b184` | MT-66: tool web_search via SearXNG configurável (ADR-0025) | MT-66 |
 | 2026-07-15 | `733fa63` | MT-65: tool web_fetch + coringa ANY_HOST na Allowlist (ADR-0025) | MT-65 |
 | 2026-07-15 | `ebfdb5d` | MT-64: InteractivePrompter + registro real da tool ask_user (ADR-0024) | MT-64 |
 | 2026-07-15 | `721b2bd` | MT-63: trait Prompter + tool ask_user no core (ADR-0024) | MT-63 |
