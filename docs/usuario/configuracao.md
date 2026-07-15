@@ -61,7 +61,8 @@ nunca cai silenciosamente no exemplo genérico. O mesmo comando existe dentro do
   "context": {
     "repoMap": { "enabled": true },
     "semanticRag": { "enabled": true },
-    "lspGrounding": { "enabled": true }
+    "lspGrounding": { "enabled": true },
+    "gitignore": { "enabled": false }
   },
   "providers": {
     "ollama": { "structuredOutput": true },
@@ -101,11 +102,46 @@ removida por uma camada mais específica.
 
 ### `context`
 
-Liga/desliga as três capacidades de contexto do agente — todas `true` por padrão:
+Liga/desliga as capacidades de contexto do agente:
 
-- `repoMap.enabled` — mapa do repositório (símbolos relevantes via `tree-sitter`).
-- `semanticRag.enabled` — busca semântica local no código (tool `code_search`).
+- `repoMap.enabled` — mapa do repositório (símbolos relevantes via `tree-sitter`). `true`
+  por padrão.
+- `semanticRag.enabled` — busca semântica local no código (tool `code_search`). `true` por
+  padrão.
 - `lspGrounding.enabled` — consulta a um *language server* real (`lsp_hover`/`lsp_definition`).
+  `true` por padrão.
+- `gitignore.enabled` — respeito **opcional** a `.gitignore`, reduzindo o que o agente vê
+  (arquivos de build, `node_modules`, etc.) sem precisar duplicar cada padrão manualmente.
+  **`false` por padrão** — diferente das três acima, é *opt-in*: ligar nunca é necessário
+  para o comportamento atual continuar igual, e configurar isso não afeta confidencialidade
+  (ver [Arquivo de ignore do `agentry`](#arquivo-de-ignore-do-agentry-agentryignore) abaixo
+  para o mecanismo que de fato controla isso).
+
+### Arquivo de ignore do `agentry` (`.agentryignore`)
+
+Distinto de `context.gitignore.enabled` acima — **dois mecanismos diferentes, para dois
+objetivos diferentes**, não confundir um pelo outro:
+
+- **`.agentryignore`** (arquivo próprio na raiz do projeto, sintaxe `.gitignore`) —
+  controla o que o agente **nunca vê**, independente de estar versionado ou não. Um arquivo
+  pode estar no Git e fora do contexto do agente (liste em `.agentryignore`); ou fora do Git
+  e ainda assim visível ao agente (comportamento *default* — `.gitignore` não é olhado a
+  menos que você ligue `context.gitignore.enabled`). Esse é o mecanismo de
+  **confidencialidade**.
+- **`context.gitignore.enabled`** — só reduz **ruído de contexto** (evita reprocessar
+  artefatos de build já listados em `.gitignore`), *opt-in*, sem nenhuma relação com o que é
+  ou não confidencial.
+
+`.agentryignore` é sempre checado primeiro; se ausente, a CLI cai para `.claudeignore` (nome
+legado, mantido só por compatibilidade — se os dois arquivos existirem no mesmo projeto,
+`.agentryignore` vence sozinho, nunca um merge dos dois). Exemplo:
+
+```
+# .agentryignore — sintaxe idêntica a .gitignore
+segredos/
+*.pem
+.env*
+```
 
 ### `providers.ollama.structuredOutput`
 

@@ -37,12 +37,28 @@ uma decisão de postura conservadora tomada no ponto de integração (a CLI), n�
 propriedade do mecanismo genérico de permissões em si — vale a pena confirmar essa
 configuração ao avaliar uma versão futura ou uma integração customizada.
 
-## O que este controle não cobre
+## Granularidade por conteúdo: `.agentryignore`
 
-Permissões decidem **se** uma ferramenta roda. Não analisam o conteúdo dos argumentos com
-que ela é chamada (ex.: *qual* arquivo é lido, *qual* comando de shell é pedido) — esse tipo
-de granularidade fica para configuração futura ou integração customizada. Também não
-substitui o controle de rede: uma ferramenta local (leitura de arquivo, por exemplo) não
-passa pelo módulo de transporte nem pela allowlist — ver [Modelo de privacidade e
-egresso](privacidade-e-egresso.md) para o que efetivamente controla saída de dados da
-máquina.
+Permissões decidem **se** uma ferramenta roda, não *sobre qual conteúdo* — controlar "o
+agente pode usar `fs_read`" é diferente de controlar "o agente pode ler *este* arquivo".
+Essa segunda camada existe, mas é um mecanismo **separado**: um arquivo `.agentryignore` na
+raiz do projeto (sintaxe `.gitignore`) — arquivos/diretórios listados ali ficam
+inacessíveis às tools de sistema de arquivos e busca, **independente** de estarem
+versionados no Git ou não. Nome legado `.claudeignore` continua funcionando como
+*fallback* de compatibilidade. Ver [Configuração — Arquivo de ignore do
+`agentry`](../usuario/configuracao.md#arquivo-de-ignore-do-agentry-agentryignore) para a
+sintaxe.
+
+Não confundir com `context.gitignore.enabled` (também documentado ali): esse segundo é só
+uma otimização de ruído de contexto (evita reprocessar artefatos de build já cobertos por
+`.gitignore`), *opt-in*, **sem nenhum efeito de confidencialidade** — um arquivo fora do
+`.agentryignore` continua acessível ao agente esteja `context.gitignore.enabled` ligado ou
+não. Quem precisa esconder algo do agente usa `.agentryignore`, nunca depende de
+`.gitignore`/`context.gitignore.enabled` para isso.
+
+## O que nenhum dos dois controles cobre
+
+Nem permissões nem `.agentryignore` substituem o controle de rede: uma ferramenta local
+(leitura de arquivo, por exemplo) não passa pelo módulo de transporte nem pela allowlist —
+ver [Modelo de privacidade e egresso](privacidade-e-egresso.md) para o que efetivamente
+controla saída de dados da máquina.
