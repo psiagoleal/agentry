@@ -36,7 +36,7 @@ nesta fase** — decisão explícita das três ADRs (reaproveitam `ignore`/`toki
   (Fase 15).
 - **Depende de:** ADR-0024 · ADR/MT-11 (`trait Tool`).
 
-### MT-64: `InteractivePrompter` (CLI) + registro real
+### MT-64: `InteractivePrompter` (CLI) + registro real ✅ concluído
 - **Objetivo:** `crates/cli/src/tool_executor.rs` ganha `InteractivePrompter` implementando
   `Prompter` (imprime a pergunta e, se houver, as sugestões numeradas; lê uma linha de
   `stdin`; devolve o texto como veio — mesmo padrão síncrono de `InteractiveConfirmer`, sem
@@ -50,6 +50,13 @@ nesta fase** — decisão explícita das três ADRs (reaproveitam `ignore`/`toki
   formatação da pergunta/sugestões (sem depender de `stdin` real em CI, mesmo padrão de
   `InteractiveConfirmer`, que também não tem teste automatizado de E/S real).
 - **Depende de:** MT-63.
+- **Nota de implementação:** o smoke-test de indução via linguagem natural reproduziu a mesma
+  limitação já registrada no MT-61 — o modelo local disponível (`llama3.1:8b`) não emitiu uma
+  *tool-call* real para `ask_user`, respondendo em texto solto em vez de rodar a tool. Não é
+  regressão desta ticket (o mesmo já foi observado com `fs_read`, tool madura); a correção do
+  `InteractivePrompter` fica coberta por ser estruturalmente idêntica ao
+  `InteractiveConfirmer` (mesmo padrão `std::io::stdin().read_line()`, já em produção desde o
+  MT-14) somada aos 5 testes de `AskUserTool` no core (MT-63) + os 2 novos de formatação aqui.
 
 ### MT-65: Tool `WebFetch` + coringa `"*"` na `Allowlist`
 - **Objetivo:** `crates/core/src/egress/allowlist.rs`: `AllowlistEntry::matches` reconhece o

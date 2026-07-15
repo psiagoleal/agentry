@@ -9,7 +9,7 @@
 
 - **Data:** 2026-07-15
 - **Branch:** `main`
-- **Commit:** `721b2bd`
+- **Commit:** `ebfdb5d`
 - **Fase:** Roadmap v0.1..v0.4 **fechados/imutáveis**; **Fase 10 concluída** (LiteLLM).
   **Execução autônoma em andamento** (`/loop /implementar-roadmap`, modelo Sonnet 5) — ver
   `docs/decisoes-autonomas.md` para decisões tomadas sozinho (**2 decisões registradas**:
@@ -21,11 +21,11 @@
   `docs/roadmap-v0.7.md`, MT-59..62) — memória de projeto (`AGENTS.md`/`CLAUDE.md`) e skills
   (*progressive disclosure* completo, descoberta + tool `skill`); **ADR-0003 também promovida a
   `Accepted`** (objetivo original — consumo de artefatos do `profiles` — cumprido). **Fase 14
-  em andamento** (ADR-0024/0025/0026 `Proposed`, `docs/roadmap-v0.8.md`) — **MT-63 concluído**
-  (`trait Prompter` + `AskUserTool` no core); MT-64..69 pendentes. **Fases 15–17+** (mapa/stubs,
-  ADR 0027/0028 reservadas) ainda não iniciadas. **Housekeeping:** ADR-0020/0021/0022
-  promovidas de `Proposed` para `Accepted` (suas fases já concluídas há várias iterações;
-  status ficou desatualizado).
+  em andamento** (ADR-0024/0025/0026 `Proposed`, `docs/roadmap-v0.8.md`) — **MT-63/64
+  concluídos** (`AskUser` completo: `trait Prompter` + `AskUserTool` no core + `InteractivePrompter`
+  real na CLI); MT-65..69 pendentes. **Fases 15–17+** (mapa/stubs, ADR 0027/0028 reservadas)
+  ainda não iniciadas. **Housekeeping:** ADR-0020/0021/0022 promovidas de `Proposed` para
+  `Accepted` (suas fases já concluídas há várias iterações; status ficou desatualizado).
 
 ## Metas cumpridas / Em andamento / Próximo passo
 
@@ -793,11 +793,23 @@
   limpos, `cargo build --release` verde. Nenhuma dependência nova; sem mudança de
   comportamento observável da CLI ainda.
 
+- [x] **MT-64** — `crates/cli/src/tool_executor.rs`: `InteractivePrompter` implementa
+  `Prompter` (imprime a pergunta + sugestões numeradas via `formata_pergunta`, testável sem
+  I/O real; lê uma linha de `stdin`, sem *parsing*/validação — mesmo padrão de
+  `InteractiveConfirmer`). `crates/cli/src/main.rs` registra
+  `AskUserTool::new(Arc::new(InteractivePrompter))` no `ToolRegistry`, junto das demais tools
+  sempre ativas. 2 testes novos, 45 testes na CLI (43+2) + 317 no core, fmt/clippy limpos,
+  `cargo build --release` verde. Smoke-test manual reproduziu a mesma limitação do MT-61 —
+  modelo local não emitiu uma *tool-call* real para `ask_user` (não é regressão desta ticket);
+  correção coberta pela equivalência estrutural com `InteractiveConfirmer` (já em produção
+  desde o MT-14) + os testes de `AskUserTool`/formatação. Nenhuma dependência nova.
+  **Fecha a trilha `AskUser` (MT-63/64, ADR-0024).**
+
 **Em andamento:** nada pendente no turno.
 
-**Próximo passo:** **MT-64** (`docs/roadmap-v0.8.md`, `crates/cli/src/tool_executor.rs`,
-`crates/cli/src/main.rs`) — `InteractivePrompter` (lê `stdin`, mesmo padrão síncrono de
-`InteractiveConfirmer`) + registro real de `AskUserTool` no `ToolRegistry`. As Fases 15–17+
+**Próximo passo:** **MT-65** (`docs/roadmap-v0.8.md`, `crates/core/src/egress/allowlist.rs`,
+`crates/core/src/tools/web_fetch.rs` novo) — tool `WebFetch` + coringa `"*"` na `Allowlist`,
+liberado só sob `EgressClass::CloudOk` e `tools.webFetch.enabled` (*opt-in*). As Fases 15–17+
 seguem só como mapa. Outros itens em aberto, sem
 ticket: deploy do site MkDocs (GitHub Pages) — decisão explícita do usuário de
 não fazer ainda; CI multi-SO ainda não observado verde (falta um push que dispare a matriz);
@@ -822,6 +834,7 @@ pendentes de validação de implementação).
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-15 | `ebfdb5d` | MT-64: InteractivePrompter + registro real da tool ask_user (ADR-0024) | MT-64 |
 | 2026-07-15 | `721b2bd` | MT-63: trait Prompter + tool ask_user no core (ADR-0024) | MT-63 |
 | 2026-07-15 | `a0da724` | ADR-0024/0025/0026: tools essenciais (AskUser, web/SearXNG, Glob+shell background); prepara a Fase 14 | — |
 | 2026-07-15 | `24f2bdd` | MT-62: documentação AGENTS.md/skills; ADR-0003/0023 -> Accepted (fecha a Fase 13) | MT-62 |
