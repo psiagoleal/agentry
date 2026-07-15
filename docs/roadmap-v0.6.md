@@ -22,32 +22,39 @@ nesta fase — só camada de configuração sobre o `Router` já existente.
 
 ## Fase 12 — Configuração completa e autoexplicativa (ADR-0021, ADR-0022)
 
-### MT-55: `TaskClassSettings` — schema de task-class em `Config`
+### MT-55: `TaskClassSettings` — schema de task-class em `Config` ✅ concluído
 - **Objetivo:** `Settings` (`crates/core/src/config/mod.rs`) ganha um bloco `taskClasses`
   (mapa `nome → { candidates: [{ provider, model, egressClass }], preset: { temperature,
   topP, maxTokens, systemPrompt, reasoning } }`), com `merged_over` por nome de task-class
   (candidato/preset da camada mais específica vence, egresso **nunca afrouxa** — mesma
   disciplina de `Permissions::union`/MT-44). `Config::resolve` expõe as task-classes
   resolvidas como `RouteEntry` prontos (reaproveita `RouteEntry`/`RouteTarget`/`CallPreset`
-  do `Router`, ADR-0008/0014 — **sem tipo novo de roteamento**). **Defaults sintetizados:**
-  quando `taskClasses` não declara `chat`/`compact`/`guardrail-compliance`, o `Config`
-  sintetiza os defaults internos hoje hardcoded, para zero-config idêntico e para `/compact`/
-  Reviewer terem rota.
+  do `Router`, ADR-0008/0014 — **sem tipo novo de roteamento**).
+  **Desvio registrado (decisão autônoma):** `Config` **não** sintetiza os defaults
+  `chat`/`compact`/`guardrail-compliance` — ausência do bloco resolve em mapa vazio. A síntese
+  de defaults concretos (que exige conhecer `"ollama"` como provider de produto) fica a cargo
+  da CLI (MT-56), preservando a fronteira `core` = domínio / CLI = produto. Justificativa
+  completa em `docs/decisoes-autonomas.md` (entrada MT-55).
 - **Arquivos no escopo:** `crates/core/src/config/mod.rs`.
 - **Critério de aceite:** testes — `taskClasses` completo resolve `RouteEntry` com os
-  candidatos/preset exatos; ausência do bloco sintetiza `chat`/`compact`/
-  `guardrail-compliance` default (zero-config idêntico); task-class declarada sobrescreve o
-  default de mesmo nome; merge por nome adiciona task-class nova sem apagar herdadas; camada
-  mais específica **não** afrouxa a classe de egresso de um candidato.
+  candidatos/preset exatos; ausência do bloco resolve em mapa **vazio** (sem síntese — desvio
+  acima); task-class declarada sobrescreve o default de mesmo nome; merge por nome adiciona
+  task-class nova sem apagar herdadas; camada mais específica **não** afrouxa a classe de
+  egresso de um candidato.
 - **Fora de escopo:** consumo pela CLI (MT-56); flag `--task-class` (MT-56); exemplo gerado
-  (MT-57).
+  (MT-57); síntese de defaults concretos de provider/modelo (deferida ao MT-56, ver desvio
+  acima).
 - **Depende de:** ADR-0021 · ADR-0008/0014 (tipos do Router) · ADR-0018 (padrão de schema).
 
 ### MT-56: CLI consome task-classes reais + flag `--task-class`/comando `/task-class`
 - **Objetivo:** `crates/cli/src/main.rs`/`repl.rs` param de hardcodar `set_chat_route`:
   montam o `Router` a partir das task-classes resolvidas (MT-55), registrando **todas** as
   rotas declaradas — inclusive `compact`/`guardrail-compliance`, que passam a ter rota de
-  fato (hoje `/compact` e o Reviewer não são configurados na CLI real). Nova flag
+  fato (hoje `/compact` e o Reviewer não são configurados na CLI real). **Síntese de
+  defaults (herdada do desvio do MT-55):** quando `cfg.task_classes` resolvido não declara
+  `chat`/`compact`/`guardrail-compliance`, a CLI sintetiza aqui os defaults concretos hoje
+  hardcoded em `set_chat_route` (Ollama, `local-only`), para zero-config idêntico ao
+  comportamento atual — a CLI é o lugar certo por já hardcodar esse provider hoje. Nova flag
   `--task-class <nome>` (one-shot) e comando `/task-class <nome>` (REPL) escolhem entre as
   task-classes **declaradas** para a invocação (mesmo padrão vetado de `--provider`/`--model`,
   ADR-0014; `chat` é o default de usuário).

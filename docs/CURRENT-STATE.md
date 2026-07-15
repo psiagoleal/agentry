@@ -9,13 +9,15 @@
 
 - **Data:** 2026-07-15
 - **Branch:** `main`
-- **Commit:** `a13eb98`
+- **Commit:** `8f0ba55`
 - **Fase:** Roadmap v0.1..v0.4 **fechados/imutáveis**; **Fase 10 concluída** (LiteLLM).
   **Execução autônoma em andamento** (`/loop /implementar-roadmap`, modelo Sonnet 5) — ver
-  `docs/decisoes-autonomas.md` para decisões tomadas sozinho (vazio até agora). **Fase 11
-  concluída inteira** (ADR-0020, `.agentryignore`, MT-52..54, `roadmap-v0.5.md`). **Fase 12**
-  (ADR-0021/0022, config de task-class, `roadmap-v0.6.md`,
-  MT-55..58) e **Fases 13–17+** (mapa/stubs, ADR 0023–0028 reservadas) ainda não iniciadas.
+  `docs/decisoes-autonomas.md` para decisões tomadas sozinho (**1 decisão registrada**: MT-55,
+  síntese de defaults de task-class deferida à CLI). **Fase 11 concluída inteira** (ADR-0020,
+  `.agentryignore`, MT-52..54, `roadmap-v0.5.md`). **Fase 12** (ADR-0021/0022, config de
+  task-class, `roadmap-v0.6.md`) — **MT-55 concluído** (schema `taskClasses` em `Config`);
+  MT-56..58 pendentes. **Fases 13–17+** (mapa/stubs, ADR 0023–0028 reservadas) ainda não
+  iniciadas.
 
 ## Metas cumpridas / Em andamento / Próximo passo
 
@@ -616,12 +618,33 @@
   validado (`json.loads`). **Fecha a Fase 11 inteira** (MT-52..54) — roadmap marcado
   concluído (`a13eb98`).
 
+- [x] **MT-55** — `crates/core/src/config/mod.rs`: bloco `taskClasses` (mapa `nome →
+  { candidates: [{ provider, model, egressClass }], preset: { temperature, topP, maxTokens,
+  systemPrompt, reasoning } }`) via `TaskClassCandidateSettings`/`TaskClassPresetSettings`/
+  `TaskClassSettings`, com `merged_over` por nome (`merge_task_classes`/
+  `merge_candidatos_de_task_class` — candidato mais específico vence por par
+  `(provider, model)`, egresso **nunca afrouxa**, mesma disciplina de `Permissions::union`).
+  `Config::resolve` expõe `task_classes: HashMap<String, RouteEntry>`, reaproveitando
+  `RouteEntry`/`RouteTarget`/`CallPreset` do `Router` (ADR-0008/0014) — sem tipo novo de
+  roteamento. **Desvio do texto original do ticket, registrado em
+  `docs/decisoes-autonomas.md`:** `Config` não sintetiza os defaults `chat`/`compact`/
+  `guardrail-compliance` quando ausentes — ausência resolve em mapa vazio; a síntese de
+  defaults concretos de provider/modelo (que exigiria `crates/core` conhecer `"ollama"` como
+  escolha de produto) fica deferida à CLI, MT-56, que já é o ponto que hoje hardcoda essa
+  escolha via `set_chat_route`. 5 testes novos (schema completo resolve `RouteEntry` exato;
+  ausência resolve mapa vazio; camada mais específica sobrescreve preset por nome; merge por
+  nome soma task-class nova sem apagar herdada; mesmo candidato em duas camadas nunca afrouxa
+  a classe de egresso, nas duas ordens), 287 testes na lib do core (282+5) + 4 de integração +
+  36 na CLI, fmt/clippy limpos, `cargo build --release` verde. Nenhuma dependência nova.
+
 **Em andamento:** nada pendente no turno.
 
-**Próximo passo:** **Fase 12** (`docs/roadmap-v0.6.md`, MT-55 — `TaskClassSettings` em
-`crates/core/src/config/mod.rs`, ADR-0021/0022) — config de task-class completa, o tema mais
-enfatizado pelo usuário no planejamento original. As Fases 13–17+ só como mapa; cada uma
-escreve sua ADR ao iniciar (subprocedimento do comando de loop). Outros itens em aberto, sem
+**Próximo passo:** **MT-56** (`docs/roadmap-v0.6.md`, `crates/cli/src/main.rs`/`repl.rs`) —
+CLI para de hardcodar `set_chat_route` e monta o `Router` a partir das task-classes resolvidas
+(MT-55); passa a sintetizar aqui os defaults `chat`/`compact`/`guardrail-compliance` (herdando
+essa responsabilidade do desvio registrado no MT-55); nova flag `--task-class`/comando
+`/task-class`. As Fases 13–17+ só como mapa; cada uma escreve sua ADR ao iniciar
+(subprocedimento do comando de loop). Outros itens em aberto, sem
 ticket: deploy do site MkDocs (GitHub Pages) — decisão explícita do usuário de
 não fazer ainda; CI multi-SO ainda não observado verde (falta um push que dispare a matriz);
 backlog independente do `ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de
@@ -645,6 +668,7 @@ pendentes de validação de implementação).
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-15 | `8f0ba55` | MT-55: schema taskClasses em Config (ADR-0021) | MT-55 |
 | 2026-07-15 | `a13eb98` | MT-54: documentação do site — context.gitignore + .agentryignore (fecha a Fase 11) | MT-54 |
 | 2026-07-15 | `6151e26` | test: cobre o schema context.gitignore em config/mod.rs (MT-53) | MT-53 |
 | 2026-07-15 | `3bbd934` | MT-53: respeito opcional a .gitignore (ADR-0020 §3) | MT-53 |
