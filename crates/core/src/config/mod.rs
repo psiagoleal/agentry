@@ -735,6 +735,24 @@ mod tests {
     }
 
     #[test]
+    fn ausencia_de_context_gitignore_resolve_false_ador_0020_opt_in() {
+        // Diferente das outras flags de context.* (default true): respeitar
+        // .gitignore é opt-in — ausência nunca muda o comportamento de quem
+        // não configurou nada (MT-53).
+        let cfg = Config::resolve(vec![Settings::default()]);
+        assert!(!cfg.respect_gitignore);
+    }
+
+    #[test]
+    fn context_gitignore_enabled_true_resolve_respect_gitignore_true() {
+        let camada =
+            Settings::from_json_str(r#"{ "context": { "gitignore": { "enabled": true } } }"#)
+                .expect("JSON válido");
+        let cfg = Config::resolve(vec![camada]);
+        assert!(cfg.respect_gitignore);
+    }
+
+    #[test]
     fn env_sobrescreve_o_arquivo_quando_ambos_definem_o_mesmo_campo() {
         let arquivo = Settings::from_json_str(
             r#"{ "context": { "semanticRag": { "enabled": true } }, "providers": { "ollama": { "structuredOutput": true } } }"#,
