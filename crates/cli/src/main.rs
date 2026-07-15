@@ -114,15 +114,16 @@ const GENERIC_SETTINGS_EXAMPLE: &str = r#"{
   "model": null,
   "max_tokens": null,
   "permissions": {
-    "_comentario": "deny: nomes de tool sempre bloqueados. ask: nomes de tool que pedem confirmação antes de rodar. Fora das duas listas, a tool roda sem perguntar (exceto a tool de shell, bloqueada por padrão nesta CLI).",
+    "_comentario": "deny: nomes de tool sempre bloqueados. ask: nomes de tool que pedem confirmação antes de rodar. Fora das duas listas, a tool roda sem perguntar (exceto a tool de shell, bloqueada por padrão nesta CLI). Vazio por padrão — nenhum nome extra bloqueado/perguntado. Exemplo (não aplicado, só ilustrativo): \"deny\": [\"shell\"] bloquearia a tool de shell mesmo numa build futura sem o default-deny atual; \"ask\": [\"fs_write\"] pediria confirmação antes de qualquer escrita.",
     "deny": [],
     "ask": []
   },
   "context": {
-    "_comentario": "As três capacidades de contexto do agente — todas ligadas por padrão.",
+    "_comentario": "repoMap/semanticRag/lspGrounding: as três capacidades de contexto do agente, ligadas por padrão. gitignore.enabled: opcional (default false, diferente das outras três) — quando ligado, o agente também respeita o .gitignore do projeto (em união com .agentryignore, nunca em substituição) para reduzir ruído de contexto; não tem efeito de confidencialidade, quem precisa esconder algo do agente usa .agentryignore.",
     "repoMap": { "enabled": true },
     "semanticRag": { "enabled": true },
-    "lspGrounding": { "enabled": true }
+    "lspGrounding": { "enabled": true },
+    "gitignore": { "enabled": false }
   },
   "providers": {
     "_comentario": "Ollama (local) é o provider padrão desta CLI. litellm é opcional — preencha baseUrl e model no bloco abaixo para ativar um gateway LiteLLM (ex.: corporativo) como segundo provider, selecionável via --provider litellm / comando /provider.",
@@ -135,9 +136,30 @@ const GENERIC_SETTINGS_EXAMPLE: &str = r#"{
     }
   },
   "guardrails": {
-    "_comentario": "Regras de bloqueio/mascaramento de conteúdo, verificadas antes (input) e depois (output) de cada chamada ao modelo. Cada regra tem id (identificador único), match (texto a procurar, sem diferenciar maiúsculas/minúsculas) e action (block ou redact). Guia: docs/usuario/guardrails.md.",
+    "_comentario": "Regras de bloqueio/mascaramento de conteúdo, verificadas antes (input) e depois (output) de cada chamada ao modelo. Cada regra tem id (identificador único), match (texto a procurar, sem diferenciar maiúsculas/minúsculas) e action (block ou redact). Vazio por padrão — nenhuma regra ativa. Exemplos para copiar em input/output (não aplicados aqui): {\"id\": \"bloqueia-senha\", \"match\": \"senha:\", \"action\": \"block\"} bloqueia uma entrada que cole uma credencial; {\"id\": \"mascara-segredo\", \"match\": \"segredo-abc\", \"action\": \"redact\"} mascara uma saída que ecoe um segredo conhecido. Guia: docs/usuario/guardrails.md.",
     "input": [],
     "output": []
+  },
+  "taskClasses": {
+    "chat": {
+      "_comentario": "Roteamento por task-class (ADR-0021): cada nome mapeia para uma lista ordenada de candidatos (provider/model/egressClass) + um preset de parâmetros — o Router usa o primeiro candidato cuja egressClass é permitida e cujo provider está registrado. Esta ('chat') é a task-class default, usada quando nenhuma outra é escolhida via --task-class/`/task-class` — mesmos provider/modelo/egressClass do comportamento zero-config (sem este bloco); sobrescreva livremente, outras camadas de configuração nunca afrouxam a egressClass declarada aqui. 'compact' (/compact) e 'guardrail-compliance' (Reviewer) são sintetizadas automaticamente com Ollama/local-only quando ausentes deste bloco. Nomes extras (como os dois exemplos abaixo) ficam inertes até serem escolhidos explicitamente via --task-class/`/task-class`. Guia: docs/usuario/configuracao.md.",
+      "candidates": [
+        { "provider": "ollama", "model": "llama3.1:8b", "egressClass": "local-only" }
+      ]
+    },
+    "revisao-em-nuvem": {
+      "_comentario": "Exemplo de task-class opcional para tarefas que podem sair da máquina: aponta para o gateway LiteLLM (preencha providers.litellm acima para o candidato ficar de fato disponível) com egressClass cloud-ok. Use via --task-class revisao-em-nuvem ou /task-class revisao-em-nuvem.",
+      "candidates": [
+        { "provider": "litellm", "model": "modelo-30b-do-seu-gateway", "egressClass": "cloud-ok" }
+      ],
+      "preset": { "temperature": 0.2 }
+    },
+    "dados-sensiveis": {
+      "_comentario": "Exemplo de task-class que nunca deve sair da máquina, mesmo com providers.litellm configurado: só declara o candidato Ollama, então local-only é garantido pela ausência de qualquer candidato de nuvem, não só pela egressClass.",
+      "candidates": [
+        { "provider": "ollama", "model": "llama3.1:8b", "egressClass": "local-only" }
+      ]
+    }
   }
 }
 "#;
@@ -763,6 +785,37 @@ mod tests {
         assert!(cfg.semantic_rag_enabled);
         assert!(cfg.lsp_grounding_enabled);
         assert!(cfg.ollama_structured_output);
+
+        // MT-57: `context.gitignore.enabled` explícito em `false` preserva o
+        // default opt-in (ADR-0020 §3) — não liga nada sozinho.
+        assert!(!cfg.respect_gitignore);
+
+        // MT-57: `taskClasses` do exemplo — `chat` resolve para exatamente o
+        // mesmo par (Ollama, DEFAULT_MODEL, local-only) do comportamento
+        // zero-config (sem `taskClasses` no arquivo, sintetizado pela CLI em
+        // `register_declared_task_classes`), então declará-lo aqui não muda
+        // nada observável. Os dois exemplos extras (`revisao-em-nuvem`,
+        // `dados-sensiveis`) ficam presentes no mapa resolvido, mas isso não
+        // "ativa" nada indevido — nenhum candidato é escolhido a menos que
+        // alguém peça `--task-class`/`/task-class` explicitamente.
+        assert_eq!(cfg.task_classes.len(), 3);
+        let chat = cfg
+            .task_classes
+            .get("chat")
+            .expect("'chat' deve estar declarada no exemplo");
+        assert_eq!(chat.candidates.len(), 1);
+        assert_eq!(chat.candidates[0].provider, "ollama");
+        assert_eq!(chat.candidates[0].model, DEFAULT_MODEL);
+        assert_eq!(
+            chat.candidates[0].egress_class,
+            agentry_core::config::privacy::EgressClass::LocalOnly
+        );
+        assert!(cfg.task_classes.contains_key("revisao-em-nuvem"));
+        assert!(cfg.task_classes.contains_key("dados-sensiveis"));
+        // 'compact'/'guardrail-compliance' não aparecem no exemplo — quem as
+        // sintetiza é `register_declared_task_classes` (MT-56), não `Config`.
+        assert!(!cfg.task_classes.contains_key("compact"));
+        assert!(!cfg.task_classes.contains_key("guardrail-compliance"));
     }
 
     #[test]
