@@ -9,7 +9,7 @@
 
 - **Data:** 2026-07-15
 - **Branch:** `main`
-- **Commit:** `24f2bdd`
+- **Commit:** `a0da724`
 - **Fase:** Roadmap v0.1..v0.4 **fechados/imutáveis**; **Fase 10 concluída** (LiteLLM).
   **Execução autônoma em andamento** (`/loop /implementar-roadmap`, modelo Sonnet 5) — ver
   `docs/decisoes-autonomas.md` para decisões tomadas sozinho (**2 decisões registradas**:
@@ -20,10 +20,11 @@
   pelo usuário no planejamento original. **Fase 13 concluída inteira** (ADR-0023 `Accepted`,
   `docs/roadmap-v0.7.md`, MT-59..62) — memória de projeto (`AGENTS.md`/`CLAUDE.md`) e skills
   (*progressive disclosure* completo, descoberta + tool `skill`); **ADR-0003 também promovida a
-  `Accepted`** (objetivo original — consumo de artefatos do `profiles` — cumprido). **Fase 14**
-  (Tools essenciais: AskUser/web-SearXNG/Glob, ADR-0024/0025/0026) é a próxima, **sem tickets
-  detalhados ainda** — próxima iteração deve prepará-la primeiro. **Fases 15–17+** (mapa/stubs,
-  ADR 0027/0028 reservadas) ainda não iniciadas. **Housekeeping:** ADR-0020/0021/0022 promovidas
+  `Accepted`** (objetivo original — consumo de artefatos do `profiles` — cumprido). **Fase 14
+  preparada** (ADR-0024/0025/0026 escritas, `Proposed`; micro-tickets detalhados em
+  `docs/roadmap-v0.8.md`, MT-63..69) — pronta para começar a implementação a partir do MT-63;
+  nenhuma dependência nova proposta em nenhuma das três ADRs. **Fases 15–17+** (mapa/stubs, ADR
+  0027/0028 reservadas) ainda não iniciadas. **Housekeeping:** ADR-0020/0021/0022 promovidas
   de `Proposed` para `Accepted` (suas fases já concluídas há várias iterações; status ficou
   desatualizado).
 
@@ -769,14 +770,25 @@
   próprio `mkdocs build --strict`, corrigido nos 2 *cross-links* que usavam. Nenhuma mudança
   de código. **Fecha a Fase 13 inteira (MT-59..62).**
 
+- [x] **Preparação da Fase 14** — ADR-0024 (`Proposed`) decide: `trait Prompter` no `core`
+  (padrão `AuditSink`, não `Confirmer`), `AskUserTool` mínima (texto livre + sugestões).
+  ADR-0025 (`Proposed`) decide: coringa `"*"` novo na `Allowlist` para `WebFetch` (host
+  arbitrário), liberado só sob `EgressClass::CloudOk` **e** `tools.webFetch.enabled` (*opt-in*
+  explícito, *default* `false`); `WebSearch` via SearXNG usa o modelo de allowlist já
+  existente (host único); anonimato como requisito de código (sem cookies, `User-Agent`
+  genérico, sem `Referer`); HTML→Markdown fora de escopo (dependência nova, registrada para
+  não ser decidida silenciosamente depois). ADR-0026 (`Proposed`) decide: `Glob` via
+  `ignore::overrides` (zero dependência nova); shell em background como extensão de
+  `ShellPolicy`/MT-13, nunca uma política paralela. `docs/roadmap-v0.8.md` detalha os 7
+  tickets (MT-63..69), 4 trilhas independentes (AskUser, web, glob, shell background)
+  convergindo em MT-69 (documentação). Nenhuma dependência nova proposta — nenhum gatilho de
+  parada dura acionado. `mkdocs build --strict` limpo. Nenhuma mudança de código.
+
 **Em andamento:** nada pendente no turno.
 
-**Próximo passo:** **Preparar a Fase 14** (`docs/roadmap-longo-prazo.md` — Tools essenciais:
-tool AskUser, ADR-0024; web tools/SearXNG configurável, ADR-0025; Glob + shell em background,
-ADR-0026) — fase ainda **sem tickets detalhados**; a próxima iteração do loop deve escrever as
-três ADRs completas, quebrar em micro-tickets num novo `docs/roadmap-v0.8.md`, atualizar
-`docs/adr/README.md` e a `nav` do `mkdocs.yml`, só então implementar. As Fases 15–17+ seguem
-só como mapa. Outros itens em aberto, sem
+**Próximo passo:** **MT-63** (`docs/roadmap-v0.8.md`, `crates/core/src/tools/ask_user.rs`
+novo) — `trait Prompter` + `AskUserTool` no core, primeiro ticket da Fase 14. As Fases 15–17+
+seguem só como mapa. Outros itens em aberto, sem
 ticket: deploy do site MkDocs (GitHub Pages) — decisão explícita do usuário de
 não fazer ainda; CI multi-SO ainda não observado verde (falta um push que dispare a matriz);
 backlog independente do `ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de
@@ -800,6 +812,7 @@ pendentes de validação de implementação).
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-15 | `a0da724` | ADR-0024/0025/0026: tools essenciais (AskUser, web/SearXNG, Glob+shell background); prepara a Fase 14 | — |
 | 2026-07-15 | `24f2bdd` | MT-62: documentação AGENTS.md/skills; ADR-0003/0023 -> Accepted (fecha a Fase 13) | MT-62 |
 | 2026-07-15 | `38f8bcb` | MT-61: tool skill — carrega o corpo completo sob demanda (ADR-0023) | MT-61 |
 | 2026-07-15 | `af2c3d8` | MT-60: descoberta de SKILL.md + lista compacta no system prompt (ADR-0023) | MT-60 |
