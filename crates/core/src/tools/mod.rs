@@ -11,6 +11,7 @@
 //! devolvendo a [`ToolCall`] pendente; quem interage com o usuário (a
 //! CLI, MT-14) decide o que fazer com esse sinal.
 
+pub mod ask_user;
 pub mod code_search;
 pub mod fs;
 pub mod lsp;
