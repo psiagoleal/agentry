@@ -46,7 +46,7 @@ nesta fase — só camada de configuração sobre o `Router` já existente.
   acima).
 - **Depende de:** ADR-0021 · ADR-0008/0014 (tipos do Router) · ADR-0018 (padrão de schema).
 
-### MT-56: CLI consome task-classes reais + flag `--task-class`/comando `/task-class`
+### MT-56: CLI consome task-classes reais + flag `--task-class`/comando `/task-class` ✅ concluído
 - **Objetivo:** `crates/cli/src/main.rs`/`repl.rs` param de hardcodar `set_chat_route`:
   montam o `Router` a partir das task-classes resolvidas (MT-55), registrando **todas** as
   rotas declaradas — inclusive `compact`/`guardrail-compliance`, que passam a ter rota de
@@ -67,6 +67,13 @@ nesta fase — só camada de configuração sobre o `Router` já existente.
   tratado de `Router::resolve_with_override` (reaproveitado, sem *panic*).
 - **Fora de escopo:** exemplo gerado por `--init` (MT-57); UI de configuração interativa.
 - **Depende de:** MT-55.
+- **Nota de implementação:** `/model` continua redeclarando especificamente a task-class
+  `chat` (comportamento pré-existente, documentado explicitamente no código) —
+  independentemente de qual task-class está ativa via `/task-class`. Generalizar `/model`
+  para redeclarar a task-class ativa exigiria assumir Ollama como provider também para
+  task-classes customizadas (que podem apontar só para LiteLLM, por exemplo), o que
+  contrariaria a config declarada pelo usuário; deixado fora de escopo desta ticket (UI de
+  configuração interativa já estava explicitamente fora de escopo).
 
 ### MT-57: Exemplo `--init` enriquecido — convenção autoexplicativa (ADR-0022)
 - **Objetivo:** `GENERIC_SETTINGS_EXAMPLE` (`crates/cli/src/main.rs`) ganha o bloco

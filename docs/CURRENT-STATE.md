@@ -9,15 +9,15 @@
 
 - **Data:** 2026-07-15
 - **Branch:** `main`
-- **Commit:** `8f0ba55`
+- **Commit:** `45d56db`
 - **Fase:** Roadmap v0.1..v0.4 **fechados/imutáveis**; **Fase 10 concluída** (LiteLLM).
   **Execução autônoma em andamento** (`/loop /implementar-roadmap`, modelo Sonnet 5) — ver
   `docs/decisoes-autonomas.md` para decisões tomadas sozinho (**1 decisão registrada**: MT-55,
   síntese de defaults de task-class deferida à CLI). **Fase 11 concluída inteira** (ADR-0020,
   `.agentryignore`, MT-52..54, `roadmap-v0.5.md`). **Fase 12** (ADR-0021/0022, config de
-  task-class, `roadmap-v0.6.md`) — **MT-55 concluído** (schema `taskClasses` em `Config`);
-  MT-56..58 pendentes. **Fases 13–17+** (mapa/stubs, ADR 0023–0028 reservadas) ainda não
-  iniciadas.
+  task-class, `roadmap-v0.6.md`) — **MT-55/MT-56 concluídos** (schema `taskClasses` em
+  `Config`; CLI consome de fato + `--task-class`/`/task-class`); MT-57/58 pendentes. **Fases
+  13–17+** (mapa/stubs, ADR 0023–0028 reservadas) ainda não iniciadas.
 
 ## Metas cumpridas / Em andamento / Próximo passo
 
@@ -637,13 +637,30 @@
   a classe de egresso, nas duas ordens), 287 testes na lib do core (282+5) + 4 de integração +
   36 na CLI, fmt/clippy limpos, `cargo build --release` verde. Nenhuma dependência nova.
 
+- [x] **MT-56** — `crates/cli/src/main.rs`/`repl.rs`: `register_declared_task_classes`
+  (main.rs) registra no `Router` toda task-class declarada em `cfg.task_classes` (MT-55) e
+  sintetiza os defaults `compact`/`guardrail-compliance` quando ausentes (Ollama
+  `local-only` + preset default) — responsabilidade herdada do desvio do MT-55; `chat`
+  continua sintetizada por `repl::set_chat_route` (chamada antes, para que uma task-class
+  `chat` declarada no arquivo possa sobrescrevê-la depois). Nova flag `--task-class <nome>`
+  (one-shot) e comando `/task-class <nome>` (REPL) escolhem entre as task-classes já
+  registradas para a invocação — mesmo padrão vetado de `--provider`/`--model` (ADR-0014):
+  nunca introduz um alvo não declarado, nome desconhecido/candidato indisponível é o mesmo
+  erro tratado de `Router::resolve_with_override`, sem *panic*. `/model` continua
+  redeclarando especificamente `chat` (documentado, decisão de escopo — não um desvio: evita
+  assumir Ollama como provider de uma task-class customizada que pode apontar só para
+  LiteLLM). `/compact` (ADR-0016) e o Reviewer (ADR-0015) passam a ter rota real na CLI
+  distribuída pela primeira vez. 7 testes novos (4 em `main.rs`, 3 em `repl.rs`), 43 testes na
+  CLI (36+7) + 287 no core, fmt/clippy limpos, `cargo build --release` verde. Smoke-test
+  manual contra Ollama real confirma `--task-class`/`/task-class` ponta a ponta (config
+  custom → resposta real do modelo, nos dois modos). Nenhuma dependência nova.
+
 **Em andamento:** nada pendente no turno.
 
-**Próximo passo:** **MT-56** (`docs/roadmap-v0.6.md`, `crates/cli/src/main.rs`/`repl.rs`) —
-CLI para de hardcodar `set_chat_route` e monta o `Router` a partir das task-classes resolvidas
-(MT-55); passa a sintetizar aqui os defaults `chat`/`compact`/`guardrail-compliance` (herdando
-essa responsabilidade do desvio registrado no MT-55); nova flag `--task-class`/comando
-`/task-class`. As Fases 13–17+ só como mapa; cada uma escreve sua ADR ao iniciar
+**Próximo passo:** **MT-57** (`docs/roadmap-v0.6.md`, `crates/cli/src/main.rs`) — exemplo
+gerado por `--init` (`GENERIC_SETTINGS_EXAMPLE`) ganha o bloco `taskClasses` com a task-class
+`chat` default mais exemplos comentados de alternativas (ADR-0022); `guardrails` ganha regras
+de exemplo comentadas. As Fases 13–17+ só como mapa; cada uma escreve sua ADR ao iniciar
 (subprocedimento do comando de loop). Outros itens em aberto, sem
 ticket: deploy do site MkDocs (GitHub Pages) — decisão explícita do usuário de
 não fazer ainda; CI multi-SO ainda não observado verde (falta um push que dispare a matriz);
@@ -668,6 +685,7 @@ pendentes de validação de implementação).
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-15 | `45d56db` | MT-56: CLI consome task-classes reais + --task-class/`/task-class` (ADR-0021) | MT-56 |
 | 2026-07-15 | `8f0ba55` | MT-55: schema taskClasses em Config (ADR-0021) | MT-55 |
 | 2026-07-15 | `a13eb98` | MT-54: documentação do site — context.gitignore + .agentryignore (fecha a Fase 11) | MT-54 |
 | 2026-07-15 | `6151e26` | test: cobre o schema context.gitignore em config/mod.rs (MT-53) | MT-53 |
