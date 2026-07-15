@@ -9,7 +9,7 @@
 
 - **Data:** 2026-07-15
 - **Branch:** `main`
-- **Commit:** `04db36e`
+- **Commit:** `7d3da53`
 - **Fase:** Roadmap v0.1..v0.4 **fechados/imutáveis**; **Fase 10 concluída** (LiteLLM).
   **Execução autônoma em andamento** (`/loop /implementar-roadmap`, modelo Sonnet 5) — ver
   `docs/decisoes-autonomas.md` para decisões tomadas sozinho (**2 decisões registradas**:
@@ -63,6 +63,17 @@
   (2) `StderrAuditSink` (`eprintln!` a cada chamada de rede) corrompia a tela alternativa do
   `crossterm` — `NoopAuditSink` (novo) descarta auditoria só sob `--tui`, preservando stderr
   normal no REPL/one-shot; um *widget* de log fica candidato a ticket futuro (YAGNI).
+
+  **MT-73 concluído** — seletor de modelo/*provider* (`Ctrl+P`) com busca difusa (casamento de
+  subsequência simples, `crates/cli/src/tui/model_picker.rs`, novo — sem dependência nova, mesma
+  disciplina de MT-06/ADR-0007/MT-60). Novo `Router::route_entry` (`crates/core/src/router/mod.rs`)
+  — acessor de leitura direto aos candidatos declarados de uma `task-class`, extensão de escopo
+  registrada em `docs/decisoes-autonomas.md`. `aplicar_selecao` (`tui/mod.rs`) reaproveita
+  `RuntimeOverride`/`Router::resolve_with_override` (mesmo mecanismo do `/model`/`/provider` do
+  REPL) — candidato inexistente nunca é alcançável pela UI, egresso insuficiente continua
+  *fail-closed* (ADR-0002). Smoke-test manual com dois modelos Ollama declarados: `Ctrl+P` abre
+  o modal, filtro em tempo real, `Enter` confirma, `Esc` cancela, mensagem seguinte prova que a
+  rota mudou de verdade (resposta veio do modelo recém-selecionado).
 
 ## Metas cumpridas / Em andamento / Próximo passo
 
@@ -971,15 +982,41 @@
   mensagem enviada, resposta chega incrementalmente sem corromper a tela, scroll responde
   enquanto o modelo ainda está respondendo, `Ctrl+C` sai limpo com código 0.
 
+- [x] **MT-73** — novo `crates/cli/src/tui/model_picker.rs`: `CandidatoExibicao` + `buscar()`
+  (casamento de subsequência simples, sem diferenciar maiúsculas/minúsculas, ordena pelo
+  trecho mais compacto — não uma dependência de *fuzzy-matching*, mesma disciplina de
+  MT-06/ADR-0007/MT-60 contra dependência nova para problema estreito). Novo
+  `Router::route_entry` (`crates/core/src/router/mod.rs`) — acessor de leitura direto aos
+  candidatos declarados de uma `task-class`, extensão do escopo de arquivos do ticket
+  registrada em `docs/decisoes-autonomas.md` (evita duplicar a lógica de merge
+  declarado+sintetizado de `register_declared_task_classes`, MT-56). `keybind.rs` ganha
+  `Action::OpenModelPicker` (`Ctrl+P`) e `Action::Cancel` (`Esc`), reinterpretadas pelo laço de
+  eventos conforme o modo ativo (a presença de `Estado::seletor: Option<...>` já é a fonte de
+  verdade do modo, nenhum campo redundante). `aplicar_selecao` (`tui/mod.rs`) monta o mesmo
+  `RuntimeOverride`/`Router::resolve_with_override` já usados por `/model`/`/provider` do REPL
+  (reaproveitado, não duplicado) — candidato inexistente nunca é alcançável pela UI (a lista só
+  mostra o que `route_entry` devolve); egresso insuficiente continua *fail-closed* (ADR-0002),
+  o seletor nunca contorna a checagem. Modal centralizado (`ratatui::widgets::Clear`) com busca
+  + lista filtrada; erro de resolução aparece no título da lista. 23 testes novos (21 em
+  `crates/cli`, 2 em `crates/core`).
+
+  Smoke-test manual do binário `--release` via `tmux`, dois modelos Ollama declarados
+  (`llama3.1:8b`/`qwen2.5:7b`): `Ctrl+P` abre o modal, digitar filtra em tempo real, `Enter`
+  confirma e fecha, `Esc` cancela sem selecionar, a mensagem seguinte à seleção prova que a
+  rota mudou de verdade (resposta veio do modelo recém-selecionado, "Eu sou Qwen..."). `Ctrl+C`
+  sai limpo com código 0.
+
 **Em andamento:** nada pendente — árvore de trabalho limpa, tudo commitado.
 
-**Próximo passo:** **MT-73** (`docs/roadmap-v0.9.md`, novo
-`crates/cli/src/tui/model_picker.rs`, `crates/cli/src/tui/mod.rs`) — seletor de
-modelo/*provider* com busca difusa sobre os candidatos já declarados na `task-class` ativa
-(`RouteEntry.candidates`) — nunca introduz um candidato novo (mesma disciplina do ADR-0014),
-quarto ticket da Fase 15. Outros itens em aberto, sem ticket: deploy do site MkDocs (GitHub
-Pages) — decisão explícita do usuário de não fazer ainda; CI multi-SO ainda não observado
-verde (falta um push que dispare a matriz); backlog independente do
+**Próximo passo:** **MT-74** (`docs/roadmap-v0.9.md`, `crates/cli/src/tool_executor.rs`, novo
+`crates/cli/src/tui/ask_user.rs`, `crates/cli/src/tui/mod.rs`) — widgets de permissão
+(`TuiConfirmer`, implementa `Confirmer`) e pergunta (`TuiPrompter`, implementa `Prompter`) em
+vez do `print!`/`read_line` síncrono atual (que já sabemos, do achado do MT-72, que briga com o
+modo bruto do terminal); *toggle* `auto`/`normal` **nunca** contorna um `deny` do
+`PermissionGate` — invariante de segurança central do ticket, com teste dedicado nomeado
+explicitamente para ela, quinto ticket da Fase 15. Outros itens em aberto, sem ticket: deploy
+do site MkDocs (GitHub Pages) — decisão explícita do usuário de não fazer ainda; CI multi-SO
+ainda não observado verde (falta um push que dispare a matriz); backlog independente do
 `ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de reanálise de maturidade,
 perfis base+overlay/skills executáveis/config de serviços pendentes de validação de
 implementação).
@@ -1001,6 +1038,7 @@ implementação).
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-15 | `7d3da53` | MT-73: seletor de modelo/provider com busca difusa (Ctrl+P) | MT-73 |
 | 2026-07-15 | `04db36e` | MT-72: view de chat com streaming real (integração com Session/Router) | MT-72 |
 | 2026-07-15 | `fb39a2a` | MT-71: tabela de keybindings (mapa único) + navegação básica | MT-71 |
 | 2026-07-15 | `5b18d80` | MT-70: scaffold ratatui/crossterm + flag --tui + laço de eventos mínimo | MT-70 |

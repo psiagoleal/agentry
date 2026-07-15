@@ -80,7 +80,7 @@ verificação de maturidade completa. Nenhuma outra dependência nova.
   verdade é o próximo ticket); seletor de modelo (MT-73).
 - **Depende de:** MT-71.
 
-### MT-73: Seletor de modelo/*provider* (busca difusa)
+### MT-73: Seletor de modelo/*provider* (busca difusa) ✅ concluído (7d3da53)
 - **Objetivo:** widget de seleção com busca difusa (*fuzzy*) sobre os candidatos já declarados
   na `task-class` ativa (`RouteEntry.candidates`, já resolvido) — evolução do `/model
   <nome>`/`/provider <nome>` de texto exato (MT-14/50). **Nunca** introduz um candidato novo —

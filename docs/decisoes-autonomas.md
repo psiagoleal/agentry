@@ -56,7 +56,7 @@ escolha feita sozinho.
   implementação (disciplina `micro-ticket-planner`) e não antecipa toda necessidade de acessor;
   o ticket permanece de tamanho mínimo (um método getter de poucas linhas + um teste no `core`,
   não uma feature nova).
-- **Commit:** `<preenchido no commit de código do MT-73>`.
+- **Commit:** `7d3da53`.
 
 ### 2026-07-15 — MT-72 (Fase 15, TUI) — auditoria descartada sob `--tui`, não redirecionada para um widget
 - **Contexto:** o smoke-test manual do MT-72 (`agentry --tui`, mensagem real via Ollama)
