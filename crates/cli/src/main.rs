@@ -52,6 +52,7 @@ use agentry_core::tools::repo_map::{register_repo_map_tool, RepoMapTool};
 use agentry_core::tools::shell::{ShellPolicy, ShellTool};
 use agentry_core::tools::skill::SkillTool;
 use agentry_core::tools::web_fetch::{WebFetchTool, WEB_TOOL_USER_AGENT};
+use agentry_core::tools::web_search::WebSearchTool;
 use agentry_core::tools::ToolRegistry;
 use agentry_core::transport::{host_from_url, AuditSink, Transport};
 
@@ -496,6 +497,33 @@ fn build_web_fetch_tool(cfg: &Config) -> Option<WebFetchTool> {
     Some(WebFetchTool::new(Arc::new(transport)))
 }
 
+/// Monta a tool `web_search` (MT-66, ADR-0025) só quando `tools.webSearch.searxngUrl`
+/// está declarado (`cfg.web_search`, `Config::resolve`) — mesmo padrão de
+/// `providers.litellm` (ausência ⇒ não registrada). `Transport` dedicado
+/// (mesmo padrão de [`build_litellm_provider`]) com a `Allowlist` do host
+/// único do endpoint (**sem** o coringa `ANY_HOST` do `web_fetch` — o host
+/// é conhecido) e o `User-Agent` genérico fixo.
+fn build_web_search_tool(cfg: &Config) -> Result<Option<WebSearchTool>, String> {
+    let Some(web_search) = &cfg.web_search else {
+        return Ok(None);
+    };
+
+    let host = host_from_url(&web_search.searxng_url)
+        .map_err(|erro| format!("tools.webSearch.searxngUrl inválida: {erro}"))?;
+    let allowlist = Allowlist::new(vec![AllowlistEntry::new(host, web_search.egress_class)]);
+    let transport = Transport::new(
+        allowlist,
+        cfg.egress_class,
+        cfg.profile.map(|p| format!("{p:?}")),
+        Arc::new(StderrAuditSink),
+    )
+    .with_header("User-Agent", WEB_TOOL_USER_AGENT);
+    Ok(Some(WebSearchTool::new(
+        Arc::new(transport),
+        web_search.searxng_url.clone(),
+    )))
+}
+
 /// Nomes das task-classes internas **auxiliares** — além de `chat`, que já é
 /// sintetizada por [`repl::set_chat_route`] antes desta função rodar (MT-14),
 /// e que continua sem rota real hoje: `compact` (`/compact`, ADR-0016) e
@@ -706,6 +734,14 @@ async fn main() {
     registry.register(Arc::new(AskUserTool::new(Arc::new(InteractivePrompter))));
     if let Some(web_fetch) = build_web_fetch_tool(&cfg) {
         registry.register(Arc::new(web_fetch));
+    }
+    match build_web_search_tool(&cfg) {
+        Ok(Some(web_search)) => registry.register(Arc::new(web_search)),
+        Ok(None) => {}
+        Err(erro) => {
+            eprintln!("erro de configuração: {erro}");
+            std::process::exit(2)
+        }
     }
 
     register_context_tools(
@@ -932,6 +968,7 @@ mod tests {
             litellm: None,
             task_classes: std::collections::HashMap::new(),
             web_fetch_enabled: false,
+            web_search: None,
         }
     }
 
@@ -1414,5 +1451,40 @@ mod tests {
     fn ausencia_de_tools_web_fetch_preserva_comportamento_atual_desabilitada() {
         let cfg = Config::resolve(vec![Settings::default()]);
         assert!(build_web_fetch_tool(&cfg).is_none());
+    }
+
+    // --- MT-66: tool web_search só quando searxngUrl declarada (ADR-0025) ---
+
+    #[test]
+    fn ausencia_de_searxng_url_preserva_comportamento_atual_nao_registrada() {
+        let cfg = Config::resolve(vec![Settings::default()]);
+
+        assert!(build_web_search_tool(&cfg)
+            .expect("ausência não deve ser erro")
+            .is_none());
+    }
+
+    #[test]
+    fn searxng_url_declarada_registra_a_tool() {
+        let camada = agentry_core::config::Settings::from_json_str(
+            r#"{ "tools": { "webSearch": { "searxngUrl": "https://searx.exemplo.com" } } }"#,
+        )
+        .expect("JSON de teste deve ser válido");
+        let cfg = Config::resolve(vec![camada]);
+
+        assert!(build_web_search_tool(&cfg)
+            .expect("URL válida não deve ser erro")
+            .is_some());
+    }
+
+    #[test]
+    fn searxng_url_invalida_e_erro_tratado() {
+        let camada = agentry_core::config::Settings::from_json_str(
+            r#"{ "tools": { "webSearch": { "searxngUrl": "não-é-uma-url" } } }"#,
+        )
+        .expect("JSON de teste deve ser válido");
+        let cfg = Config::resolve(vec![camada]);
+
+        assert!(build_web_search_tool(&cfg).is_err());
     }
 }

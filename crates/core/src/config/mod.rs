@@ -564,12 +564,46 @@ pub struct ToolsSettings {
     /// *opt-in*, nunca ligado por padrão.
     #[serde(default, rename = "webFetch")]
     pub web_fetch: FeatureToggle,
+    /// `tools.webSearch` (ADR-0025, MT-66) — pesquisa via SearXNG.
+    #[serde(default, rename = "webSearch")]
+    pub web_search: WebSearchSettings,
 }
 
 impl ToolsSettings {
     fn merged_over(self, base: Self) -> Self {
         Self {
             web_fetch: self.web_fetch.merged_over(base.web_fetch),
+            web_search: self.web_search.merged_over(base.web_search),
+        }
+    }
+}
+
+/// Bloco `tools.webSearch` (ADR-0025, MT-66) — mesmo padrão de
+/// `providers.litellm` (ADR-0006): endpoint próprio, sem instância pública
+/// *hardcoded*, classe de egresso sempre explícita quando declarado.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct WebSearchSettings {
+    /// `tools.webSearch.searxngUrl` — URL base de uma instância SearXNG
+    /// própria/de confiança. Ausente ⇒ `WebSearch` não é registrada (mesmo
+    /// padrão de `providers.litellm.baseUrl`/`model` ausentes).
+    #[serde(default, rename = "searxngUrl")]
+    pub searxng_url: Option<String>,
+    /// `tools.webSearch.searxngEgressClass` — classe de egresso mínima do
+    /// endpoint. **Sempre explícita quando `searxngUrl` é declarado**
+    /// (ADR-0002: nunca inferida do host); ausente ⇒ `Config::resolve`
+    /// aplica `cloud-ok` (mais restritiva para liberar, mesmo *default* de
+    /// `providers.litellm.egressClass`) — mas uma instância SearXNG
+    /// *self-hosted* na rede interna pode legitimamente declarar
+    /// `local-only`, diferente do coringa do `WebFetch` (MT-65).
+    #[serde(default, rename = "searxngEgressClass")]
+    pub searxng_egress_class: Option<EgressClass>,
+}
+
+impl WebSearchSettings {
+    fn merged_over(self, base: Self) -> Self {
+        Self {
+            searxng_url: self.searxng_url.or(base.searxng_url),
+            searxng_egress_class: self.searxng_egress_class.or(base.searxng_egress_class),
         }
     }
 }
@@ -582,6 +616,16 @@ impl ToolsSettings {
 pub struct LiteLlmConfig {
     pub base_url: String,
     pub model: String,
+    pub egress_class: EgressClass,
+}
+
+/// Endpoint SearXNG resolvido (ADR-0025, MT-66) — `searxng_url` já
+/// garantido presente (`Config.web_search` só é `Some` quando declarado);
+/// `egress_class` já resolvido para o *default* de risco (`cloud-ok`)
+/// quando a camada não declarou nenhuma.
+#[derive(Debug, Clone, PartialEq)]
+pub struct WebSearchConfig {
+    pub searxng_url: String,
     pub egress_class: EgressClass,
 }
 
@@ -639,6 +683,10 @@ pub struct Config {
     /// `egress_class == CloudOk` **além** desta flag para de fato registrar
     /// a tool `web_fetch` (MT-65) — esta flag sozinha não basta.
     pub web_fetch_enabled: bool,
+    /// Endpoint SearXNG resolvido (`tools.webSearch`, ADR-0025/MT-66) —
+    /// `None` quando `searxngUrl` não está declarado (`WebSearch`
+    /// simplesmente não está configurada, não é um erro).
+    pub web_search: Option<WebSearchConfig>,
 }
 
 impl Config {
@@ -688,6 +736,18 @@ impl Config {
                 .map(|(nome, config)| (nome, config.into_route_entry()))
                 .collect(),
             web_fetch_enabled: merged.tools.web_fetch.enabled.unwrap_or(false),
+            web_search: merged
+                .tools
+                .web_search
+                .searxng_url
+                .map(|searxng_url| WebSearchConfig {
+                    searxng_url,
+                    egress_class: merged
+                        .tools
+                        .web_search
+                        .searxng_egress_class
+                        .unwrap_or(EgressClass::CloudOk),
+                }),
         }
     }
 }
@@ -992,6 +1052,49 @@ mod tests {
             .expect("JSON válido");
         let cfg = Config::resolve(vec![camada]);
         assert!(cfg.web_fetch_enabled);
+    }
+
+    #[test]
+    fn ausencia_de_searxng_url_preserva_comportamento_atual_none() {
+        let cfg = Config::resolve(vec![Settings::default()]);
+        assert!(cfg.web_search.is_none());
+    }
+
+    #[test]
+    fn searxng_url_presente_sem_egress_class_resolve_cloud_ok() {
+        let camada = Settings::from_json_str(
+            r#"{ "tools": { "webSearch": { "searxngUrl": "https://searx.exemplo.com" } } }"#,
+        )
+        .expect("JSON válido");
+        let cfg = Config::resolve(vec![camada]);
+
+        let web_search = cfg
+            .web_search
+            .expect("searxngUrl declarado deve resolver Some");
+        assert_eq!(web_search.searxng_url, "https://searx.exemplo.com");
+        assert_eq!(
+            web_search.egress_class,
+            EgressClass::CloudOk,
+            "ausência de searxngEgressClass deve resolver cloud-ok, mesmo default do LiteLLM"
+        );
+    }
+
+    #[test]
+    fn searxng_url_com_egress_class_local_only_e_respeitada() {
+        let camada = Settings::from_json_str(
+            r#"{ "tools": { "webSearch": {
+                "searxngUrl": "http://searx.interno.local",
+                "searxngEgressClass": "local-only"
+            } } }"#,
+        )
+        .expect("JSON válido");
+        let cfg = Config::resolve(vec![camada]);
+
+        assert_eq!(
+            cfg.web_search.expect("deve resolver Some").egress_class,
+            EgressClass::LocalOnly,
+            "instância self-hosted deve poder declarar local-only, diferente do coringa do WebFetch"
+        );
     }
 
     #[test]

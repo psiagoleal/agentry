@@ -97,6 +97,29 @@ pub fn host_from_url(url: &str) -> Result<String, TransportError> {
         .ok_or_else(|| TransportError::InvalidUrl(format!("'{url}' não tem host")))
 }
 
+/// Monta a URL de busca de uma instância SearXNG
+/// (`<base_url>/search?q=<query>&format=json`, ADR-0025 §`WebSearch`,
+/// MT-66) — `query` é percent-*encoded* corretamente pelo mesmo parser de
+/// URL usado internamente por este módulo (`reqwest::Url::query_pairs_mut`),
+/// nunca por uma implementação própria. Exposta para
+/// `tools::web_search` montar a URL sem precisar importar `reqwest`
+/// diretamente — este módulo continua o único ponto do crate autorizado a
+/// isso (ADR-0002).
+///
+/// # Errors
+///
+/// Devolve [`TransportError::InvalidUrl`] se `base_url` não puder ser
+/// interpretada.
+pub fn build_searxng_search_url(base_url: &str, query: &str) -> Result<String, TransportError> {
+    let trimmed = base_url.trim_end_matches('/');
+    let mut url = reqwest::Url::parse(&format!("{trimmed}/search"))
+        .map_err(|e| TransportError::InvalidUrl(e.to_string()))?;
+    url.query_pairs_mut()
+        .append_pair("q", query)
+        .append_pair("format", "json");
+    Ok(url.to_string())
+}
+
 /// O transporte único: integra allowlist + audit log sobre um `reqwest::Client`.
 pub struct Transport {
     client: reqwest::Client,
@@ -780,6 +803,51 @@ mod tests {
     fn host_from_url_sem_host_e_erro_tratado() {
         assert!(matches!(
             host_from_url("não-é-uma-url"),
+            Err(TransportError::InvalidUrl(_))
+        ));
+    }
+
+    #[test]
+    fn build_searxng_search_url_monta_q_e_format_json() {
+        let url = build_searxng_search_url("https://searx.exemplo.com", "rust async").unwrap();
+
+        assert!(url.starts_with("https://searx.exemplo.com/search?"));
+        assert!(url.contains("q=rust+async") || url.contains("q=rust%20async"));
+        assert!(url.contains("format=json"));
+    }
+
+    #[test]
+    fn build_searxng_search_url_funciona_com_ou_sem_barra_final_na_base() {
+        let com_barra = build_searxng_search_url("https://searx.exemplo.com/", "x").unwrap();
+        let sem_barra = build_searxng_search_url("https://searx.exemplo.com", "x").unwrap();
+
+        assert!(com_barra.starts_with("https://searx.exemplo.com/search?"));
+        assert_eq!(com_barra, sem_barra);
+    }
+
+    #[test]
+    fn build_searxng_search_url_escapa_caracteres_especiais_na_query_sem_parametro_de_rastreio() {
+        let url = build_searxng_search_url("https://searx.exemplo.com", "c&a=b").unwrap();
+        let parsed = reqwest::Url::parse(&url).unwrap();
+        let pares: Vec<(String, String)> = parsed
+            .query_pairs()
+            .map(|(k, v)| (k.into_owned(), v.into_owned()))
+            .collect();
+
+        assert_eq!(
+            pares,
+            vec![
+                ("q".to_string(), "c&a=b".to_string()),
+                ("format".to_string(), "json".to_string()),
+            ],
+            "só q e format devem estar na query string, sem parâmetro de rastreio"
+        );
+    }
+
+    #[test]
+    fn build_searxng_search_url_com_base_invalida_e_erro_tratado() {
+        assert!(matches!(
+            build_searxng_search_url("não-é-uma-url", "x"),
             Err(TransportError::InvalidUrl(_))
         ));
     }

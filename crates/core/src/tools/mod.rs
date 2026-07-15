@@ -20,6 +20,7 @@ pub mod repo_map;
 pub mod shell;
 pub mod skill;
 pub mod web_fetch;
+pub mod web_search;
 
 use std::collections::HashMap;
 use std::path::Path;
