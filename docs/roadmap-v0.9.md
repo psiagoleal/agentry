@@ -59,7 +59,7 @@ verificação de maturidade completa. Nenhuma outra dependência nova.
   arquivo próprio) — só a tabela *default* nesta fase.
 - **Depende de:** MT-70.
 
-### MT-72: View de chat com *streaming* real (integração com `Session`)
+### MT-72: View de chat com *streaming* real (integração com `Session`) ✅ concluído (04db36e)
 - **Objetivo:** conecta a TUI à `Session`/`Router` reais (mesma construção já feita por
   `main()` para o REPL — reaproveitada, não duplicada). `Session::run_streaming` roda numa
   *task* separada (`tokio::spawn`); o *callback* (`FnMut(&StreamEvent)`, já genérico desde o

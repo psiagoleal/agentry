@@ -9,7 +9,7 @@
 
 - **Data:** 2026-07-15
 - **Branch:** `main`
-- **Commit:** `fb39a2a`
+- **Commit:** `04db36e`
 - **Fase:** Roadmap v0.1..v0.4 **fechados/imutáveis**; **Fase 10 concluída** (LiteLLM).
   **Execução autônoma em andamento** (`/loop /implementar-roadmap`, modelo Sonnet 5) — ver
   `docs/decisoes-autonomas.md` para decisões tomadas sozinho (**2 decisões registradas**:
@@ -48,6 +48,21 @@
   O laço de eventos do MT-70 passa a consultar `keybind::resolve` (nunca inspeciona `KeyCode`
   direto) e a rolar um histórico de mensagens **mock** (`Estado::aplicar`, função pura, satura
   nos limites) via `↑`/`k`/`↓`/`j` — prova a navegação antes do *streaming* real (MT-72).
+
+  **MT-72 concluído** — TUI ligada à `Session`/`Router` reais (mesma construção de `main()`,
+  reaproveitada). `Session::run_streaming` roda numa *task* separada (`tokio::spawn`); o
+  *callback* já genérico (MT-10) envia cada `StreamEvent` por canal ao laço principal, que faz
+  `tokio::select!` entre eventos de terminal (lidos numa *thread* dedicada, já que
+  `crossterm::event::read` bloqueia) e eventos de *stream* — **zero mudança em `crates/core`**.
+  `crates/cli/src/tui/chat.rs` (novo) traduz `StreamEvent` em histórico de mensagens, puro e
+  testável. Caixa de entrada de texto real substitui o histórico mock do MT-71.
+
+  **Dois achados do smoke-test manual, ambos corrigidos e registrados em
+  `docs/decisoes-autonomas.md`:** (1) os atalhos de letra do MT-71 (`q`/`k`/`j`) colidiam com a
+  digitação real — revisados para só `Ctrl+C` (sair) e setas (rolar), letras livres para texto;
+  (2) `StderrAuditSink` (`eprintln!` a cada chamada de rede) corrompia a tela alternativa do
+  `crossterm` — `NoopAuditSink` (novo) descarta auditoria só sob `--tui`, preservando stderr
+  normal no REPL/one-shot; um *widget* de log fica candidato a ticket futuro (YAGNI).
 
 ## Metas cumpridas / Em andamento / Próximo passo
 
@@ -934,20 +949,40 @@
   tabela) renderizam certo, `j` desce duas linhas visíveis, `q` sai com código 0 e terminal
   restaurado.
 
+- [x] **MT-72** — `crates/cli/src/tui/mod.rs`: `tui::run(session, router)` recebe a mesma
+  `Session`/`Router` de `main()` (reaproveitados, não duplicados). `Session::run_streaming`
+  roda numa *task* separada (`tokio::spawn`); o *callback* já genérico (MT-10) envia cada
+  `StreamEvent` por canal ao laço principal, que faz `tokio::select!` entre eventos de
+  terminal (lidos numa *thread* dedicada — `crossterm::event::read` bloqueia) e eventos de
+  *stream* — **zero mudança em `crates/core`**. Novo `crates/cli/src/tui/chat.rs`:
+  `ChatState` traduz `StreamEvent` em histórico de mensagens (`TextDelta` cresce o turno
+  aberto, `MessageEnd` conclui, `marcar_erro` fecha o turno em falha), pura e testável sem
+  terminal real. Caixa de entrada de texto real (Enter envia, Backspace edita) substitui o
+  histórico mock do MT-71. 19 testes novos (10 em `mod.rs`, 9 em `chat.rs`).
+
+  **Dois achados do smoke-test manual com Ollama real, ambos corrigidos e registrados em
+  `docs/decisoes-autonomas.md`:** (1) os atalhos de letra do MT-71 (`q`/`k`/`j`) colidiam com
+  a digitação real — tabela revisada para só `Ctrl+C` (sair, convenção universal) e setas
+  (rolar); (2) `StderrAuditSink` (`eprintln!` a cada chamada de rede) corrompia visualmente a
+  tela alternativa do `crossterm` (`ratatui` não sabe da escrita, não a repõe no próximo
+  `draw`) — `NoopAuditSink` (novo) descarta auditoria só sob `--tui`, preservando stderr
+  normal no REPL/one-shot; *widget* de log de auditoria fica candidato a ticket futuro
+  (YAGNI, não pedido por nenhum ticket da Fase 15). Smoke-test real (llama3.1:8b local):
+  mensagem enviada, resposta chega incrementalmente sem corromper a tela, scroll responde
+  enquanto o modelo ainda está respondendo, `Ctrl+C` sai limpo com código 0.
+
 **Em andamento:** nada pendente — árvore de trabalho limpa, tudo commitado.
 
-**Próximo passo:** **MT-72** (`docs/roadmap-v0.9.md`, `crates/cli/src/tui/mod.rs`, novo
-`crates/cli/src/tui/chat.rs`) — view de chat com *streaming* real: conecta a TUI à
-`Session`/`Router` já construídos por `main()` (reaproveitados, não duplicados);
-`Session::run_streaming` roda numa *task* separada (`tokio::spawn`), o *callback* já genérico
-(desde o MT-10) envia cada `StreamEvent` (já `Clone`) por um `tokio::sync::mpsc` de volta ao
-laço de eventos, que passa a fazer `tokio::select!` entre eventos de terminal e eventos do
-canal — **nenhuma mudança em `crates/core`**, terceiro ticket da Fase 15. Outros itens em
-aberto, sem ticket: deploy do site MkDocs (GitHub Pages) — decisão explícita do usuário de não
-fazer ainda; CI multi-SO ainda não observado verde (falta um push que dispare a matriz);
-backlog independente do `ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de
-reanálise de maturidade, perfis base+overlay/skills executáveis/config de serviços
-pendentes de validação de implementação).
+**Próximo passo:** **MT-73** (`docs/roadmap-v0.9.md`, novo
+`crates/cli/src/tui/model_picker.rs`, `crates/cli/src/tui/mod.rs`) — seletor de
+modelo/*provider* com busca difusa sobre os candidatos já declarados na `task-class` ativa
+(`RouteEntry.candidates`) — nunca introduz um candidato novo (mesma disciplina do ADR-0014),
+quarto ticket da Fase 15. Outros itens em aberto, sem ticket: deploy do site MkDocs (GitHub
+Pages) — decisão explícita do usuário de não fazer ainda; CI multi-SO ainda não observado
+verde (falta um push que dispare a matriz); backlog independente do
+`ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de reanálise de maturidade,
+perfis base+overlay/skills executáveis/config de serviços pendentes de validação de
+implementação).
 
 ## Impedimentos de ambiente (não são bugs do código)
 
@@ -966,6 +1001,7 @@ pendentes de validação de implementação).
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-15 | `04db36e` | MT-72: view de chat com streaming real (integração com Session/Router) | MT-72 |
 | 2026-07-15 | `fb39a2a` | MT-71: tabela de keybindings (mapa único) + navegação básica | MT-71 |
 | 2026-07-15 | `5b18d80` | MT-70: scaffold ratatui/crossterm + flag --tui + laço de eventos mínimo | MT-70 |
 | 2026-07-15 | `2e3916a` | ADR-0027: TUI via ratatui (autorizada pelo mantenedor); prepara a Fase 15 | — |

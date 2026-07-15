@@ -53,7 +53,7 @@ escolha feita sozinho.
   Não afrouxa nenhuma garantia de segurança/egresso: a decisão de **permitir** ou **negar** uma
   chamada de rede continua inteiramente no `Transport`/`Allowlist` (MT-05/07, ADR-0002),
   inalterados; só o **registro** posterior da chamada já permitida deixa de ser impresso.
-- **Commit:** `<preenchido no commit de código do MT-72>`.
+- **Commit:** `04db36e`.
 
 ### 2026-07-15 — MT-72 (Fase 15, TUI) — revisão dos *keybindings* de letra do MT-71 (`q`/`k`/`j`) para liberar a digitação
 - **Contexto:** o MT-71 (`docs/roadmap-v0.9.md`) havia fixado `q` (sair), `k`/`j` (rolar,
@@ -78,7 +78,7 @@ escolha feita sozinho.
   conflito de tecla (mesmo teste do MT-71, `tabela_nao_tem_duas_acoes_para_a_mesma_tecla_default`,
   ainda passa) e a garantia "tecla sem ação mapeada não é erro" (MT-71) se estende naturalmente
   para "vira caractere digitado", não um estado de erro.
-- **Commit:** `<preenchido no commit de código do MT-72>`.
+- **Commit:** `04db36e`.
 
 ### 2026-07-15 — ADR-0023 (preparação da Fase 13) — parser de frontmatter de `SKILL.md` próprio, sem dependência YAML
 - **Contexto:** ADR-0023 (memória de projeto: `AGENTS.md`/`CLAUDE.md` + *progressive
