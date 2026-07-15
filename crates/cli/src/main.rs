@@ -46,6 +46,7 @@ use agentry_core::state_dir;
 use agentry_core::tools::ask_user::AskUserTool;
 use agentry_core::tools::code_search::{register_code_search_tool, CodeSearchSession};
 use agentry_core::tools::fs::{FsEditTool, FsReadTool, FsSearchTool, FsWriteTool};
+use agentry_core::tools::glob::GlobTool;
 use agentry_core::tools::lsp::{register_lsp_tools, LspSession};
 use agentry_core::tools::permission::PermissionGate;
 use agentry_core::tools::repo_map::{register_repo_map_tool, RepoMapTool};
@@ -724,6 +725,10 @@ async fn main() {
         cfg.respect_gitignore,
     )));
     registry.register(Arc::new(FsSearchTool::new(
+        workspace_root.clone(),
+        cfg.respect_gitignore,
+    )));
+    registry.register(Arc::new(GlobTool::new(
         workspace_root.clone(),
         cfg.respect_gitignore,
     )));

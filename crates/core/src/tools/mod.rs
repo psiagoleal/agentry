@@ -14,6 +14,7 @@
 pub mod ask_user;
 pub mod code_search;
 pub mod fs;
+pub mod glob;
 pub mod lsp;
 pub mod permission;
 pub mod repo_map;
