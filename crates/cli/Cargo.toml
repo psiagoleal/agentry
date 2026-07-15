@@ -17,6 +17,7 @@ path = "src/main.rs"
 agentry-core = { path = "../core" }
 clap = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "io-std"] }
+ratatui = { workspace = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }

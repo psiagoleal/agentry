@@ -27,6 +27,7 @@ mod init;
 mod repl;
 mod streaming;
 mod tool_executor;
+mod tui;
 
 use std::io;
 use std::sync::Arc;
@@ -238,6 +239,13 @@ struct Args {
     /// erro tratado de `Router::resolve_with_override`.
     #[arg(long = "task-class")]
     task_class: Option<String>,
+
+    /// Entra no modo TUI (`ratatui`, ADR-0027) em vez do REPL de texto —
+    /// *scaffold* mínimo nesta ticket (MT-70), sem integração com
+    /// `Session`/`Router` ainda (MT-72). Sem esta flag, o comportamento
+    /// one-shot/REPL existente continua inalterado.
+    #[arg(long, conflicts_with_all = ["init", "tarefa"])]
+    tui: bool,
 }
 
 /// Resultado de [`run_init_local`] — usado tanto por `--init` quanto por
@@ -612,6 +620,14 @@ async fn main() {
                 std::process::exit(1)
             }
         }
+        return;
+    }
+
+    if args.tui {
+        tui::run().unwrap_or_else(|erro| {
+            eprintln!("erro: {erro}");
+            std::process::exit(1)
+        });
         return;
     }
 

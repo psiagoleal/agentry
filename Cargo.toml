@@ -60,6 +60,13 @@ arrow-schema = "58"
 # TryStreamExt::try_collect — o resultado de uma consulta do lancedb é um
 # stream assíncrono de RecordBatch, não um Vec pronto.
 futures = "0.3"
+# TUI opt-in (MT-70/ADR-0027), só em crates/cli — nunca em crates/core.
+# default-features = false + feature "crossterm" só: evita a feature
+# "all-widgets" (widget de calendário não usado) e "macros"/"palette" do
+# default-features, mantendo a árvore de dependências mínima (ADR-0004).
+# Maturidade verificada (ADR-0027): MIT, 37,9M downloads, ativo desde 2023,
+# autorizada pelo mantenedor em 2026-07-15.
+ratatui = { version = "0.30", default-features = false, features = ["crossterm"] }
 
 # Lints compartilhados do workspace (qualidade desde o bootstrap).
 [workspace.lints.clippy]
