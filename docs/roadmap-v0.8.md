@@ -116,7 +116,7 @@ nesta fase** — decisão explícita das três ADRs (reaproveitam `ignore`/`toki
   mesma limitação de *tool-calling* dos modelos locais já registrada (MT-61/64/65) — não
   regressão, coberta pelos testes automatizados.
 
-### MT-67: Tool `glob`
+### MT-67: Tool `glob` ✅ concluído
 - **Objetivo:** novo `crates/core/src/tools/glob.rs`: `GlobTool` recebe um padrão glob
   (`"**/*.rs"`) e devolve os caminhos que casam, via `ignore::overrides::OverrideBuilder` +
   `ignore::WalkBuilder` (mesma *crate* já usada por `tools::fs`/`repo_map`/`code_search` —
@@ -132,6 +132,9 @@ nesta fase** — decisão explícita das três ADRs (reaproveitam `ignore`/`toki
 - **Fora de escopo:** busca por conteúdo (já existe, `fs_search`/MT-12); *ranking* de
   relevância (já existe, `repo_map`/MT-21).
 - **Depende de:** ADR-0026.
+- **Nota de implementação:** smoke-test manual reproduz a mesma limitação de *tool-calling*
+  dos modelos locais já registrada (MT-61/64/65/66) — não regressão, coberta com confiança
+  pelos 5 testes automatizados.
 
 ### MT-68: Shell em background/streaming (`shell_background`)
 - **Objetivo:** extensão de `crates/core/src/tools/shell.rs` (MT-13, não uma política
