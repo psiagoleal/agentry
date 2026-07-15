@@ -11,8 +11,9 @@ Cada fase abaixo lista **objetivo**, **ADR(s) necessária(s)** e a **primeira le
 micro-tickets** (título + objetivo de uma linha). Seguindo a disciplina do projeto
 (`skill adr-writer` / `micro-ticket-planner`): a **ADR completa e os tickets detalhados de
 cada fase são escritos quando a fase começa**, promovidos para um `roadmap-vX.Y.md`
-versionado. **Fase 12** está concluída (`docs/roadmap-v0.6.md`); **Fase 13** (a próxima) já
-está detalhada — ver `docs/roadmap-v0.7.md`.
+versionado. **Fases 12 e 13** estão concluídas (`docs/roadmap-v0.6.md`, `docs/roadmap-v0.7.md`).
+**Fase 14** (a próxima) ainda não tem tickets detalhados — precisa de preparação (ADR-0024/
+0025/0026 + micro-tickets) antes de qualquer implementação.
 
 > Convenções de DoD, granularidade e "dependência nova exige ADR (ADR-0004)": iguais às dos
 > roadmaps versionados (`docs/roadmap-v0.1.md` §Convenções).
@@ -55,7 +56,7 @@ convenção "todo config vem com default + comentário + exemplos".
 
 **Detalhamento completo:** `docs/roadmap-v0.6.md` (MT-55..58, **concluídos**).
 
-## Fase 13 — Memória de projeto: AGENTS.md + Skills (ADR-0023)
+## Fase 13 — Memória de projeto: AGENTS.md + Skills (ADR-0023) ✅ concluída
 
 **Objetivo:** o `agentry` passa a **ler `AGENTS.md`/`CLAUDE.md`** da raiz do projeto como
 contexto de sistema (o papel do `CLAUDE.md` no Claude Code) e a carregar **`SKILL.md` por
@@ -71,7 +72,8 @@ com convenção já existente do Claude Code); frontmatter via **parser próprio
 YAML nova** (decisão registrada em `docs/decisoes-autonomas.md`); skill completa carregada só
 sob demanda via nova tool `skill`. Ao concluir, ADR-0003 → `Accepted`.
 
-**Detalhamento completo:** `docs/roadmap-v0.7.md` (MT-59..62).
+**Detalhamento completo:** `docs/roadmap-v0.7.md` (MT-59..62, **concluídos**). ADR-0003 e
+ADR-0023 ambas `Accepted`.
 
 ## Fase 14 — Tools essenciais (ADR-0024, ADR-0025, ADR-0026)
 

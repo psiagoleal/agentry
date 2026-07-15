@@ -9,7 +9,7 @@
 
 - **Data:** 2026-07-15
 - **Branch:** `main`
-- **Commit:** `38f8bcb`
+- **Commit:** `24f2bdd`
 - **Fase:** Roadmap v0.1..v0.4 **fechados/imutáveis**; **Fase 10 concluída** (LiteLLM).
   **Execução autônoma em andamento** (`/loop /implementar-roadmap`, modelo Sonnet 5) — ver
   `docs/decisoes-autonomas.md` para decisões tomadas sozinho (**2 decisões registradas**:
@@ -17,12 +17,14 @@
   `SKILL.md` próprio em vez de dependência YAML). **Fase 11 concluída inteira** (ADR-0020,
   `.agentryignore`, MT-52..54, `roadmap-v0.5.md`). **Fase 12 concluída inteira** (ADR-0021/0022,
   config de task-class de ponta a ponta, MT-55..58, `roadmap-v0.6.md`) — o tema mais enfatizado
-  pelo usuário no planejamento original. **Fase 13 em andamento** (ADR-0023 `Proposed`,
-  `docs/roadmap-v0.7.md`) — **MT-59/60/61 concluídos** (leitor de `AGENTS.md`/`CLAUDE.md`;
-  descoberta de `SKILL.md` + lista compacta; tool `skill` — *progressive disclosure* completo);
-  só falta **MT-62** (documentação, fecha a Fase 13). **Fases 14–17+** (mapa/stubs, ADR
-  0024–0028 reservadas) ainda não iniciadas. **Housekeeping:** ADR-0020/0021/0022 promovidas de
-  `Proposed` para `Accepted` (suas fases já concluídas há várias iterações; status ficou
+  pelo usuário no planejamento original. **Fase 13 concluída inteira** (ADR-0023 `Accepted`,
+  `docs/roadmap-v0.7.md`, MT-59..62) — memória de projeto (`AGENTS.md`/`CLAUDE.md`) e skills
+  (*progressive disclosure* completo, descoberta + tool `skill`); **ADR-0003 também promovida a
+  `Accepted`** (objetivo original — consumo de artefatos do `profiles` — cumprido). **Fase 14**
+  (Tools essenciais: AskUser/web-SearXNG/Glob, ADR-0024/0025/0026) é a próxima, **sem tickets
+  detalhados ainda** — próxima iteração deve prepará-la primeiro. **Fases 15–17+** (mapa/stubs,
+  ADR 0027/0028 reservadas) ainda não iniciadas. **Housekeeping:** ADR-0020/0021/0022 promovidas
+  de `Proposed` para `Accepted` (suas fases já concluídas há várias iterações; status ficou
   desatualizado).
 
 ## Metas cumpridas / Em andamento / Próximo passo
@@ -753,13 +755,28 @@
   testes de integração via `ToolRegistry::execute` real (inclusive o gate de permissão).
   Nenhuma dependência nova. **Fecha o mecanismo de *progressive disclosure* (MT-59..61).**
 
+- [x] **MT-62** — `docs/usuario/configuracao.md`: nova seção "Memória de projeto
+  (`AGENTS.md`/`CLAUDE.md`)" (precedência sem merge, ordem de concatenação com o preset da
+  `task-class`, relação com `.agentryignore`) + campo `agentsFile.enabled` na lista de
+  `context`. Novo `docs/usuario/skills.md`: convenção `.claude/skills/<nome>/SKILL.md`
+  (frontmatter obrigatório, corpo, subconjunto de YAML suportado pelo parser mínimo do MT-60),
+  descoberta automática + carregamento sob demanda via a tool `skill` (MT-61). **ADR-0003**
+  (`Proposed` desde o MT-04) promovida a `Accepted` — emenda registra que
+  `.claude/settings.json` nunca foi consumido (artefato próprio, ADR-0018) e que os demais
+  artefatos previstos estão todos implementados. **ADR-0023 também promovida a `Accepted`**
+  (MT-59..62 concluídos). Achado de *anchor* do mkdocs (barra entre `AGENTS.md`/`CLAUDE.md` no
+  título vira *slug* sem separador — `agentsmdclaudemd`, não `agentsmd-claudemd`) pego pelo
+  próprio `mkdocs build --strict`, corrigido nos 2 *cross-links* que usavam. Nenhuma mudança
+  de código. **Fecha a Fase 13 inteira (MT-59..62).**
+
 **Em andamento:** nada pendente no turno.
 
-**Próximo passo:** **MT-62** (`docs/roadmap-v0.7.md`, `docs/usuario/configuracao.md`, novo
-`docs/usuario/skills.md`) — documentação do site: seção `context.agentsFile`, convenção
-`.claude/skills/<nome>/SKILL.md`, tool `skill`; **ADR-0003 → `Accepted`** (fecha o item
-pendente desde o MT-04). Fecha a Fase 13 inteira. As Fases 14–17+ seguem só como mapa. Outros
-itens em aberto, sem
+**Próximo passo:** **Preparar a Fase 14** (`docs/roadmap-longo-prazo.md` — Tools essenciais:
+tool AskUser, ADR-0024; web tools/SearXNG configurável, ADR-0025; Glob + shell em background,
+ADR-0026) — fase ainda **sem tickets detalhados**; a próxima iteração do loop deve escrever as
+três ADRs completas, quebrar em micro-tickets num novo `docs/roadmap-v0.8.md`, atualizar
+`docs/adr/README.md` e a `nav` do `mkdocs.yml`, só então implementar. As Fases 15–17+ seguem
+só como mapa. Outros itens em aberto, sem
 ticket: deploy do site MkDocs (GitHub Pages) — decisão explícita do usuário de
 não fazer ainda; CI multi-SO ainda não observado verde (falta um push que dispare a matriz);
 backlog independente do `ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de
@@ -783,6 +800,7 @@ pendentes de validação de implementação).
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-15 | `24f2bdd` | MT-62: documentação AGENTS.md/skills; ADR-0003/0023 -> Accepted (fecha a Fase 13) | MT-62 |
 | 2026-07-15 | `38f8bcb` | MT-61: tool skill — carrega o corpo completo sob demanda (ADR-0023) | MT-61 |
 | 2026-07-15 | `af2c3d8` | MT-60: descoberta de SKILL.md + lista compacta no system prompt (ADR-0023) | MT-60 |
 | 2026-07-15 | `eb9c518` | MT-59: loader de AGENTS.md/CLAUDE.md; injeção como mensagem de sistema (ADR-0023) | MT-59 |

@@ -122,7 +122,7 @@ nesta fase** — decisão explícita da ADR-0023 (parser de frontmatter próprio
   ambiente, não uma regressão deste ticket. Correção coberta com confiança pelos testes de
   integração via `ToolRegistry::execute` real (inclusive o gate de permissão).
 
-### MT-62: Documentação do site + ADR-0003 → `Accepted`
+### MT-62: Documentação do site + ADR-0003 → `Accepted` ✅ concluído
 - **Objetivo:** `docs/usuario/configuracao.md` ganha a seção `context.agentsFile` (o que é
   lido, precedência `AGENTS.md`/`CLAUDE.md`, relação com `.agentryignore`); novo
   `docs/usuario/skills.md` documenta a convenção `.claude/skills/<nome>/SKILL.md` (frontmatter
@@ -137,6 +137,16 @@ nesta fase** — decisão explícita da ADR-0023 (parser de frontmatter próprio
 - **Fora de escopo:** trilha de governança (nenhuma afirmação de egresso muda — leitura de
   `AGENTS.md`/skills é 100% local, sem rede, ADR-0002 preservado).
 - **Depende de:** MT-61.
+- **Nota de implementação:** ao promover ADR-0003, achado real: `.claude/settings.json`
+  (previsto no texto original da ADR) nunca foi de fato consumido — o `agentry` sempre usou
+  seu próprio artefato (`.agentry/agentry.settings.json`, ADR-0018), decisão já tomada e
+  registrada em sessão anterior, mas a ADR-0003 nunca tinha sido emendada para refletir isso;
+  emenda adicionada antes de fechar como `Accepted`, para a ADR não afirmar algo que a
+  implementação real não faz. Achado de *anchor* do mkdocs, pego pelo próprio
+  `mkdocs build --strict`: o `id` gerado para "Memória de projeto (`AGENTS.md`/`CLAUDE.md`)"
+  não tem hífen entre "agentsmd" e "claudemd" (a barra entre os dois nomes de arquivo é só
+  removida do *slug*, não vira separador) — o *link* escrito com hífen extra apontava para um
+  *anchor* que não existia; corrigido nos dois *cross-links* que o usavam.
 
 ---
 
