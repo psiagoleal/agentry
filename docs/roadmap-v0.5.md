@@ -23,7 +23,7 @@ override de rota válido, só nunca exposto por uma flag/comando real.
 
 ---
 
-## Fase 10 — Conexão configurável com LiteLLM (ADR-0006)
+## Fase 10 — Conexão configurável com LiteLLM (ADR-0006) — ✅ concluída (MT-48..51)
 
 ### MT-48: Schema `providers.litellm` em `Settings`/`Config`
 - **Objetivo:** `Settings` (`crates/core/src/config/mod.rs`) ganha `LiteLlmSettings`
@@ -92,7 +92,7 @@ override de rota válido, só nunca exposto por uma flag/comando real.
   rota (o erro de resolução já cobre isso).
 - **Depende de:** MT-49.
 
-### MT-51: Atualizar a documentação do site (usuário + governança)
+### MT-51: Atualizar a documentação do site (usuário + governança) — ✅ concluído (`9c5e495`)
 - **Objetivo:** revisar `docs/usuario/configuracao.md`/`uso.md` (novo bloco
   `providers.litellm`, flag `--provider`/comando `/provider`) e, principalmente,
   `docs/governanca/privacidade-e-egresso.md` — a afirmação atual ("nenhum destino de rede,
