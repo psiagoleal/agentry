@@ -110,6 +110,7 @@ nav:
           - "0024 — Tool AskUser": adr/0024-tool-askuser.md
           - "0025 — Web tools (WebFetch/WebSearch via SearXNG)": adr/0025-web-tools-webfetch-websearch-searxng.md
           - "0026 — Tool Glob e shell em background": adr/0026-tool-glob-e-shell-em-background.md
+          - "0027 — TUI via ratatui": adr/0027-tui-via-ratatui.md
       - Roadmap:
           - Mapa de longo prazo: roadmap-longo-prazo.md
           - v0.1: roadmap-v0.1.md
@@ -120,6 +121,7 @@ nav:
           - v0.6: roadmap-v0.6.md
           - v0.7: roadmap-v0.7.md
           - v0.8: roadmap-v0.8.md
+          - v0.9: roadmap-v0.9.md
       - Interoperabilidade com ai-coding-agent-profiles:
           - Visão geral: interop/README.md
           - Exchange log: interop/exchange-log.md

@@ -33,7 +33,7 @@ Registros de decisões estruturais (ver skill `adr-writer`). Use
 | [0024](0024-tool-askuser.md) | Tool `AskUser` — pergunta/confirmação entre agente e usuário | Accepted |
 | [0025](0025-web-tools-webfetch-websearch-searxng.md) | Web tools — `WebFetch` e `WebSearch` via SearXNG configurável | Accepted |
 | [0026](0026-tool-glob-e-shell-em-background.md) | Tool `Glob` (busca por padrão de arquivo) e shell em background/streaming | Accepted |
+| [0027](0027-tui-via-ratatui.md) | TUI via `ratatui` — modo interativo opt-in, sem substituir o REPL | Proposed |
 
-> **Faixa reservada (roadmap de longo prazo, `docs/roadmap-longo-prazo.md`):** ADR-0027 (TUI /
-> `ratatui`, Fase 15), ADR-0028 (MCP client / `rmcp`, Fase 16). O arquivo de cada uma é escrito
-> ao iniciar sua fase (ADR com contexto fresco).
+> **Faixa reservada (roadmap de longo prazo, `docs/roadmap-longo-prazo.md`):** ADR-0028 (MCP
+> client / `rmcp`, Fase 16). O arquivo é escrito ao iniciar a fase (ADR com contexto fresco).

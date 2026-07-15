@@ -12,10 +12,11 @@ micro-tickets** (título + objetivo de uma linha). Seguindo a disciplina do proj
 (`skill adr-writer` / `micro-ticket-planner`): a **ADR completa e os tickets detalhados de
 cada fase são escritos quando a fase começa**, promovidos para um `roadmap-vX.Y.md`
 versionado. **Fases 12, 13 e 14** estão concluídas (`docs/roadmap-v0.6.md`,
-`docs/roadmap-v0.7.md`, `docs/roadmap-v0.8.md`). **Fases 15 e 16** (a próximas) exigem
-dependência de runtime nova (`ratatui`/`rmcp`) — parada dura do comando de loop; preparar
-essas fases (mesmo só para escrever a ADR, que decidiria adotar a dependência) exige decisão
-do mantenedor antes de qualquer trabalho autônomo continuar.
+`docs/roadmap-v0.7.md`, `docs/roadmap-v0.8.md`). **Fase 15** já está detalhada — ver
+`docs/roadmap-v0.9.md` (`ratatui` autorizado pelo mantenedor em 2026-07-15, após a parada dura
+do comando de loop por dependência nova). **Fase 16** ainda exige a mesma decisão para
+`rmcp` — já pré-autorizada pelo mantenedor junto da Fase 15, falta só a preparação (ADR-0028 +
+micro-tickets) quando a Fase 15 terminar.
 
 > Convenções de DoD, granularidade e "dependência nova exige ADR (ADR-0004)": iguais às dos
 > roadmaps versionados (`docs/roadmap-v0.1.md` §Convenções).
@@ -105,24 +106,24 @@ SearXNG configurável**.
 **Detalhamento completo:** `docs/roadmap-v0.8.md` (MT-63..69, **concluídos**). ADR-0024/0025/
 0026 todas `Accepted`.
 
-## Fase 15 — TUI (ADR-0027) — *tema 2 do usuário*
+## Fase 15 — TUI via `ratatui` (ADR-0027) — *tema 2 do usuário*
 
-**Objetivo:** substituir o REPL de texto puro por uma TUI com `ratatui`. Referência de UX é o
-OpenCode (pointers concretos anotados em memória — keybind flat map, model picker fuzzy, diff
-modal, permission toggle, todo widget), **não** seu modelo de segurança (o `agentry` é mais
-estrito, ADR-0002).
+**Objetivo:** modo TUI **opt-in** (`--tui`) — não substitui o REPL de texto (aditivo, zero
+risco de regressão no caminho existente). Referência de UX é o OpenCode (*pointers* concretos
+anotados em memória — *keybind* mapa único, seletor de modelo *fuzzy*, diff modal, *toggle*
+de permissão), **não** seu modelo de segurança (o `agentry` é mais estrito, ADR-0002).
 
-**ADR necessária:** ADR-0027 (adoção de `ratatui` — vetada por maturidade/licença, ADR-0004 —
-+ arquitetura da TUI) — *stub reservado*.
+**ADR:** ADR-0027 (adoção de `ratatui`+`crossterm`, autorizada pelo mantenedor — maturidade
+verificada: MIT, 37,9M downloads, ativo desde 2023 — + arquitetura da TUI) — **escrita**,
+`Proposed`. Decisões centrais: `ratatui`/`crossterm` só em `crates/cli` (nunca no `core`);
+`Session::run_streaming` (*callback* já genérico, MT-10) roda numa *task* separada enviando
+`StreamEvent`s por canal ao laço de eventos — **zero mudança no `core`**; `TuiConfirmer`/
+`TuiPrompter` implementam as *traits* já existentes (`Confirmer`/`Prompter`, ADR-0024) — prova
+que a fronteira de trait desenhada na Fase 14 generaliza de verdade; *toggle* de permissão
+`auto`/`normal` nunca contorna um `deny`, só acelera a confirmação de um `ask`.
 
-- **MT-70:** scaffold `ratatui` + event loop.
-- **MT-71:** tabela de keybindings (flat map, estilo OpenCode).
-- **MT-72:** view de chat com streaming.
-- **MT-73:** seletor de modelo/provider (fuzzy).
-- **MT-74:** widgets de permissão + AskUser (implementação TUI do `Prompter` da Fase 14).
-- **MT-75:** visualizador de diff modal (para confirmação de `fs_write`/`fs_edit`).
-- **MT-76:** todo widget (lista de tarefas visível).
-- **MT-77:** documentação.
+**Detalhamento completo:** `docs/roadmap-v0.9.md` (MT-70..76 — *widget* de lista de tarefas
+deliberadamente fora de escopo, YAGN: `agentry` não tem esse conceito no `core` hoje).
 
 ## Fase 16 — MCP client (ADR-0028)
 
