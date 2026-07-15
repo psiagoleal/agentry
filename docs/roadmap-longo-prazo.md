@@ -44,7 +44,7 @@ maduras por baixo antes de investir em Tools de destaque e TUI.
 `.agentryignore` (com *fallback* de compatibilidade) e adiciona `context.gitignore.enabled`
 (opt-in) para reduzir ruído de contexto. Fora do escopo de re-detalhamento aqui.
 
-## Fase 12 — Configuração completa e autoexplicativa (ADR-0021, ADR-0022)
+## Fase 12 — Configuração completa e autoexplicativa (ADR-0021, ADR-0022) ✅ concluída
 
 **Objetivo:** tornar o roteamento por **task-class** configurável de ponta a ponta (hoje
 hardcoded na CLI, apesar de o `Router` já suportar tudo — ADR-0008/0014) e instituir a
@@ -52,7 +52,7 @@ convenção "todo config vem com default + comentário + exemplos".
 
 **ADRs:** ADR-0021 (schema de task-class), ADR-0022 (convenção autoexplicativa) — **escritas**.
 
-**Detalhamento completo:** `docs/roadmap-v0.6.md` (MT-55..58).
+**Detalhamento completo:** `docs/roadmap-v0.6.md` (MT-55..58, **concluídos**).
 
 ## Fase 13 — Memória de projeto: AGENTS.md + Skills (ADR-0023)
 

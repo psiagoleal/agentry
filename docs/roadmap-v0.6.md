@@ -20,7 +20,7 @@ nesta fase — só camada de configuração sobre o `Router` já existente.
 
 ---
 
-## Fase 12 — Configuração completa e autoexplicativa (ADR-0021, ADR-0022)
+## Fase 12 — Configuração completa e autoexplicativa (ADR-0021, ADR-0022) ✅ concluída (MT-55..58)
 
 ### MT-55: `TaskClassSettings` — schema de task-class em `Config` ✅ concluído
 - **Objetivo:** `Settings` (`crates/core/src/config/mod.rs`) ganha um bloco `taskClasses`
@@ -99,7 +99,7 @@ nesta fase — só camada de configuração sobre o `Router` já existente.
   tinha sido adicionado ao `GENERIC_SETTINGS_EXAMPLE` — só a documentação do site
   (`docs/usuario/configuracao.md`) mostrava o campo; corrigido junto.
 
-### MT-58: Documentação do site (task-class + convenção)
+### MT-58: Documentação do site (task-class + convenção) ✅ concluído
 - **Objetivo:** `docs/usuario/configuracao.md` ganha a seção `taskClasses` (candidatos,
   preset, seleção via `--task-class`/`/task-class`, defaults sintetizados) e uma nota sobre a
   convenção autoexplicativa (ADR-0022 — por que todo bloco vem com `_comentario` + exemplos).
@@ -110,6 +110,12 @@ nesta fase — só camada de configuração sobre o `Router` já existente.
 - **Fora de escopo:** trilha de governança (nenhuma afirmação de egresso muda — task-class só
   usa candidatos com classe declarada, ADR-0002 preservado).
 - **Depende de:** MT-56.
+- **Notas de implementação:** a releitura ("nada na trilha de usuário ficou desatualizado")
+  encontrou um gap pré-existente desde o MT-50: `--provider`/`-p` e `/provider` nunca tinham
+  sido documentados nas tabelas de flags/comandos de `uso.md`, apesar de já existirem no
+  binário e de `configuracao.md` já linkar para eles — corrigido junto, mesmo fora da lista
+  literal de campos novos do MT-58, por estar dentro do arquivo já em escopo e diretamente
+  coberto pelo próprio critério de aceite.
 
 ---
 

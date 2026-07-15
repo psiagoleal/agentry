@@ -9,16 +9,16 @@
 
 - **Data:** 2026-07-15
 - **Branch:** `main`
-- **Commit:** `efca5dd`
+- **Commit:** `5457f18`
 - **Fase:** Roadmap v0.1..v0.4 **fechados/imutáveis**; **Fase 10 concluída** (LiteLLM).
   **Execução autônoma em andamento** (`/loop /implementar-roadmap`, modelo Sonnet 5) — ver
   `docs/decisoes-autonomas.md` para decisões tomadas sozinho (**1 decisão registrada**: MT-55,
   síntese de defaults de task-class deferida à CLI). **Fase 11 concluída inteira** (ADR-0020,
-  `.agentryignore`, MT-52..54, `roadmap-v0.5.md`). **Fase 12** (ADR-0021/0022, config de
-  task-class, `roadmap-v0.6.md`) — **MT-55/56/57 concluídos** (schema `taskClasses` em
-  `Config`; CLI consome de fato + `--task-class`/`/task-class`; exemplo `--init` enriquecido);
-  só falta **MT-58** (documentação do site). **Fases 13–17+** (mapa/stubs, ADR 0023–0028
-  reservadas) ainda não iniciadas.
+  `.agentryignore`, MT-52..54, `roadmap-v0.5.md`). **Fase 12 concluída inteira** (ADR-0021/0022,
+  config de task-class de ponta a ponta, MT-55..58, `roadmap-v0.6.md`) — o tema mais enfatizado
+  pelo usuário no planejamento original. **Fases 13–17+** (mapa/stubs, ADR 0023–0028
+  reservadas) ainda não iniciadas; a próxima (Fase 13) exige **preparação** (ADR + quebra em
+  micro-tickets) antes de qualquer implementação, conforme a seção 1 do comando de loop.
 
 ## Metas cumpridas / Em andamento / Próximo passo
 
@@ -676,13 +676,26 @@
   manual do `--init` real confirma JSON válido e uma tarefa *one-shot* contra Ollama real
   idêntica com o arquivo gerado presente. Nenhuma dependência nova.
 
+- [x] **MT-58** — `docs/usuario/configuracao.md`: nova seção `### taskClasses` (candidatos,
+  preset, defaults sintetizados, seleção via `--task-class`/`/task-class`, merge por nome sem
+  afrouxar egresso) e nova seção `## Convenção: todo bloco vem com exemplo` (ADR-0022);
+  exemplo JSON de "Estrutura do arquivo" ganha o bloco `taskClasses`. `docs/usuario/uso.md`
+  documenta `--task-class`/`/task-class` e a nota de que `/model` sempre atua sobre `chat`,
+  independente da task-class ativa (MT-56). Releitura ("nada ficou desatualizado") encontrou
+  um gap pré-existente desde o MT-50: `--provider`/`-p` e `/provider` nunca tinham sido
+  documentados nas tabelas de flags/comandos, apesar de já existirem no binário e de
+  `configuracao.md` já linkar para eles — corrigido junto. `mkdocs build --strict` limpo;
+  *anchors* de todos os *cross-links* novos conferidos direto no HTML gerado; JSON de exemplo
+  validado. Nenhuma mudança de código. **Fecha a Fase 12 inteira (MT-55..58)** — o tema mais
+  enfatizado pelo usuário no planejamento original.
+
 **Em andamento:** nada pendente no turno.
 
-**Próximo passo:** **MT-58** (`docs/roadmap-v0.6.md`, `docs/usuario/configuracao.md`,
-`docs/usuario/uso.md`) — documentação do site: seção `taskClasses` (candidatos, preset,
-seleção via `--task-class`/`/task-class`, defaults sintetizados) e nota sobre a convenção
-autoexplicativa (ADR-0022). Fecha a Fase 12 inteira. As Fases 13–17+ só como mapa; cada uma
-escreve sua ADR ao iniciar (subprocedimento do comando de loop). Outros itens em aberto, sem
+**Próximo passo:** **Fase 13** (`docs/roadmap-longo-prazo.md` — memória de projeto:
+`AGENTS.md`/`CLAUDE.md` + Skills, ADR-0023) — fase ainda **sem tickets detalhados**; a próxima
+iteração do loop deve **preparar a fase** primeiro (escrever a ADR-0023 completa, quebrar em
+micro-tickets num novo `docs/roadmap-v0.7.md`, atualizar `docs/adr/README.md` e a `nav` do
+`mkdocs.yml`), só então implementar. As Fases 14–17+ seguem só como mapa. Outros itens em aberto, sem
 ticket: deploy do site MkDocs (GitHub Pages) — decisão explícita do usuário de
 não fazer ainda; CI multi-SO ainda não observado verde (falta um push que dispare a matriz);
 backlog independente do `ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de
@@ -706,6 +719,7 @@ pendentes de validação de implementação).
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-15 | `5457f18` | MT-58: documentação do site — taskClasses + convenção autoexplicativa (fecha a Fase 12) | MT-58 |
 | 2026-07-15 | `efca5dd` | MT-57: exemplo --init enriquecido (taskClasses + auditoria de blocos, ADR-0022) | MT-57 |
 | 2026-07-15 | `45d56db` | MT-56: CLI consome task-classes reais + --task-class/`/task-class` (ADR-0021) | MT-56 |
 | 2026-07-15 | `8f0ba55` | MT-55: schema taskClasses em Config (ADR-0021) | MT-55 |
