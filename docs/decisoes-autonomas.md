@@ -27,6 +27,59 @@ escolha feita sozinho.
 
 ## Entradas (mais recente no topo)
 
+### 2026-07-15 — MT-72 (Fase 15, TUI) — auditoria descartada sob `--tui`, não redirecionada para um widget
+- **Contexto:** o smoke-test manual do MT-72 (`agentry --tui`, mensagem real via Ollama)
+  revelou que `StderrAuditSink`/o `impl GuardrailAuditSink` (ambos em `crates/cli/src/main.rs`,
+  MT-05/46) escrevem via `eprintln!` diretamente no terminal a cada chamada de rede — sob o
+  modo bruto/tela-alternativa do `crossterm` (ADR-0027), essa escrita cai por cima do buffer
+  que o `ratatui` está desenhando (ele não sabe da escrita, então não a repõe no próximo
+  `draw`), corrompendo a tela a cada turno. Não é um problema no REPL/one-shot (stderr
+  simplesmente intercala com a saída normal na mesma tty, sem "buffer" a violar).
+- **Opções consideradas:**
+  (a) redirecionar a auditoria para um *widget* de log dentro da própria TUI (painel dedicado,
+  rolável) quando `--tui` está ativo;
+  (b) descartar silenciosamente a auditoria (`NoopAuditSink`, novo tipo unitário implementando
+  `AuditSink`/`GuardrailAuditSink` como no-op) enquanto o modo TUI estiver ativo, preservando o
+  comportamento atual (stderr) para REPL/one-shot.
+- **Escolha (recomendada):** (b).
+- **Justificativa:** um *widget* de log é uma peça de UI nova, não pedida por nenhum ticket da
+  Fase 15 (MT-70..76) nem pela ADR-0027 — construí-la agora seria escopo além do objetivo do
+  MT-72 ("view de chat com streaming real"), violando a disciplina de não introduzir
+  funcionalidade além do *Objetivo* do ticket. Descartar é o comportamento correto enquanto não
+  existe onde mostrar a auditoria sem corromper a tela; a auditoria em si (rastreabilidade de
+  chamadas de rede, ADR-0002) continua ativa e correta no REPL/one-shot, os modos usados hoje
+  para qualquer fluxo que dependa de auditoria de verdade. Um *widget* de log fica anotado como
+  candidato de ticket futuro, condicionado a demanda real (YAGNI) — não uma lacuna esquecida.
+  Não afrouxa nenhuma garantia de segurança/egresso: a decisão de **permitir** ou **negar** uma
+  chamada de rede continua inteiramente no `Transport`/`Allowlist` (MT-05/07, ADR-0002),
+  inalterados; só o **registro** posterior da chamada já permitida deixa de ser impresso.
+- **Commit:** `<preenchido no commit de código do MT-72>`.
+
+### 2026-07-15 — MT-72 (Fase 15, TUI) — revisão dos *keybindings* de letra do MT-71 (`q`/`k`/`j`) para liberar a digitação
+- **Contexto:** o MT-71 (`docs/roadmap-v0.9.md`) havia fixado `q` (sair), `k`/`j` (rolar,
+  estilo vim) como alternativas às setas na tabela única de `crates/cli/src/tui/keybind.rs` —
+  nesse momento a TUI ainda não tinha nenhuma caixa de entrada de texto real, então não havia
+  ambiguidade. O MT-72 introduz a digitação de mensagens de verdade, e uma letra solta não pode
+  significar simultaneamente "ação fixa" (sair/rolar) e "caractere digitado" sem um modo
+  explícito (insert/normal, à la vim) — fora do escopo mínimo desta ticket.
+- **Opções consideradas:**
+  (a) introduzir um modo explícito (ex.: `Tab` alterna entre "navegação" e "digitação"), preservando os atalhos de letra do MT-71 dentro do modo de navegação;
+  (b) remover os atalhos de letra (`q`, `k`, `j`) da tabela `DEFINITIONS`, mantendo só teclas
+  que nunca colidem com texto digitado (`Ctrl+C` para sair — convenção universal de terminal,
+  inambígua mesmo com o campo de texto focado; setas para rolar).
+- **Escolha (recomendada):** (b).
+- **Justificativa:** um sistema de modos (a) é a escolha certa para um editor modal completo,
+  mas over-engineering para o escopo do MT-72 — nenhum ticket da Fase 15 pede navegação modal
+  estilo vim, e introduzir um conceito de modo agora obrigaria também a expor visualmente qual
+  modo está ativo (mais uma peça de UI não pedida). (b) resolve a ambiguidade com a mudança
+  mínima: `Ctrl+C` já é a convenção universal e inambígua de "sair" em qualquer aplicação de
+  terminal (funciona igual estando o campo de texto focado ou não), e setas nunca colidem com
+  texto digitado. Nenhuma regressão de segurança — a tabela de *keybindings* continua sem
+  conflito de tecla (mesmo teste do MT-71, `tabela_nao_tem_duas_acoes_para_a_mesma_tecla_default`,
+  ainda passa) e a garantia "tecla sem ação mapeada não é erro" (MT-71) se estende naturalmente
+  para "vira caractere digitado", não um estado de erro.
+- **Commit:** `<preenchido no commit de código do MT-72>`.
+
 ### 2026-07-15 — ADR-0023 (preparação da Fase 13) — parser de frontmatter de `SKILL.md` próprio, sem dependência YAML
 - **Contexto:** ADR-0023 (memória de projeto: `AGENTS.md`/`CLAUDE.md` + *progressive
   disclosure* de `SKILL.md`) precisa extrair `name`/`description` do frontmatter YAML de cada

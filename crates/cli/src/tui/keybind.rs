@@ -23,6 +23,9 @@ pub enum Action {
     ScrollUp,
     /// Rola o histórico de mensagens para baixo (mensagens mais recentes).
     ScrollDown,
+    /// Envia o conteúdo atual da caixa de entrada como mensagem do usuário
+    /// (MT-72).
+    Send,
 }
 
 /// Uma entrada da tabela de *keybindings*: ação, tecla *default* (com
@@ -39,13 +42,15 @@ pub struct KeyBinding {
 
 /// Tabela *default* de *keybindings* — a única fonte de verdade de
 /// tecla→ação consultada por [`resolve`].
+///
+/// **Revisão do MT-72** (registrada em `docs/decisoes-autonomas.md`): os
+/// atalhos de letra do MT-70/71 (`q` para sair, `k`/`j` para rolar) foram
+/// removidos daqui — a partir desta ticket existe uma caixa de entrada de
+/// texto real, e uma letra não pode significar simultaneamente "ação fixa"
+/// e "caractere digitado" sem um modo explícito (fora de escopo). `Ctrl+C`
+/// (não ambíguo, convenção universal de terminal) continua saindo em
+/// qualquer contexto; setas continuam rolando (não colidem com digitação).
 pub const DEFINITIONS: &[KeyBinding] = &[
-    KeyBinding {
-        action: Action::Quit,
-        code: KeyCode::Char('q'),
-        modifiers: KeyModifiers::NONE,
-        description: "sai do modo TUI",
-    },
     KeyBinding {
         action: Action::Quit,
         code: KeyCode::Char('c'),
@@ -59,22 +64,16 @@ pub const DEFINITIONS: &[KeyBinding] = &[
         description: "rola o histórico para cima",
     },
     KeyBinding {
-        action: Action::ScrollUp,
-        code: KeyCode::Char('k'),
-        modifiers: KeyModifiers::NONE,
-        description: "rola o histórico para cima",
-    },
-    KeyBinding {
         action: Action::ScrollDown,
         code: KeyCode::Down,
         modifiers: KeyModifiers::NONE,
         description: "rola o histórico para baixo",
     },
     KeyBinding {
-        action: Action::ScrollDown,
-        code: KeyCode::Char('j'),
+        action: Action::Send,
+        code: KeyCode::Enter,
         modifiers: KeyModifiers::NONE,
-        description: "rola o histórico para baixo",
+        description: "envia a mensagem digitada",
     },
 ];
 
@@ -154,9 +153,19 @@ mod tests {
 
     #[test]
     fn evento_de_release_e_ignorado_mesmo_para_tecla_mapeada() {
-        let mut evento = KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE);
+        let mut evento = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
         evento.kind = KeyEventKind::Release;
         assert_eq!(resolve(evento), None);
+    }
+
+    #[test]
+    fn letra_solta_sem_modificador_nunca_e_uma_acao_fixa() {
+        // MT-72: 'q'/'k'/'j' precisam ficar livres para a caixa de entrada
+        // de texto — só Ctrl+C sai, só setas rolam.
+        for c in ['q', 'k', 'j'] {
+            let evento = KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE);
+            assert_eq!(resolve(evento), None, "'{c}' não deveria ser uma ação fixa");
+        }
     }
 
     #[test]

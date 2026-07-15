@@ -3,15 +3,17 @@
 //!
 //! Monta configuração (MT-04), transporte+allowlist (MT-05/07), o `Router`
 //! com o provider Ollama (MT-08/09), o `ToolRegistry` com as tools de fs
-//! (MT-12) e shell (MT-13), e despacha para um dos dois modos:
+//! (MT-12) e shell (MT-13), e despacha para um dos três modos:
 //!
 //! - **One-shot** (`agentry "<tarefa>"`): roda um único turno (com o loop de
 //!   tool-calls interno de [`agentry_core::session::Session::run_streaming`])
 //!   e sai.
 //! - **REPL** (sem tarefa na invocação): entra em [`repl::run_repl`], que
 //!   aceita mensagens e comandos de barra até `/exit`/`/quit`/EOF.
+//! - **TUI** (`--tui`, ADR-0027): entra em [`tui::run`], que recebe a mesma
+//!   `Session`/`Router` já montados aqui — nenhuma construção duplicada.
 //!
-//! Em ambos os modos, as flags de override (`--model`, `--temperature`,
+//! Em todos os modos, as flags de override (`--model`, `--temperature`,
 //! `--top-p`, `--max-tokens`, `--system`, `--reasoning`) montam o
 //! [`RuntimeOverride`] inicial (ADR-0014/MT-33): no one-shot, vale só para
 //! aquela invocação (o processo roda uma vez e sai); no REPL, vira o estado
@@ -241,9 +243,9 @@ struct Args {
     task_class: Option<String>,
 
     /// Entra no modo TUI (`ratatui`, ADR-0027) em vez do REPL de texto —
-    /// *scaffold* mínimo nesta ticket (MT-70), sem integração com
-    /// `Session`/`Router` ainda (MT-72). Sem esta flag, o comportamento
-    /// one-shot/REPL existente continua inalterado.
+    /// mesma `Session`/`Router` da CLI, com *streaming* real (MT-72). Sem
+    /// esta flag, o comportamento one-shot/REPL existente continua
+    /// inalterado.
     #[arg(long, conflicts_with_all = ["init", "tarefa"])]
     tui: bool,
 }
@@ -329,6 +331,27 @@ impl GuardrailAuditSink for StderrAuditSink {
     fn record(&self, entry: GuardrailAuditEntry) {
         eprintln!("{entry}");
     }
+}
+
+/// Descarta toda entrada de auditoria — usado só no modo TUI (`--tui`,
+/// MT-72), nunca no one-shot/REPL. **Achado do smoke-test manual do
+/// MT-72:** um `eprintln!` direto no modo bruto/tela-alternativa do
+/// `crossterm` escreve por cima do buffer que o `ratatui` está desenhando
+/// (ele não sabe da escrita, então não a repõe no próximo `draw`),
+/// corrompendo a tela a cada chamada de rede — o efeito visual observado
+/// era literalmente cada requisição HTTP quebrando a UI. Persistência de
+/// auditoria dentro da própria TUI (um *widget* de log) fica para um
+/// ticket futuro, condicionado a demanda real (YAGNI) — descartar é o
+/// comportamento correto enquanto não existe onde mostrá-la sem corromper
+/// a tela.
+struct NoopAuditSink;
+
+impl AuditSink for NoopAuditSink {
+    fn record(&self, _entry: AuditEntry) {}
+}
+
+impl GuardrailAuditSink for NoopAuditSink {
+    fn record(&self, _entry: GuardrailAuditEntry) {}
 }
 
 /// Registra as 3 tools de contexto (`repo_map`, `code_search`,
@@ -449,6 +472,7 @@ type RegistroDeProvider = (Arc<dyn LlmProvider>, RouteTarget);
 fn build_litellm_provider(
     cfg: &Config,
     api_key: Option<&str>,
+    audit_sink: Arc<dyn AuditSink>,
 ) -> Result<Option<RegistroDeProvider>, String> {
     let Some(litellm) = &cfg.litellm else {
         return Ok(None);
@@ -461,7 +485,7 @@ fn build_litellm_provider(
         allowlist,
         cfg.egress_class,
         cfg.profile.map(|p| format!("{p:?}")),
-        Arc::new(StderrAuditSink),
+        audit_sink,
     );
     if let Some(chave) = api_key {
         transport = transport.with_header("Authorization", format!("Bearer {chave}"));
@@ -489,7 +513,7 @@ fn build_litellm_provider(
 /// com o coringa [`agentry_core::egress::allowlist::ANY_HOST`] exigindo
 /// `CloudOk` e o `User-Agent` genérico fixo (ADR-0025 — nunca o *default*
 /// do `reqwest`).
-fn build_web_fetch_tool(cfg: &Config) -> Option<WebFetchTool> {
+fn build_web_fetch_tool(cfg: &Config, audit_sink: Arc<dyn AuditSink>) -> Option<WebFetchTool> {
     use agentry_core::config::privacy::EgressClass;
 
     if !cfg.web_fetch_enabled || cfg.egress_class != EgressClass::CloudOk {
@@ -500,7 +524,7 @@ fn build_web_fetch_tool(cfg: &Config) -> Option<WebFetchTool> {
         allowlist,
         cfg.egress_class,
         cfg.profile.map(|p| format!("{p:?}")),
-        Arc::new(StderrAuditSink),
+        audit_sink,
     )
     .with_header("User-Agent", WEB_TOOL_USER_AGENT);
     Some(WebFetchTool::new(Arc::new(transport)))
@@ -512,7 +536,10 @@ fn build_web_fetch_tool(cfg: &Config) -> Option<WebFetchTool> {
 /// (mesmo padrão de [`build_litellm_provider`]) com a `Allowlist` do host
 /// único do endpoint (**sem** o coringa `ANY_HOST` do `web_fetch` — o host
 /// é conhecido) e o `User-Agent` genérico fixo.
-fn build_web_search_tool(cfg: &Config) -> Result<Option<WebSearchTool>, String> {
+fn build_web_search_tool(
+    cfg: &Config,
+    audit_sink: Arc<dyn AuditSink>,
+) -> Result<Option<WebSearchTool>, String> {
     let Some(web_search) = &cfg.web_search else {
         return Ok(None);
     };
@@ -524,7 +551,7 @@ fn build_web_search_tool(cfg: &Config) -> Result<Option<WebSearchTool>, String> 
         allowlist,
         cfg.egress_class,
         cfg.profile.map(|p| format!("{p:?}")),
-        Arc::new(StderrAuditSink),
+        audit_sink,
     )
     .with_header("User-Agent", WEB_TOOL_USER_AGENT);
     Ok(Some(WebSearchTool::new(
@@ -623,14 +650,6 @@ async fn main() {
         return;
     }
 
-    if args.tui {
-        tui::run().unwrap_or_else(|erro| {
-            eprintln!("erro: {erro}");
-            std::process::exit(1)
-        });
-        return;
-    }
-
     let overrides = overrides_from_args(&args).unwrap_or_else(|erro| {
         eprintln!("erro: {erro}");
         std::process::exit(2)
@@ -646,6 +665,20 @@ async fn main() {
         std::process::exit(2)
     });
 
+    // Sob `--tui`, `eprintln!` corrompe a tela alternativa do `crossterm`
+    // (achado do smoke-test manual do MT-72) — auditoria descartada nesse
+    // modo até existir um widget de log (ver doc de `NoopAuditSink`).
+    let audit_sink: Arc<dyn AuditSink> = if args.tui {
+        Arc::new(NoopAuditSink)
+    } else {
+        Arc::new(StderrAuditSink)
+    };
+    let guardrail_audit_sink: Arc<dyn GuardrailAuditSink> = if args.tui {
+        Arc::new(NoopAuditSink)
+    } else {
+        Arc::new(StderrAuditSink)
+    };
+
     let ollama_ip = args
         .ollama_host
         .split(':')
@@ -660,7 +693,7 @@ async fn main() {
         allowlist,
         cfg.egress_class,
         cfg.profile.map(|p| format!("{p:?}")),
-        Arc::new(StderrAuditSink),
+        Arc::clone(&audit_sink),
     ));
     let ollama = Arc::new(
         OllamaProvider::new(transport, format!("http://{}", args.ollama_host))
@@ -675,15 +708,16 @@ async fn main() {
     router.register_provider(ollama);
 
     let chave_litellm = std::env::var(LITELLM_API_KEY_ENV).ok();
-    let litellm_candidato = build_litellm_provider(&cfg, chave_litellm.as_deref())
-        .unwrap_or_else(|erro| {
-            eprintln!("erro de configuração: {erro}");
-            std::process::exit(2)
-        })
-        .map(|(provider, candidato)| {
-            router.register_provider(provider);
-            candidato
-        });
+    let litellm_candidato =
+        build_litellm_provider(&cfg, chave_litellm.as_deref(), Arc::clone(&audit_sink))
+            .unwrap_or_else(|erro| {
+                eprintln!("erro de configuração: {erro}");
+                std::process::exit(2)
+            })
+            .map(|(provider, candidato)| {
+                router.register_provider(provider);
+                candidato
+            });
 
     let modelo_inicial = args
         .model
@@ -754,10 +788,10 @@ async fn main() {
     registry.register(Arc::new(ShellBackgroundTool::new(ShellPolicy::new(vec![]))));
     registry.register(Arc::new(SkillTool::new(skills_descobertas.clone())));
     registry.register(Arc::new(AskUserTool::new(Arc::new(InteractivePrompter))));
-    if let Some(web_fetch) = build_web_fetch_tool(&cfg) {
+    if let Some(web_fetch) = build_web_fetch_tool(&cfg, Arc::clone(&audit_sink)) {
         registry.register(Arc::new(web_fetch));
     }
-    match build_web_search_tool(&cfg) {
+    match build_web_search_tool(&cfg, Arc::clone(&audit_sink)) {
         Ok(Some(web_search)) => registry.register(Arc::new(web_search)),
         Ok(None) => {}
         Err(erro) => {
@@ -784,7 +818,7 @@ async fn main() {
         .map(u64::from)
         .unwrap_or(DEFAULT_TOKEN_BUDGET);
     let mut session = Session::new(rota, executor, TokenBudget::new(budget))
-        .with_guardrails(Arc::new(cfg.guardrails), Arc::new(StderrAuditSink));
+        .with_guardrails(Arc::new(cfg.guardrails), guardrail_audit_sink);
     if cfg.agents_file_enabled {
         if let Some(instrucoes) = agentry_core::project_instructions::load_project_instructions(
             &workspace_root,
@@ -798,7 +832,12 @@ async fn main() {
         session = session.with_skills_list(lista_de_skills);
     }
 
-    if let Some(tarefa) = args.tarefa {
+    if args.tui {
+        tui::run(session, router).await.unwrap_or_else(|erro| {
+            eprintln!("erro: {erro}");
+            std::process::exit(1)
+        });
+    } else if let Some(tarefa) = args.tarefa {
         session.push_user_message(tarefa);
         streaming::stream_to_writer(&mut session, io::stdout(), &router)
             .await
@@ -1208,7 +1247,7 @@ mod tests {
     #[test]
     fn ausencia_de_providers_litellm_preserva_comportamento_atual_none() {
         let cfg = Config::resolve(vec![Settings::default()]);
-        assert!(build_litellm_provider(&cfg, None)
+        assert!(build_litellm_provider(&cfg, None, Arc::new(NoopAuditSink))
             .expect("ausência de litellm não é erro")
             .is_none());
     }
@@ -1219,7 +1258,7 @@ mod tests {
             r#"{ "baseUrl": "https://litellm.minhaempresa.com", "model": "empresa/gpt-30b", "egressClass": "cloud-opt-out" }"#,
         );
 
-        let (provider, candidato) = build_litellm_provider(&cfg, None)
+        let (provider, candidato) = build_litellm_provider(&cfg, None, Arc::new(NoopAuditSink))
             .expect("configuração válida não é erro")
             .expect("providers.litellm completo deve montar Some");
 
@@ -1236,7 +1275,7 @@ mod tests {
     fn litellm_com_base_url_invalida_e_erro_tratado() {
         let cfg = cfg_com_litellm(r#"{ "baseUrl": "não-é-uma-url", "model": "m" }"#);
 
-        match build_litellm_provider(&cfg, None) {
+        match build_litellm_provider(&cfg, None, Arc::new(NoopAuditSink)) {
             Err(erro) => assert!(erro.contains("baseUrl")),
             Ok(_) => panic!("base_url sem host deve ser erro"),
         }
@@ -1444,7 +1483,7 @@ mod tests {
         let cfg = cfg_com_web_fetch(true, "pessoal");
         assert_eq!(cfg.egress_class, EgressClass::CloudOk);
 
-        assert!(build_web_fetch_tool(&cfg).is_some());
+        assert!(build_web_fetch_tool(&cfg, Arc::new(NoopAuditSink)).is_some());
     }
 
     #[test]
@@ -1453,7 +1492,7 @@ mod tests {
         assert_eq!(cfg.egress_class, EgressClass::LocalOnly);
 
         assert!(
-            build_web_fetch_tool(&cfg).is_none(),
+            build_web_fetch_tool(&cfg, Arc::new(NoopAuditSink)).is_none(),
             "tools.webFetch.enabled=true sozinho não deve bastar sob perfil local-only"
         );
     }
@@ -1464,7 +1503,7 @@ mod tests {
         assert_eq!(cfg.egress_class, EgressClass::CloudOk);
 
         assert!(
-            build_web_fetch_tool(&cfg).is_none(),
+            build_web_fetch_tool(&cfg, Arc::new(NoopAuditSink)).is_none(),
             "egress_class=CloudOk sozinho não deve bastar sem o opt-in explícito"
         );
     }
@@ -1472,7 +1511,7 @@ mod tests {
     #[test]
     fn ausencia_de_tools_web_fetch_preserva_comportamento_atual_desabilitada() {
         let cfg = Config::resolve(vec![Settings::default()]);
-        assert!(build_web_fetch_tool(&cfg).is_none());
+        assert!(build_web_fetch_tool(&cfg, Arc::new(NoopAuditSink)).is_none());
     }
 
     // --- MT-66: tool web_search só quando searxngUrl declarada (ADR-0025) ---
@@ -1481,7 +1520,7 @@ mod tests {
     fn ausencia_de_searxng_url_preserva_comportamento_atual_nao_registrada() {
         let cfg = Config::resolve(vec![Settings::default()]);
 
-        assert!(build_web_search_tool(&cfg)
+        assert!(build_web_search_tool(&cfg, Arc::new(NoopAuditSink))
             .expect("ausência não deve ser erro")
             .is_none());
     }
@@ -1494,7 +1533,7 @@ mod tests {
         .expect("JSON de teste deve ser válido");
         let cfg = Config::resolve(vec![camada]);
 
-        assert!(build_web_search_tool(&cfg)
+        assert!(build_web_search_tool(&cfg, Arc::new(NoopAuditSink))
             .expect("URL válida não deve ser erro")
             .is_some());
     }
@@ -1507,6 +1546,6 @@ mod tests {
         .expect("JSON de teste deve ser válido");
         let cfg = Config::resolve(vec![camada]);
 
-        assert!(build_web_search_tool(&cfg).is_err());
+        assert!(build_web_search_tool(&cfg, Arc::new(NoopAuditSink)).is_err());
     }
 }
