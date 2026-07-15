@@ -54,7 +54,7 @@ nesta fase** — decisão explícita da ADR-0023 (parser de frontmatter próprio
   `agentry-core`) precisa montar o mesmo `Gitignore` para passar a
   `load_project_instructions`, e `pub(crate)` não cruza fronteira de crate.
 
-### MT-60: Descoberta de `SKILL.md` + lista compacta no *system prompt*
+### MT-60: Descoberta de `SKILL.md` + lista compacta no *system prompt* ✅ concluído
 - **Objetivo:** novo módulo `crates/core/src/skills.rs`: `SkillDescriptor { name,
   description, path }`; `discover_skills(root: &Path, ignore: &Gitignore) -> Vec<SkillDescriptor>`
   varre `<root>/.claude/skills/*/SKILL.md` (um nível de subdiretórios, sem recursão) e extrai
@@ -80,6 +80,12 @@ nesta fase** — decisão explícita da ADR-0023 (parser de frontmatter próprio
 - **Fora de escopo:** ativação/gatilho de skill via tool (MT-61); parser YAML genérico
   (decisão explícita da ADR-0023 — não revisitar aqui).
 - **Depende de:** ADR-0023 · MT-59 (reaproveita o hook de injeção de mensagem de sistema).
+- **Nota de implementação:** descoberto durante a escrita do teste da *fixture* real — o
+  literal Rust escapado com continuação de linha (`\` no fim da linha) **remove os espaços de
+  indentação** do início da linha seguinte, destruindo a indentação do bloco dobrado que o
+  teste precisava preservar; corrigido usando *raw string* (`r#"..."#`) para a *fixture*, que
+  preserva o texto exatamente como escrito. Achado de sintaxe do Rust, não do parser em si (o
+  parser estava correto; o dado de teste que o alimentava estava malformado).
 
 ### MT-61: Tool `skill` — carrega o corpo completo sob demanda
 - **Objetivo:** `SkillTool` (novo, `crates/core/src/tools/skill.rs`), implementando `Tool`
