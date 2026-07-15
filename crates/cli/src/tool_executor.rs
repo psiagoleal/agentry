@@ -14,6 +14,7 @@ use std::sync::Arc;
 use agentry_core::model::{ToolCall, ToolResult};
 use agentry_core::provider::BoxFuture;
 use agentry_core::session::ToolExecutor;
+use agentry_core::tools::ask_user::Prompter;
 use agentry_core::tools::{ExecutionOutcome, ToolRegistry};
 
 /// Pergunta ao usuário se uma chamada de tool sob `ask` pode rodar.
@@ -45,6 +46,46 @@ impl Confirmer for InteractiveConfirmer {
                 linha.trim().to_lowercase().as_str(),
                 "s" | "sim" | "y" | "yes"
             )
+        })
+    }
+}
+
+/// Formata a pergunta e, se houver, as sugestões numeradas — extraída para
+/// ser testável sem depender de `stdin`/`stdout` reais (MT-64).
+fn formata_pergunta(question: &str, options: &[String]) -> String {
+    if options.is_empty() {
+        format!("{question} ")
+    } else {
+        let lista = options
+            .iter()
+            .enumerate()
+            .map(|(indice, opcao)| format!("  {}. {opcao}", indice + 1))
+            .collect::<Vec<_>>()
+            .join("\n");
+        format!("{question}\n{lista}\nResposta: ")
+    }
+}
+
+/// Implementação real de [`Prompter`] (`agentry_core::tools::ask_user`,
+/// MT-63/ADR-0024): imprime a pergunta (e sugestões numeradas, se houver) e
+/// lê uma linha de `stdin` — mesmo padrão síncrono de
+/// [`InteractiveConfirmer`], sem *parsing*/validação da resposta. Funciona
+/// tanto no modo *one-shot* quanto no REPL, sem distinção — mesma raiz de
+/// código dos dois modos.
+pub struct InteractivePrompter;
+
+impl Prompter for InteractivePrompter {
+    fn ask(&self, question: &str, options: &[String]) -> BoxFuture<'_, String> {
+        let prompt = formata_pergunta(question, options);
+        Box::pin(async move {
+            print!("{prompt}");
+            let _ = std::io::stdout().flush();
+
+            let mut linha = String::new();
+            if std::io::stdin().read_line(&mut linha).is_err() {
+                return String::new();
+            }
+            linha.trim().to_string()
         })
     }
 }
@@ -173,5 +214,31 @@ mod tests {
         let resultado = executor.execute(&call("dummy")).await;
 
         assert!(resultado.is_error);
+    }
+
+    // --- MT-64: formatação da pergunta/sugestões do InteractivePrompter ---
+
+    #[test]
+    fn formata_pergunta_sem_opcoes_e_so_a_pergunta() {
+        let saida = formata_pergunta("qual cor?", &[]);
+
+        assert_eq!(saida, "qual cor? ");
+    }
+
+    #[test]
+    fn formata_pergunta_com_opcoes_numera_cada_uma() {
+        let saida = formata_pergunta(
+            "qual cor?",
+            &[
+                "azul".to_string(),
+                "verde".to_string(),
+                "vermelho".to_string(),
+            ],
+        );
+
+        assert_eq!(
+            saida,
+            "qual cor?\n  1. azul\n  2. verde\n  3. vermelho\nResposta: "
+        );
     }
 }

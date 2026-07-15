@@ -43,6 +43,7 @@ use agentry_core::provider::LlmProvider;
 use agentry_core::router::{CallPreset, RouteEntry, RouteTarget, Router, RuntimeOverride};
 use agentry_core::session::{Session, TokenBudget, ToolExecutor};
 use agentry_core::state_dir;
+use agentry_core::tools::ask_user::AskUserTool;
 use agentry_core::tools::code_search::{register_code_search_tool, CodeSearchSession};
 use agentry_core::tools::fs::{FsEditTool, FsReadTool, FsSearchTool, FsWriteTool};
 use agentry_core::tools::lsp::{register_lsp_tools, LspSession};
@@ -54,7 +55,7 @@ use agentry_core::tools::ToolRegistry;
 use agentry_core::transport::{host_from_url, AuditSink, Transport};
 
 use repl::parse_bool_toggle;
-use tool_executor::{InteractiveConfirmer, RegistryToolExecutor};
+use tool_executor::{InteractiveConfirmer, InteractivePrompter, RegistryToolExecutor};
 
 /// Modelo Ollama usado quando `--model` não é informado.
 const DEFAULT_MODEL: &str = "llama3.1:8b";
@@ -675,6 +676,7 @@ async fn main() {
     // shell fica bloqueado por padrão (default-deny da `ShellPolicy`, MT-13).
     registry.register(Arc::new(ShellTool::new(ShellPolicy::new(vec![]))));
     registry.register(Arc::new(SkillTool::new(skills_descobertas.clone())));
+    registry.register(Arc::new(AskUserTool::new(Arc::new(InteractivePrompter))));
 
     register_context_tools(
         &mut registry,
