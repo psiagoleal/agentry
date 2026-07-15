@@ -128,7 +128,7 @@ espalhada por documentação gerada por IA); o `OpenCode` real resolve os dois l
 `ai-coding-agent-profiles` continua distribuindo `.claudeignore` sem mudança por enquanto
 (migração daquele lado é item futuro).
 
-### MT-52: Renomear para `.agentryignore` com fallback de compatibilidade
+### MT-52: Renomear para `.agentryignore` com fallback de compatibilidade — ✅ concluído (`d742265`)
 - **Objetivo:** as três tools que já reconhecem `.claudeignore` (`fs`, `repo_map`,
   `code_search`) passam a procurar `.agentryignore` primeiro; se ausente, caem para
   `.claudeignore` (sem erro — comportamento atual preservado). Se os dois existirem no

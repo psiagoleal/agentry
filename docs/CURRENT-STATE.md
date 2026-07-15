@@ -9,15 +9,13 @@
 
 - **Data:** 2026-07-15
 - **Branch:** `main`
-- **Commit:** `c8cf8a8`
-- **Fase:** Roadmap v0.1..v0.4 **fechados/imutáveis**; **Fase 10 concluída** (LiteLLM,
-  `roadmap-v0.5.md`). **Planejamento de longo prazo registrado** (`docs/roadmap-longo-prazo.md`,
-  Fases 11–17+). **Infraestrutura de execução autônoma pronta** (`c8cf8a8`): comando de loop
-  `.claude/commands/implementar-roadmap.md` + log de decisões `docs/decisoes-autonomas.md`.
-  Fases abertas, sem código: **Fase 11** (ADR-0020, `.agentryignore` — MT-52..54) e **Fase 12**
-  (ADR-0021/0022, config de task-class — MT-55..58, detalhada em `roadmap-v0.6.md`).
-  Fases 13–17+ só como mapa/stubs de ADR (0023–0028 reservadas). **Próxima ação: iniciar o
-  loop no modelo Sonnet 5.**
+- **Commit:** `d742265`
+- **Fase:** Roadmap v0.1..v0.4 **fechados/imutáveis**; **Fase 10 concluída** (LiteLLM).
+  **Execução autônoma em andamento** (`/loop /implementar-roadmap`, modelo Sonnet 5) — ver
+  `docs/decisoes-autonomas.md` para decisões tomadas sozinho. **Fase 11** (ADR-0020,
+  `.agentryignore`, `roadmap-v0.5.md`): **MT-52 concluído**; faltam MT-53 (`context.gitignore`)
+  e MT-54 (docs). **Fase 12** (ADR-0021/0022, config de task-class, `roadmap-v0.6.md`,
+  MT-55..58) e **Fases 13–17+** (mapa/stubs, ADR 0023–0028 reservadas) ainda não iniciadas.
 
 ## Metas cumpridas / Em andamento / Próximo passo
 
@@ -565,15 +563,32 @@
   atualizados; `mkdocs build --strict` limpo. Faixa ADR-0023..0028 reservada (arquivos
   escritos ao iniciar cada fase). Nenhum código — planejamento (`de46792`). Plan file:
   `~/.claude/plans/majestic-gathering-codd.md`.
+- [x] **Infraestrutura de execução autônoma** (`.claude/commands/implementar-roadmap.md` +
+  `docs/decisoes-autonomas.md`) — ver detalhes no turno anterior do handoff/histórico
+  (`c8cf8a8`).
+- [x] **MT-52** (execução autônoma via `/loop`, modelo Sonnet 5) — `resolve_ignore_file_name`
+  centralizada em `crates/core/src/tools/mod.rs`: `.agentryignore` checado primeiro,
+  *fallback* para `.claudeignore` quando ausente; se os dois existirem, `.agentryignore`
+  vence **sozinho** (nunca merge, ADR-0020 §2). As três tools (`fs`/`repo_map`/
+  `code_search`) — que tinham a mesma constante `.claudeignore` triplicada — passam a
+  chamar a função compartilhada. 7 testes novos/renomeados (`resolve_ignore_file_name` nos
+  4 cenários de precedência; `fs`/`repo_map` ganham o caso `.agentryignore` sozinho e o
+  caso "os dois presentes"; o teste antigo virou o caso de *fallback* legado). 275 testes
+  na lib do core (268+7) + 4 de integração + 36 na CLI, fmt/clippy limpos, `cargo build
+  --release` verde. Smoke-test do binário real sem regressão (sem Ollama disponível pra
+  exercitar uma tool-call completa; cobertura de unidade já exercita o caminho de produção
+  diretamente). Nenhuma decisão-sob-dúvida neste ticket — escopo objetivo, sem registro em
+  `decisoes-autonomas.md` (`d742265`).
 
-**Em andamento:** nada pendente no turno.
+**Em andamento:** Fase 11 (MT-53 é o próximo).
 
-**Próximo passo:** duas fases prontas para executar, ordem à escolha do usuário (independentes,
-mexem em arquivos diferentes): **Fase 11** (MT-52/53/54, `.agentryignore`, ADR-0020) ou
-**Fase 12** (MT-55, `TaskClassSettings` em `crates/core/src/config/mod.rs`; depois MT-56..58,
-ADR-0021/0022) — Fase 12 é a que o usuário mais enfatizou (config de task-class + exemplos
-comentados). As Fases 13–17+ só como mapa; cada uma escreve sua ADR ao iniciar. Outros itens
-em aberto, sem ticket: deploy do site MkDocs (GitHub Pages) — decisão explícita do usuário de
+**Próximo passo:** **MT-53** (`docs/roadmap-v0.5.md` — schema `context.gitignore`, *default*
+`false`, respeito opcional a `.gitignore` em união com `.agentryignore`/legado, nunca
+substituindo; `crates/core/src/config/mod.rs` + as três tools). Depois MT-54 (documentação),
+fechando a Fase 11. Fase 12 (config de task-class — a mais enfatizada pelo usuário) segue
+depois, independente. As Fases 13–17+ só como mapa; cada uma escreve sua ADR ao iniciar
+(subprocedimento do comando de loop). Outros itens em aberto, sem ticket: deploy do site
+MkDocs (GitHub Pages) — decisão explícita do usuário de
 não fazer ainda; CI multi-SO ainda não observado verde (falta um push que dispare a matriz);
 backlog independente do `ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de
 reanálise de maturidade, perfis base+overlay/skills executáveis/config de serviços
@@ -596,6 +611,7 @@ pendentes de validação de implementação).
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-15 | `d742265` | MT-52: renomeia para .agentryignore com fallback de compatibilidade | MT-52 |
 | 2026-07-15 | `c8cf8a8` | chore(loop): infraestrutura de execução autônoma do roadmap | — |
 | 2026-07-14 | `de46792` | docs(roadmap): planejamento de longo prazo (Fases 11–17+); ADR-0021/0022 | — |
 | 2026-07-14 | `3f908bf` | docs(roadmap): marca MT-51 concluído; Fase 10 completa | — |
