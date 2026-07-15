@@ -9,12 +9,13 @@
 
 - **Data:** 2026-07-14
 - **Branch:** `main`
-- **Commit:** `3f908bf`
-- **Fase:** Roadmap v0.1/v0.2/v0.3/v0.4 **fechados/imutáveis**. `docs/roadmap-v0.5.md`:
-  **Fase 10 concluída** (ADR-0006, conexão com LiteLLM — MT-48/49/50/51 todos prontos); a
-  **Fase 11** (ADR-0020, `.agentryignore` + `context.gitignore.enabled`) segue aberta, só a
-  ADR registrada ainda,
-  nenhum código (MT-52..54 não iniciados).
+- **Commit:** `de46792`
+- **Fase:** Roadmap v0.1..v0.4 **fechados/imutáveis**; **Fase 10 concluída** (LiteLLM,
+  `roadmap-v0.5.md`). **Planejamento de longo prazo registrado** (`docs/roadmap-longo-prazo.md`,
+  Fases 11–17+) rumo à paridade com Claude Code CLI/OpenCode. Fases abertas, sem código:
+  **Fase 11** (ADR-0020, `.agentryignore` — MT-52..54) e **Fase 12** (ADR-0021/0022, config
+  de task-class + convenção autoexplicativa — MT-55..58, detalhada em `roadmap-v0.6.md`).
+  Fases 13–17+ só como mapa/stubs de ADR (0023–0028 reservadas).
 
 ## Metas cumpridas / Em andamento / Próximo passo
 
@@ -546,16 +547,33 @@
   (`#providerslitellm`, `#flags-de-invocacao-one-shot`) conferidos direto no HTML gerado,
   não por suposição (`9c5e495`). **Fecha a Fase 10 inteira** (MT-48..51) — roadmap marcado
   concluído (`3f908bf`).
+- [x] **Planejamento de longo prazo** (a pedido do usuário — roadmap rumo à paridade com
+  Claude Code CLI/OpenCode, englobando a Fase 11 e os temas tools/TUI + os que levantei).
+  Feito em **plan mode** (aprovado). Decisões do usuário (via `AskUserQuestion`): profundidade
+  = roadmap-mestre + stubs de ADR + títulos de ticket, 1ª fase detalhada; sequência = Config →
+  AGENTS.md/Skills → Tools → TUI → MCP → 2ª onda; SearXNG = desabilitado até o usuário
+  configurar a URL. Requisitos específicos incorporados: tool **AskUser** (Fase 14, precedente
+  = trait `Confirmer`), **web search anônimo via SearXNG configurável** (Fase 14, passa pelo
+  `Transport`), **config de task-class completa** (Fase 12 — hoje o `Router` suporta mas a CLI
+  hardcoda; `compact`/`guardrail-compliance` nem são registradas), **todo config com
+  default+comentário+exemplos** (ADR-0022). Novos: `docs/roadmap-longo-prazo.md` (mapa Fases
+  11–17+, supersede o esboço v0.2/v0.3 de `architecture.md`), `docs/roadmap-v0.6.md` (Fase 12
+  detalhada, MT-55..58), `docs/adr/0021` (schema task-class, Proposed), `docs/adr/0022`
+  (convenção autoexplicativa, Proposed). `adr/README.md` + `architecture.md` + `mkdocs.yml`
+  atualizados; `mkdocs build --strict` limpo. Faixa ADR-0023..0028 reservada (arquivos
+  escritos ao iniciar cada fase). Nenhum código — planejamento (`de46792`). Plan file:
+  `~/.claude/plans/majestic-gathering-codd.md`.
 
 **Em andamento:** nada pendente no turno.
 
-**Próximo passo:** nenhum ticket aberto na Fase 10 (concluída). **Fase 11** completa
-(MT-52/53/54, `.agentryignore` + `context.gitignore.enabled`, ADR-0020) — nenhum código
-ainda; próximo passo natural se o usuário quiser continuar o roadmap. Outros itens em
-aberto, sem ticket: deploy do site MkDocs (GitHub Pages)
-— decisão explícita do usuário de não fazer ainda, retomar quando pedido; CI multi-SO
-ainda não observado verde (falta um push que dispare a matriz); backlog independente do
-`ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de
+**Próximo passo:** duas fases prontas para executar, ordem à escolha do usuário (independentes,
+mexem em arquivos diferentes): **Fase 11** (MT-52/53/54, `.agentryignore`, ADR-0020) ou
+**Fase 12** (MT-55, `TaskClassSettings` em `crates/core/src/config/mod.rs`; depois MT-56..58,
+ADR-0021/0022) — Fase 12 é a que o usuário mais enfatizou (config de task-class + exemplos
+comentados). As Fases 13–17+ só como mapa; cada uma escreve sua ADR ao iniciar. Outros itens
+em aberto, sem ticket: deploy do site MkDocs (GitHub Pages) — decisão explícita do usuário de
+não fazer ainda; CI multi-SO ainda não observado verde (falta um push que dispare a matriz);
+backlog independente do `ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de
 reanálise de maturidade, perfis base+overlay/skills executáveis/config de serviços
 pendentes de validação de implementação).
 
@@ -576,6 +594,7 @@ pendentes de validação de implementação).
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-14 | `de46792` | docs(roadmap): planejamento de longo prazo (Fases 11–17+); ADR-0021/0022 | — |
 | 2026-07-14 | `3f908bf` | docs(roadmap): marca MT-51 concluído; Fase 10 completa | — |
 | 2026-07-14 | `9c5e495` | MT-51: documentação do site reflete o LiteLLM (fecha a Fase 10) | MT-51 |
 | 2026-07-14 | `95406c1` | docs: exemplo gerado por --init ganha _comentario por bloco | — |
