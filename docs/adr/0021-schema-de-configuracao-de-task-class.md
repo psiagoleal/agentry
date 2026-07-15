@@ -2,7 +2,7 @@
 
 # ADR 0021: Schema de configuração de task-class (rotas e presets configuráveis)
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Data:** 2026-07-14
 - **Decisores:** Iago Leal (mantenedor)
 - **Tags:** configuração, roteamento, egresso, task-class

@@ -11,7 +11,8 @@ Cada fase abaixo lista **objetivo**, **ADR(s) necessária(s)** e a **primeira le
 micro-tickets** (título + objetivo de uma linha). Seguindo a disciplina do projeto
 (`skill adr-writer` / `micro-ticket-planner`): a **ADR completa e os tickets detalhados de
 cada fase são escritos quando a fase começa**, promovidos para um `roadmap-vX.Y.md`
-versionado. Só a **Fase 12** (a próxima) já está detalhada — ver `docs/roadmap-v0.6.md`.
+versionado. **Fase 12** está concluída (`docs/roadmap-v0.6.md`); **Fase 13** (a próxima) já
+está detalhada — ver `docs/roadmap-v0.7.md`.
 
 > Convenções de DoD, granularidade e "dependência nova exige ADR (ADR-0004)": iguais às dos
 > roadmaps versionados (`docs/roadmap-v0.1.md` §Convenções).
@@ -62,13 +63,15 @@ contexto de sistema (o papel do `CLAUDE.md` no Claude Code) e a carregar **`SKIL
 Fecha o item que mantém a **ADR-0003 `Proposed`** (consumo dos artefatos do `profiles`) e dá
 ao agente memória de projeto persistente.
 
-**ADR necessária:** ADR-0023 (leitura de AGENTS.md + progressive disclosure de SKILL.md) —
-*stub reservado, arquivo escrito ao iniciar a fase*. Ao concluir, ADR-0003 → `Accepted`.
+**ADR:** ADR-0023 (leitura de AGENTS.md + progressive disclosure de SKILL.md) — **escrita**.
+Decisões centrais: `AGENTS.md` primário / `CLAUDE.md` *fallback* (nunca merge, mesma
+precedência do ADR-0020); ambos concatenados numa única mensagem de sistema junto do preset
+da `task-class`; `.claude/skills/*/SKILL.md` reaproveitado verbatim (compatibilidade direta
+com convenção já existente do Claude Code); frontmatter via **parser próprio, sem dependência
+YAML nova** (decisão registrada em `docs/decisoes-autonomas.md`); skill completa carregada só
+sob demanda via nova tool `skill`. Ao concluir, ADR-0003 → `Accepted`.
 
-- **MT-59:** loader de `AGENTS.md`/`CLAUDE.md` → mensagem de sistema no início da sessão.
-- **MT-60:** descoberta de `SKILL.md` (frontmatter) + progressive disclosure.
-- **MT-61:** gatilho/ativação de skill dentro do agent loop.
-- **MT-62:** documentação; ADR-0003 promovida a `Accepted`.
+**Detalhamento completo:** `docs/roadmap-v0.7.md` (MT-59..62).
 
 ## Fase 14 — Tools essenciais (ADR-0024, ADR-0025, ADR-0026)
 

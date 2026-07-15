@@ -26,12 +26,12 @@ Registros de decisões estruturais (ver skill `adr-writer`). Use
 | [0017](0017-diretorio-de-estado-local-do-agente.md) | Diretório de estado local por projeto (`.agentry/`) para memória, histórico e índices | Accepted |
 | [0018](0018-artefato-e-schema-minimo-de-configuracao-do-agentry.md) | Artefato e schema mínimo de configuração do `agentry` (`agentry.settings.json`) | Accepted |
 | [0019](0019-bootstrap-de-agentry-settings-json-via-init.md) | Bootstrap de `.agentry/agentry.settings.json` via `--init`/`/init` | Accepted |
-| [0020](0020-agentryignore-com-respeito-opcional-a-gitignore.md) | Arquivo `.agentryignore` (renomeando `.claudeignore`) com respeito opcional a `.gitignore` | Proposed |
-| [0021](0021-schema-de-configuracao-de-task-class.md) | Schema de configuração de task-class (rotas e presets configuráveis) | Proposed |
-| [0022](0022-convencao-de-configuracao-autoexplicativa.md) | Convenção de configuração autoexplicativa (`_comentario` obrigatório) | Proposed |
+| [0020](0020-agentryignore-com-respeito-opcional-a-gitignore.md) | Arquivo `.agentryignore` (renomeando `.claudeignore`) com respeito opcional a `.gitignore` | Accepted |
+| [0021](0021-schema-de-configuracao-de-task-class.md) | Schema de configuração de task-class (rotas e presets configuráveis) | Accepted |
+| [0022](0022-convencao-de-configuracao-autoexplicativa.md) | Convenção de configuração autoexplicativa (`_comentario` obrigatório) | Accepted |
+| [0023](0023-memoria-de-projeto-agents-md-e-skills.md) | Memória de projeto: leitura de `AGENTS.md`/`CLAUDE.md` + *progressive disclosure* de `SKILL.md` | Proposed |
 
-> **Faixa reservada (roadmap de longo prazo, `docs/roadmap-longo-prazo.md`):** ADR-0023
-> (AGENTS.md + Skills, Fase 13), ADR-0024 (tool AskUser, Fase 14), ADR-0025 (web tools /
-> SearXNG, Fase 14), ADR-0026 (Glob + shell background, Fase 14), ADR-0027 (TUI / `ratatui`,
-> Fase 15), ADR-0028 (MCP client / `rmcp`, Fase 16). O arquivo de cada uma é escrito ao
-> iniciar sua fase (ADR com contexto fresco).
+> **Faixa reservada (roadmap de longo prazo, `docs/roadmap-longo-prazo.md`):** ADR-0024 (tool
+> AskUser, Fase 14), ADR-0025 (web tools / SearXNG, Fase 14), ADR-0026 (Glob + shell
+> background, Fase 14), ADR-0027 (TUI / `ratatui`, Fase 15), ADR-0028 (MCP client / `rmcp`,
+> Fase 16). O arquivo de cada uma é escrito ao iniciar sua fase (ADR com contexto fresco).

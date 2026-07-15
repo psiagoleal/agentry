@@ -2,7 +2,7 @@
 
 # ADR 0020: Arquivo `.agentryignore` (renomeando `.claudeignore`) com respeito opcional a `.gitignore`
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Data:** 2026-07-14
 - **Decisores:** Iago Leal (mantenedor)
 - **Tags:** contexto, privacidade, interop, configuração

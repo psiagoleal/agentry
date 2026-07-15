@@ -2,7 +2,7 @@
 
 # ADR 0022: Convenção de configuração autoexplicativa (`_comentario` obrigatório)
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Data:** 2026-07-14
 - **Decisores:** Iago Leal (mantenedor)
 - **Tags:** configuração, usabilidade, documentação, convenção

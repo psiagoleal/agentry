@@ -27,6 +27,31 @@ escolha feita sozinho.
 
 ## Entradas (mais recente no topo)
 
+### 2026-07-15 — ADR-0023 (preparação da Fase 13) — parser de frontmatter de `SKILL.md` próprio, sem dependência YAML
+- **Contexto:** ADR-0023 (memória de projeto: `AGENTS.md`/`CLAUDE.md` + *progressive
+  disclosure* de `SKILL.md`) precisa extrair `name`/`description` do frontmatter YAML de cada
+  `SKILL.md` descoberto (delimitado por `---`), incluindo o estilo de bloco dobrado (`>-`)
+  usado nos `SKILL.md` reais deste projeto (ex.: `.claude/skills/adr-writer/SKILL.md`).
+- **Opções consideradas:**
+  (a) adotar uma dependência de parser YAML (ex.: `serde_yaml` ou `saphyr`) para interpretar o
+  frontmatter de forma genérica e robusta a qualquer sintaxe YAML válida;
+  (b) escrever um parser próprio, mínimo, cobrindo só o subconjunto realmente usado por
+  `SKILL.md` neste ecossistema — duas chaves de string fixas (`name`/`description`), incluindo
+  o bloco dobrado `>-` — sem tentar cobrir YAML arbitrário (listas, mapas aninhados, âncoras,
+  tipos numéricos/booleanos).
+- **Escolha (recomendada):** (b).
+- **Justificativa:** o schema do frontmatter de `SKILL.md` é fixo, pequeno e conhecido —
+  trazer um parser YAML genérico traria uma superfície de API/manutenção desproporcional ao
+  problema, além de ser uma **dependência de runtime nova**, que o próprio comando de loop
+  trata como gatilho de parada dura quando decidida durante *implementação* (não durante
+  preparação de fase). Decidir agora, na ADR, por um parser mínimo evita completamente esse
+  gatilho — mesmo espírito de MT-06 (redação de segredos sem regex) e do casamento de
+  guardrail por substring (ADR-0007), que já evitam dependência nova para problemas estreitos
+  e bem definidos deste projeto. O trade-off aceito (frontmatter fora do subconjunto suportado
+  falha de forma tratada, não silenciosa) é proporcional ao ganho de continuar com árvore de
+  dependências auditável (ADR-0001).
+- **Commit:** a registrar junto com o commit da ADR-0023.
+
 ### 2026-07-15 — MT-55 (Fase 12, `taskClasses`) — `Config` não sintetiza defaults de task-class
 - **Contexto:** o ticket MT-55 (`docs/roadmap-v0.6.md`) pedia que, quando `taskClasses` não
   declarar `chat`/`compact`/`guardrail-compliance`, o `Config` (`crates/core/src/config/mod.rs`)
