@@ -19,7 +19,9 @@
 //! SO (`sh -c` em Unix, `cmd /C` no Windows — portabilidade, ADR-0005), sem
 //! sandbox real.
 
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 
 use crate::provider::BoxFuture;
 use crate::tools::{Tool, ToolOutput};
@@ -187,6 +189,246 @@ impl Tool for ShellTool {
     }
 }
 
+/// Teto de tamanho do buffer de saída acumulada de um processo em segundo
+/// plano (MT-68, ADR-0026) — um `watch`/`dev server` que nunca é
+/// consultado não pode crescer sem limite na memória do processo
+/// `agentry`. Ao exceder, o conteúdo mais **antigo** é descartado (mantém
+/// o mais recente, mais útil para diagnóstico de um processo vivo).
+const MAX_BUFFER_CHARS: usize = 50_000;
+
+/// Descarta o conteúdo mais antigo de `buffer` até caber em `max_chars` —
+/// função pura, extraída de [`acumula_stream`] para ser testável sem
+/// depender de I/O assíncrona real.
+fn aplica_teto(buffer: &mut String, max_chars: usize) {
+    let excesso = buffer.chars().count().saturating_sub(max_chars);
+    if excesso > 0 {
+        *buffer = buffer.chars().skip(excesso).collect();
+    }
+}
+
+/// Monta o comando via o interpretador do SO — mesma lógica de
+/// [`SystemCommandRunner`] (`sh -c` em Unix, `cmd /C` no Windows,
+/// ADR-0005); duplicada aqui (não reaproveita [`CommandRunner`]) porque a
+/// execução em segundo plano precisa configurar `stdout`/`stderr` como
+/// *pipes* e nunca chamar `.output()` (que esperaria o processo terminar)
+/// — um contrato diferente o suficiente para não valer a pena forçar na
+/// mesma abstração.
+fn monta_comando(command: &str) -> tokio::process::Command {
+    let mut cmd = if cfg!(target_os = "windows") {
+        let mut c = tokio::process::Command::new("cmd");
+        c.args(["/C", command]);
+        c
+    } else {
+        let mut c = tokio::process::Command::new("sh");
+        c.args(["-c", command]);
+        c
+    };
+    cmd.stdout(std::process::Stdio::piped());
+    cmd.stderr(std::process::Stdio::piped());
+    // Rede de segurança (mesmo espírito do `Drop` do `LspClient`, MT-23):
+    // se o processo `agentry` terminar sem que `stop` tenha sido chamado
+    // para este processo em segundo plano, o tokio manda o sinal de morte
+    // quando o `Child` é derrubado — best-effort, não cobre um
+    // `std::process::exit` que pule os destrutores.
+    cmd.kill_on_drop(true);
+    cmd
+}
+
+/// Lê `leitor` continuamente, acumulando em `buffer` (aplicando o teto de
+/// tamanho a cada leitura) até o fluxo fechar (processo terminou) ou falhar.
+async fn acumula_stream<R>(mut leitor: R, buffer: Arc<Mutex<String>>)
+where
+    R: tokio::io::AsyncRead + Unpin,
+{
+    use tokio::io::AsyncReadExt;
+    let mut chunk = [0u8; 4096];
+    loop {
+        let lidos = match leitor.read(&mut chunk).await {
+            Ok(0) | Err(_) => break,
+            Ok(n) => n,
+        };
+        let texto = String::from_utf8_lossy(&chunk[..lidos]).into_owned();
+        let mut guarda = buffer
+            .lock()
+            .expect("mutex do buffer de background não deve envenenar");
+        guarda.push_str(&texto);
+        aplica_teto(&mut guarda, MAX_BUFFER_CHARS);
+    }
+}
+
+/// Um processo em segundo plano rastreado — `child` só é usado para
+/// `stop` (matar); a leitura de saída nunca toca `child` diretamente, só o
+/// `buffer` compartilhado (preenchido por tarefas separadas via
+/// [`acumula_stream`]).
+struct ProcessoEmBackground {
+    child: tokio::process::Child,
+    buffer: Arc<Mutex<String>>,
+}
+
+/// Tool `shell_background` (MT-68, ADR-0026): shell de longa duração (`dev
+/// server`/`watch`) — `start` spawna sem esperar terminar; `output` lê o
+/// que foi acumulado desde a última consulta, sem bloquear esperando o
+/// processo terminar; `stop` finaliza.
+///
+/// Sob a **mesma** [`ShellPolicy`] de `shell_exec` (MT-13) — rodar em
+/// segundo plano nunca contorna a política *default-deny* de comando;
+/// não é uma política paralela mais permissiva.
+pub struct ShellBackgroundTool {
+    policy: ShellPolicy,
+    processos: Arc<Mutex<HashMap<String, ProcessoEmBackground>>>,
+    proximo_id: AtomicU64,
+}
+
+impl ShellBackgroundTool {
+    /// Cria a tool com a política dada (mesmo tipo de `ShellTool`).
+    #[must_use]
+    pub fn new(policy: ShellPolicy) -> Self {
+        Self {
+            policy,
+            processos: Arc::new(Mutex::new(HashMap::new())),
+            proximo_id: AtomicU64::new(1),
+        }
+    }
+
+    async fn iniciar(&self, command: &str) -> ToolOutput {
+        if !self.policy.is_allowed(command) {
+            return ToolOutput::error(format!(
+                "comando bloqueado por política (default-deny, MT-13): '{command}'"
+            ));
+        }
+
+        let mut child = match monta_comando(command).spawn() {
+            Ok(child) => child,
+            Err(erro) => {
+                return ToolOutput::error(format!(
+                    "falha ao iniciar processo em segundo plano: {erro}"
+                ))
+            }
+        };
+        let pid = child.id().unwrap_or(0);
+
+        let buffer = Arc::new(Mutex::new(String::new()));
+        if let Some(stdout) = child.stdout.take() {
+            tokio::spawn(acumula_stream(stdout, Arc::clone(&buffer)));
+        }
+        if let Some(stderr) = child.stderr.take() {
+            tokio::spawn(acumula_stream(stderr, Arc::clone(&buffer)));
+        }
+
+        let id = format!("bg-{}", self.proximo_id.fetch_add(1, Ordering::SeqCst));
+        self.processos
+            .lock()
+            .expect("mutex de processos em segundo plano não deve envenenar")
+            .insert(id.clone(), ProcessoEmBackground { child, buffer });
+
+        ToolOutput::ok(format!(
+            "processo em segundo plano iniciado, id={id}, pid={pid}"
+        ))
+    }
+
+    fn ler_saida(&self, id: &str) -> ToolOutput {
+        let processos = self
+            .processos
+            .lock()
+            .expect("mutex de processos em segundo plano não deve envenenar");
+        let Some(processo) = processos.get(id) else {
+            return ToolOutput::error(format!("nenhum processo em segundo plano com id='{id}'"));
+        };
+        let mut guarda = processo
+            .buffer
+            .lock()
+            .expect("mutex do buffer de background não deve envenenar");
+        let texto = std::mem::take(&mut *guarda);
+        drop(guarda);
+        if texto.is_empty() {
+            ToolOutput::ok("(sem saída nova desde a última consulta)".to_string())
+        } else {
+            ToolOutput::ok(texto)
+        }
+    }
+
+    async fn parar(&self, id: &str) -> ToolOutput {
+        let processo = self
+            .processos
+            .lock()
+            .expect("mutex de processos em segundo plano não deve envenenar")
+            .remove(id);
+        let Some(mut processo) = processo else {
+            return ToolOutput::error(format!("nenhum processo em segundo plano com id='{id}'"));
+        };
+        match processo.child.kill().await {
+            Ok(()) => ToolOutput::ok(format!("processo '{id}' finalizado")),
+            Err(erro) => ToolOutput::error(format!("erro ao finalizar processo '{id}': {erro}")),
+        }
+    }
+}
+
+impl Tool for ShellBackgroundTool {
+    fn name(&self) -> &str {
+        "shell_background"
+    }
+
+    fn description(&self) -> &str {
+        "Roda um comando de shell em segundo plano (ex.: dev server/watch), sem bloquear o \
+         agente. action='start' inicia e devolve um id; action='output' (com esse id) lê a \
+         saída acumulada desde a última consulta, sem esperar o processo terminar; \
+         action='stop' finaliza o processo. Sob a mesma política default-deny de shell_exec."
+    }
+
+    fn input_schema(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["start", "output", "stop"],
+                    "description": "Ação a executar."
+                },
+                "command": {
+                    "type": "string",
+                    "description": "Comando a rodar (obrigatório só para action='start')."
+                },
+                "id": {
+                    "type": "string",
+                    "description": "Identificador do processo (obrigatório para action='output'/'stop')."
+                }
+            },
+            "required": ["action"]
+        })
+    }
+
+    fn execute(&self, arguments: serde_json::Value) -> BoxFuture<'_, ToolOutput> {
+        Box::pin(async move {
+            let Some(action) = arguments.get("action").and_then(|v| v.as_str()) else {
+                return ToolOutput::error("argumento 'action' obrigatório e deve ser string");
+            };
+            match action {
+                "start" => {
+                    let Some(command) = arguments.get("command").and_then(|v| v.as_str()) else {
+                        return ToolOutput::error("action='start' exige o argumento 'command'");
+                    };
+                    self.iniciar(command).await
+                }
+                "output" => {
+                    let Some(id) = arguments.get("id").and_then(|v| v.as_str()) else {
+                        return ToolOutput::error("action='output' exige o argumento 'id'");
+                    };
+                    self.ler_saida(id)
+                }
+                "stop" => {
+                    let Some(id) = arguments.get("id").and_then(|v| v.as_str()) else {
+                        return ToolOutput::error("action='stop' exige o argumento 'id'");
+                    };
+                    self.parar(id).await
+                }
+                outro => ToolOutput::error(format!(
+                    "action desconhecida: '{outro}' (use start/output/stop)"
+                )),
+            }
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -194,7 +436,6 @@ mod tests {
     use crate::model::ToolCall;
     use crate::tools::permission::PermissionGate;
     use crate::tools::{ExecutionOutcome, ToolRegistry};
-    use std::sync::Mutex;
 
     /// Executor de teste: nunca toca o SO de verdade; grava os comandos
     /// recebidos e devolve uma saída fixa — prova que "bloqueado" significa
@@ -309,5 +550,215 @@ mod tests {
 
         assert!(!saida.is_error);
         assert!(saida.content.contains("agentry-mt13"));
+    }
+
+    // --- MT-68: tool shell_background (ADR-0026) ---
+
+    fn extrai_campo<'a>(texto: &'a str, chave: &str) -> &'a str {
+        texto
+            .split(", ")
+            .find_map(|parte| parte.split_once('=').filter(|(k, _)| *k == chave))
+            .map(|(_, v)| v)
+            .unwrap_or_else(|| panic!("campo '{chave}' não encontrado em '{texto}'"))
+    }
+
+    fn processo_existe(pid: u32) -> bool {
+        #[cfg(unix)]
+        {
+            // `kill -0` só testa existência do processo, não mata nada;
+            // stderr silenciado — "No such process" é o resultado esperado
+            // depois do `stop`. Mesmo padrão de `crates/core/tests/lsp_client.rs`
+            // (MT-23) para provar que um `stop`/`Drop` matou o processo de
+            // verdade, não só devolveu sucesso.
+            std::process::Command::new("kill")
+                .args(["-0", &pid.to_string()])
+                .stderr(std::process::Stdio::null())
+                .status()
+                .is_ok_and(|status| status.success())
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = pid;
+            false
+        }
+    }
+
+    #[test]
+    fn aplica_teto_descarta_o_conteudo_mais_antigo_quando_excede() {
+        let mut buffer = "x".repeat(MAX_BUFFER_CHARS + 100);
+
+        aplica_teto(&mut buffer, MAX_BUFFER_CHARS);
+
+        assert_eq!(buffer.chars().count(), MAX_BUFFER_CHARS);
+    }
+
+    #[test]
+    fn aplica_teto_nao_mexe_quando_dentro_do_limite() {
+        let mut buffer = "abc".to_string();
+
+        aplica_teto(&mut buffer, MAX_BUFFER_CHARS);
+
+        assert_eq!(buffer, "abc");
+    }
+
+    #[tokio::test]
+    async fn start_bloqueado_por_shell_policy_nunca_spawna_nem_avanca_o_contador() {
+        let policy = ShellPolicy::new(vec!["echo".into()]);
+        let tool = ShellBackgroundTool::new(policy);
+
+        let bloqueado = tool
+            .execute(serde_json::json!({ "action": "start", "command": "sleep 30" }))
+            .await;
+        assert!(bloqueado.is_error);
+
+        let permitido = tool
+            .execute(serde_json::json!({ "action": "start", "command": "echo oi" }))
+            .await;
+        assert!(!permitido.is_error);
+        assert_eq!(
+            extrai_campo(&permitido.content, "id"),
+            "bg-1",
+            "a tentativa bloqueada não deve ter avançado o contador nem inserido nada no registro"
+        );
+
+        let id = extrai_campo(&permitido.content, "id").to_string();
+        let _ = tool
+            .execute(serde_json::json!({ "action": "stop", "id": id }))
+            .await;
+    }
+
+    #[tokio::test]
+    async fn start_permitido_devolve_um_id() {
+        let policy = ShellPolicy::new(vec!["echo".into()]);
+        let tool = ShellBackgroundTool::new(policy);
+
+        let saida = tool
+            .execute(serde_json::json!({ "action": "start", "command": "echo oi" }))
+            .await;
+
+        assert!(!saida.is_error);
+        assert!(saida.content.contains("id=bg-"));
+
+        let id = extrai_campo(&saida.content, "id").to_string();
+        let _ = tool
+            .execute(serde_json::json!({ "action": "stop", "id": id }))
+            .await;
+    }
+
+    #[tokio::test]
+    async fn start_nao_bloqueia_ate_o_processo_terminar() {
+        let policy = ShellPolicy::new(vec!["sleep".into()]);
+        let tool = ShellBackgroundTool::new(policy);
+
+        let inicio = std::time::Instant::now();
+        let saida = tool
+            .execute(serde_json::json!({ "action": "start", "command": "sleep 5" }))
+            .await;
+        let decorrido = inicio.elapsed();
+
+        assert!(!saida.is_error);
+        assert!(
+            decorrido < std::time::Duration::from_secs(2),
+            "start deveria devolver quase imediatamente, sem esperar o comando terminar \
+             (levou {decorrido:?})"
+        );
+
+        let id = extrai_campo(&saida.content, "id").to_string();
+        let _ = tool
+            .execute(serde_json::json!({ "action": "stop", "id": id }))
+            .await;
+    }
+
+    #[tokio::test]
+    async fn output_devolve_a_saida_acumulada_e_drena_a_cada_consulta() {
+        let policy = ShellPolicy::new(vec!["echo".into()]);
+        let tool = ShellBackgroundTool::new(policy);
+
+        let inicio = tool
+            .execute(serde_json::json!({ "action": "start", "command": "echo agentry-mt68" }))
+            .await;
+        assert!(!inicio.is_error);
+        let id = extrai_campo(&inicio.content, "id").to_string();
+
+        // Dá tempo à tarefa de leitura em segundo plano capturar a saída —
+        // `ler_saida` em si nunca espera o processo terminar, só lê o
+        // buffer já preenchido por `acumula_stream`.
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+
+        let saida1 = tool
+            .execute(serde_json::json!({ "action": "output", "id": id.clone() }))
+            .await;
+        assert!(!saida1.is_error);
+        assert!(saida1.content.contains("agentry-mt68"));
+
+        let saida2 = tool
+            .execute(serde_json::json!({ "action": "output", "id": id.clone() }))
+            .await;
+        assert!(
+            saida2.content.contains("sem saída nova"),
+            "segunda consulta deve vir vazia -- a primeira já drenou o buffer"
+        );
+
+        let _ = tool
+            .execute(serde_json::json!({ "action": "stop", "id": id }))
+            .await;
+    }
+
+    #[tokio::test]
+    async fn stop_finaliza_o_processo_de_fato() {
+        let policy = ShellPolicy::new(vec!["sleep".into()]);
+        let tool = ShellBackgroundTool::new(policy);
+
+        let inicio = tool
+            .execute(serde_json::json!({ "action": "start", "command": "sleep 30" }))
+            .await;
+        assert!(!inicio.is_error);
+        let pid: u32 = extrai_campo(&inicio.content, "pid").parse().unwrap();
+        let id = extrai_campo(&inicio.content, "id").to_string();
+
+        let parado = tool
+            .execute(serde_json::json!({ "action": "stop", "id": id }))
+            .await;
+        assert!(!parado.is_error);
+
+        // Dá tempo ao SO reaproveitar o PID antes de checar.
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        assert!(
+            !processo_existe(pid),
+            "processo deveria ter sido finalizado de fato pelo stop"
+        );
+    }
+
+    #[tokio::test]
+    async fn id_desconhecido_em_output_ou_stop_e_erro_tratado_sem_panic() {
+        let tool = ShellBackgroundTool::new(ShellPolicy::default());
+
+        let saida_output = tool
+            .execute(serde_json::json!({ "action": "output", "id": "bg-999" }))
+            .await;
+        assert!(saida_output.is_error);
+
+        let saida_stop = tool
+            .execute(serde_json::json!({ "action": "stop", "id": "bg-999" }))
+            .await;
+        assert!(saida_stop.is_error);
+    }
+
+    #[tokio::test]
+    async fn action_desconhecida_e_erro_tratado() {
+        let tool = ShellBackgroundTool::new(ShellPolicy::default());
+
+        let saida = tool.execute(serde_json::json!({ "action": "voar" })).await;
+
+        assert!(saida.is_error);
+    }
+
+    #[tokio::test]
+    async fn action_start_sem_command_e_erro_tratado() {
+        let tool = ShellBackgroundTool::new(ShellPolicy::default());
+
+        let saida = tool.execute(serde_json::json!({ "action": "start" })).await;
+
+        assert!(saida.is_error);
     }
 }

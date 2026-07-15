@@ -50,7 +50,7 @@ use agentry_core::tools::glob::GlobTool;
 use agentry_core::tools::lsp::{register_lsp_tools, LspSession};
 use agentry_core::tools::permission::PermissionGate;
 use agentry_core::tools::repo_map::{register_repo_map_tool, RepoMapTool};
-use agentry_core::tools::shell::{ShellPolicy, ShellTool};
+use agentry_core::tools::shell::{ShellBackgroundTool, ShellPolicy, ShellTool};
 use agentry_core::tools::skill::SkillTool;
 use agentry_core::tools::web_fetch::{WebFetchTool, WEB_TOOL_USER_AGENT};
 use agentry_core::tools::web_search::WebSearchTool;
@@ -735,6 +735,7 @@ async fn main() {
     // Sem padrões de `allow` configuráveis ainda (fora de escopo do MT-14):
     // shell fica bloqueado por padrão (default-deny da `ShellPolicy`, MT-13).
     registry.register(Arc::new(ShellTool::new(ShellPolicy::new(vec![]))));
+    registry.register(Arc::new(ShellBackgroundTool::new(ShellPolicy::new(vec![]))));
     registry.register(Arc::new(SkillTool::new(skills_descobertas.clone())));
     registry.register(Arc::new(AskUserTool::new(Arc::new(InteractivePrompter))));
     if let Some(web_fetch) = build_web_fetch_tool(&cfg) {
