@@ -9,7 +9,7 @@
 
 - **Data:** 2026-07-14
 - **Branch:** `main`
-- **Commit:** `ed0988c`
+- **Commit:** `95406c1`
 - **Fase:** Roadmap v0.1/v0.2/v0.3/v0.4 **fechados/imutáveis**. `docs/roadmap-v0.5.md` tem
   duas fases abertas: **Fase 10** (ADR-0006, conexão com LiteLLM) — **MT-48/49/50
   concluídos**, falta só **MT-51** (site MkDocs) pra fechar a fase inteira; e a **Fase 11**
@@ -509,6 +509,25 @@
   também que, com essa declaração explícita, a conexão é tentada de verdade. 36 testes na
   CLI (35+1), 268 na lib do core + 4 de integração, fmt/clippy limpos, `cargo build
   --release` verde. Nenhuma dependência nova (`ed0988c`).
+- [x] **Config autoexplicativa via `_comentario`** — usuário pediu exemplos detalhados +
+  comentários e perguntou sobre migrar o formato inteiro pra TOML (nativo em comentários).
+  Investigado antes de decidir (mesmo protocolo do `.agentryignore`): o
+  `ai-coding-agent-profiles` já distribui `.agentry/agentry.settings.json` real em JSON,
+  com ferramenta de merge não-destrutivo própria pra JSON
+  (`update_json_settings()`/`hybrid_json` em `scripts/setup-profile.sh`) — trocar de
+  formato quebraria essa ferramenta e criaria dois formatos coexistindo (`--init` genérico
+  em TOML vs. `--init --profile`, que continuaria vindo em JSON de lá). **Achado
+  decisivo:** os arquivos reais dos 3 perfis já usam uma chave `_comentario` (prefixo `_`,
+  ignorada pelo parser real — `Settings` não usa `deny_unknown_fields`) exatamente pra
+  esse propósito — convenção já estabelecida no ecossistema, não uma invenção nova.
+  Decisão do usuário: manter JSON, estender essa convenção a cada bloco do
+  `GENERIC_SETTINGS_EXAMPLE` (topo, `permissions`, `context`, `providers`,
+  `providers.litellm`, `guardrails`). Zero mudança de comportamento (chaves `_` já eram
+  ignoradas antes), nenhum ADR novo (consumo de convenção já registrada do lado
+  `profiles`, não decisão arquitetural nova). Suíte inalterada — o teste que valida o
+  exemplo como JSON válido/todo campo `null` inerte continua verde. 36 testes na CLI, 268
+  na lib do core + 4 de integração, fmt/clippy limpos, `cargo build --release` verde.
+  Pacote Windows (`dist/`) regenerado com o exemplo atualizado (`95406c1`).
 
 **Em andamento:** nada pendente no turno.
 
@@ -542,6 +561,7 @@ pendentes de validação de implementação).
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-14 | `95406c1` | docs: exemplo gerado por --init ganha _comentario por bloco | — |
 | 2026-07-14 | `ed0988c` | fix: agentry.settings.json gerado por --init mostra todo campo configurável | — |
 | 2026-07-14 | `0a0897a` | build: Makefile para cross-compile Windows + empacotamento em zip | — |
 | 2026-07-14 | `4aee255` | MT-50: flag --provider e comando /provider (ADR-0014/MT-49) | MT-50 |
