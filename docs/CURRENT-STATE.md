@@ -7,15 +7,17 @@
 
 ## Último turno
 
-- **Data:** 2026-07-14
+- **Data:** 2026-07-15
 - **Branch:** `main`
-- **Commit:** `de46792`
+- **Commit:** `c8cf8a8`
 - **Fase:** Roadmap v0.1..v0.4 **fechados/imutáveis**; **Fase 10 concluída** (LiteLLM,
   `roadmap-v0.5.md`). **Planejamento de longo prazo registrado** (`docs/roadmap-longo-prazo.md`,
-  Fases 11–17+) rumo à paridade com Claude Code CLI/OpenCode. Fases abertas, sem código:
-  **Fase 11** (ADR-0020, `.agentryignore` — MT-52..54) e **Fase 12** (ADR-0021/0022, config
-  de task-class + convenção autoexplicativa — MT-55..58, detalhada em `roadmap-v0.6.md`).
-  Fases 13–17+ só como mapa/stubs de ADR (0023–0028 reservadas).
+  Fases 11–17+). **Infraestrutura de execução autônoma pronta** (`c8cf8a8`): comando de loop
+  `.claude/commands/implementar-roadmap.md` + log de decisões `docs/decisoes-autonomas.md`.
+  Fases abertas, sem código: **Fase 11** (ADR-0020, `.agentryignore` — MT-52..54) e **Fase 12**
+  (ADR-0021/0022, config de task-class — MT-55..58, detalhada em `roadmap-v0.6.md`).
+  Fases 13–17+ só como mapa/stubs de ADR (0023–0028 reservadas). **Próxima ação: iniciar o
+  loop no modelo Sonnet 5.**
 
 ## Metas cumpridas / Em andamento / Próximo passo
 
@@ -594,6 +596,7 @@ pendentes de validação de implementação).
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-15 | `c8cf8a8` | chore(loop): infraestrutura de execução autônoma do roadmap | — |
 | 2026-07-14 | `de46792` | docs(roadmap): planejamento de longo prazo (Fases 11–17+); ADR-0021/0022 | — |
 | 2026-07-14 | `3f908bf` | docs(roadmap): marca MT-51 concluído; Fase 10 completa | — |
 | 2026-07-14 | `9c5e495` | MT-51: documentação do site reflete o LiteLLM (fecha a Fase 10) | MT-51 |
