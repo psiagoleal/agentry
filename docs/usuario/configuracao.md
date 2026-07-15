@@ -79,6 +79,19 @@ nunca cai silenciosamente no exemplo genérico. O mesmo comando existe dentro do
     "output": [
       { "id": "mascara-email-interno", "match": "@minhaempresa.com", "action": "redact" }
     ]
+  },
+  "taskClasses": {
+    "chat": {
+      "candidates": [
+        { "provider": "ollama", "model": "llama3.1:8b", "egressClass": "local-only" }
+      ]
+    },
+    "revisao-em-nuvem": {
+      "candidates": [
+        { "provider": "litellm", "model": "empresa/gpt-30b", "egressClass": "cloud-ok" }
+      ],
+      "preset": { "temperature": 0.2 }
+    }
   }
 }
 ```
@@ -180,6 +193,64 @@ autenticação continuam funcionando normalmente).
 Ver [Guardrails de conteúdo](guardrails.md) — regras de bloqueio/mascaramento determinístico
 aplicadas antes de qualquer mensagem ir ao modelo, e sobre a resposta antes dela voltar para
 você.
+
+### `taskClasses`
+
+O `agentry` roteia cada tipo de tarefa por uma **task-class**: um nome (`chat`, `compact`,
+ou qualquer nome que você declarar) que mapeia para uma lista ordenada de **candidatos**
+(provider + modelo + classe de egresso) e um **preset** de parâmetros de chamada. Este é o
+mecanismo central de roteamento multi-modelo por privacidade do projeto — antes desta versão,
+só existia uma rota fixa (`chat`, sempre Ollama); agora qualquer task-class é configurável.
+
+```jsonc
+"taskClasses": {
+  "revisao-em-nuvem": {
+    "candidates": [
+      { "provider": "litellm", "model": "empresa/gpt-30b", "egressClass": "cloud-ok" },
+      { "provider": "ollama", "model": "llama3.1:8b", "egressClass": "local-only" }
+    ],
+    "preset": { "temperature": 0.2, "maxTokens": 4096 }
+  }
+}
+```
+
+- **`candidates`** — lista **ordenada** por preferência; o Router escolhe o primeiro cujo
+  candidato tem `egressClass` permitida pelo perfil ativo **e** cujo provider está registrado
+  (`ollama` sempre está; `litellm` só se [`providers.litellm`](#providerslitellm) estiver
+  configurado). Um candidato indisponível (provider não registrado, ou classe de egresso
+  insuficiente) é **pulado silenciosamente** — só falha se nenhum candidato da lista servir.
+- **`preset`** — mesmos campos das flags de override (`temperature`, `topP`, `maxTokens`,
+  `systemPrompt`, `reasoning`), aplicados por padrão a qualquer chamada nessa task-class.
+
+**Defaults sintetizados (zero-config idêntico):** se você não declara `taskClasses` no
+arquivo, a CLI sintetiza internamente `chat` (Ollama local), `compact` (usada por
+[`/compact`](uso.md#comandos-de-barra-repl)) e `guardrail-compliance` (reservada para
+auditoria semântica) — o comportamento continua exatamente igual ao de uma instalação sem
+este bloco. Declarar `chat` no arquivo **sobrescreve** o default sintetizado desse nome;
+declarar qualquer outro nome (como `revisao-em-nuvem` acima) **adiciona** uma task-class nova,
+sem remover as demais.
+
+**Seleção por invocação:** `chat` é a task-class usada por padrão (modo *one-shot* e REPL). A
+flag [`--task-class <nome>`](uso.md#flags-de-invocacao-one-shot) e o comando
+[`/task-class <nome>`](uso.md#comandos-de-barra-repl) escolhem outra task-class **já
+declarada** para aquela invocação — mesmo padrão de override de `--provider`/`--model`: nunca
+introduz um candidato novo, só escolhe entre os já configurados; nome desconhecido ou
+candidato indisponível é erro tratado, nunca *panic*.
+
+**Merge entre camadas:** por nome de task-class — uma task-class nova é adicionada; o mesmo
+nome em duas camadas resolve com a camada mais específica vencendo campo a campo em
+`candidates`/`preset`. A classe de egresso de um candidato **nunca é afrouxada** por merge
+(mesma disciplina fail-closed das demais listas de configuração do `agentry`).
+
+## Convenção: todo bloco vem com exemplo
+
+O arquivo gerado por `--init`/`/init` segue uma regra simples: **todo campo configurável já
+aparece no arquivo**, com um valor padrão funcional (ou `null` explícito, se ficar inerte até
+você preencher) e uma chave `_comentario` explicando o bloco — geralmente com um ou mais
+exemplos de valores alternativos, prontos para copiar e ajustar. Você nunca precisa ler o
+código-fonte para descobrir que campo existe ou qual é a sintaxe esperada. `_comentario` é
+ignorada pelo `agentry` (qualquer chave começando com `_` é) — existe só para leitura humana,
+e é seguro apagá-la do seu arquivo depois de configurar.
 
 ## Flags de linha de comando
 

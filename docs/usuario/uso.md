@@ -35,11 +35,13 @@ modelo alterado para: llama3.1:70b
 | Flag | Efeito |
 |---|---|
 | `-m, --model <nome>` | Modelo a usar nesta invocação (sobrescreve o *default*). |
+| `-p, --provider <nome>` | Provider a usar nesta invocação — `ollama` (padrão) ou `litellm`, se [`providers.litellm`](configuracao.md#providerslitellm) estiver configurado. Restringe a escolha aos candidatos já declarados na rota; nome fora dela é erro tratado. |
 | `--temperature <n>` | Temperatura de amostragem. |
 | `--top-p <n>` | *Top-p* (*nucleus sampling*). |
 | `--max-tokens <n>` | Limite de tokens de saída. |
 | `--system <texto>` | *System prompt* desta invocação. |
 | `--reasoning on\|off` | Raciocínio estendido, se o modelo suportar. |
+| `--task-class <nome>` | Task-class a usar nesta invocação — ver [`taskClasses`](configuracao.md#taskclasses). *Default*: `chat`. |
 | `--ollama-host <host:porta>` | Servidor Ollama a usar (*default*: `127.0.0.1:11434`). |
 | `--init` | Cria `.agentry/agentry.settings.json` e sai (ver [Configuração](configuracao.md)). |
 | `--profile <nome>` | Com `--init`: busca a configuração real daquele perfil. |
@@ -47,6 +49,7 @@ modelo alterado para: llama3.1:70b
 ```bash
 agentry --model llama3.1:70b --temperature 0.2 "revise este diff"
 agentry --ollama-host 127.0.0.1:11435 "..."   # outra porta/instância do Ollama
+agentry --task-class revisao-em-nuvem "revise a segurança deste diff"
 ```
 
 ## Comandos de barra (REPL)
@@ -56,17 +59,25 @@ seguintes, até ser trocado de novo:
 
 | Comando | Efeito |
 |---|---|
-| `/model <nome>` | Troca de modelo a partir da próxima mensagem. |
+| `/model <nome>` | Troca de modelo a partir da próxima mensagem — sempre na task-class `chat`, mesmo que `/task-class` tenha trocado a task-class ativa para outra (ver nota abaixo). |
+| `/provider <nome>` | Restringe a task-class ativa ao candidato deste provider (`ollama`/`litellm`). |
 | `/temperature <n>` | Ajusta a temperatura. |
 | `/top_p <n>` (ou `/top-p`) | Ajusta o *top-p*. |
 | `/max_tokens <n>` (ou `/max-tokens`) | Ajusta o limite de tokens de saída. |
 | `/system <texto>` | Atualiza o *system prompt* a partir da próxima mensagem. |
 | `/reasoning on\|off` | Liga/desliga raciocínio estendido. |
+| `/task-class <nome>` | Troca a task-class ativa (rota + preset) a partir da próxima mensagem — ver [`taskClasses`](configuracao.md#taskclasses). |
 | `/compact` | Resume o histórico da sessão numa única mensagem — reduz o consumo de tokens em conversas longas. |
 | `/init` (ou `/init <perfil>`) | Cria `.agentry/agentry.settings.json` sem sair do REPL. |
 | `/exit` (ou `/quit`) | Encerra o REPL. |
 
 Qualquer outra linha é tratada como mensagem de usuário.
+
+**`/model` e `/task-class` são independentes:** `/model` sempre redeclara a task-class `chat`
+com o modelo pedido (via Ollama), mesmo que você tenha trocado para outra task-class com
+`/task-class` — trocar de modelo dentro de uma task-class customizada (ex.: uma que só usa
+LiteLLM) não é suportado nesta versão. Se você está numa task-class diferente de `chat` e
+quer voltar a ajustar o modelo Ollama, use `/task-class chat` primeiro.
 
 ## O que esperar da resposta
 
