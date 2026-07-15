@@ -9,7 +9,7 @@
 
 - **Data:** 2026-07-15
 - **Branch:** `main`
-- **Commit:** `384899b`
+- **Commit:** `eb9c518`
 - **Fase:** Roadmap v0.1..v0.4 **fechados/imutáveis**; **Fase 10 concluída** (LiteLLM).
   **Execução autônoma em andamento** (`/loop /implementar-roadmap`, modelo Sonnet 5) — ver
   `docs/decisoes-autonomas.md` para decisões tomadas sozinho (**2 decisões registradas**:
@@ -17,11 +17,11 @@
   `SKILL.md` próprio em vez de dependência YAML). **Fase 11 concluída inteira** (ADR-0020,
   `.agentryignore`, MT-52..54, `roadmap-v0.5.md`). **Fase 12 concluída inteira** (ADR-0021/0022,
   config de task-class de ponta a ponta, MT-55..58, `roadmap-v0.6.md`) — o tema mais enfatizado
-  pelo usuário no planejamento original. **Fase 13 preparada** (ADR-0023 escrita, `Proposed`;
-  micro-tickets detalhados em `docs/roadmap-v0.7.md`, MT-59..62) — pronta para começar a
-  implementação a partir do MT-59. **Fases 14–17+** (mapa/stubs, ADR 0024–0028 reservadas)
-  ainda não iniciadas. **Housekeeping:** ADR-0020/0021/0022 promovidas de `Proposed` para
-  `Accepted` (suas fases já concluídas há várias iterações; status ficou desatualizado).
+  pelo usuário no planejamento original. **Fase 13 em andamento** (ADR-0023 `Proposed`,
+  `docs/roadmap-v0.7.md`) — **MT-59 concluído** (leitor de `AGENTS.md`/`CLAUDE.md`); MT-60..62
+  pendentes. **Fases 14–17+** (mapa/stubs, ADR 0024–0028 reservadas) ainda não iniciadas.
+  **Housekeeping:** ADR-0020/0021/0022 promovidas de `Proposed` para `Accepted` (suas fases já
+  concluídas há várias iterações; status ficou desatualizado).
 
 ## Metas cumpridas / Em andamento / Próximo passo
 
@@ -707,14 +707,25 @@
   `Accepted` (gap de status desatualizado, mesma categoria dos gaps corrigidos no MT-57/58).
   `mkdocs build --strict` limpo. Nenhuma mudança de código.
 
+- [x] **MT-59** — `crates/core/src/project_instructions.rs` (novo):
+  `load_project_instructions(root, ignore)` lê `AGENTS.md` (primário) ou `CLAUDE.md`
+  (*fallback*, nunca os dois, mesma precedência do ADR-0020), pulando caminho coberto por
+  `.agentryignore`/`.claudeignore`. `tools::fs::load_ignore` promovida de privada para **`pub`**
+  (não `pub(crate)` — a CLI, crate diferente, precisa montar o mesmo `Gitignore`). `Session`
+  ganha `with_project_instructions(String)`; `ensure_system_prompt` concatena instruções de
+  projeto + `system_prompt` do preset numa única mensagem de sistema (projeto primeiro).
+  `context.agentsFile.enabled` (*default* `true`, diferente do opt-in de `gitignore`) liga/
+  desliga. 11 testes novos (6+3+2), 298 testes no core (287+11) + 43 na CLI, fmt/clippy
+  limpos, `cargo build --release` verde. Smoke-test manual contra Ollama real confirma
+  `AGENTS.md` influenciando a resposta de fato (instrução seguida) e o *opt-out* funcionando.
+  Nenhuma dependência nova.
+
 **Em andamento:** nada pendente no turno.
 
-**Próximo passo:** **MT-59** (`docs/roadmap-v0.7.md`, `crates/core/src/project_instructions.rs`
-novo, `crates/core/src/session/mod.rs`, `crates/core/src/config/mod.rs`,
-`crates/cli/src/main.rs`) — loader de `AGENTS.md`/`CLAUDE.md`, injetado como mensagem de
-sistema (concatenado ao preset da `task-class`), com `context.agentsFile.enabled` (*default*
-`true`) e respeito a `.agentryignore`/`.claudeignore`. As Fases 14–17+ seguem só como mapa.
-Outros itens em aberto, sem
+**Próximo passo:** **MT-60** (`docs/roadmap-v0.7.md`, `crates/core/src/skills.rs` novo) —
+descoberta de `SKILL.md` em `.claude/skills/*/SKILL.md` (parser de frontmatter próprio, sem
+dependência YAML — decisão da ADR-0023) e lista compacta concatenada à mesma mensagem de
+sistema do MT-59. As Fases 14–17+ seguem só como mapa. Outros itens em aberto, sem
 ticket: deploy do site MkDocs (GitHub Pages) — decisão explícita do usuário de
 não fazer ainda; CI multi-SO ainda não observado verde (falta um push que dispare a matriz);
 backlog independente do `ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de
@@ -738,6 +749,7 @@ pendentes de validação de implementação).
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-15 | `eb9c518` | MT-59: loader de AGENTS.md/CLAUDE.md; injeção como mensagem de sistema (ADR-0023) | MT-59 |
 | 2026-07-15 | `384899b` | ADR-0023: memória de projeto (AGENTS.md + Skills); prepara a Fase 13 (MT-59..62) | — |
 | 2026-07-15 | `5457f18` | MT-58: documentação do site — taskClasses + convenção autoexplicativa (fecha a Fase 12) | MT-58 |
 | 2026-07-15 | `efca5dd` | MT-57: exemplo --init enriquecido (taskClasses + auditoria de blocos, ADR-0022) | MT-57 |

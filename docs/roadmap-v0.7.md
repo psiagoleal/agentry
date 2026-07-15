@@ -19,7 +19,7 @@ nesta fase** — decisão explícita da ADR-0023 (parser de frontmatter próprio
 
 ## Fase 13 — Memória de projeto: AGENTS.md + Skills (ADR-0023)
 
-### MT-59: Leitor de `AGENTS.md`/`CLAUDE.md` — injeção como mensagem de sistema
+### MT-59: Leitor de `AGENTS.md`/`CLAUDE.md` — injeção como mensagem de sistema ✅ concluído
 - **Objetivo:** novo módulo `crates/core/src/project_instructions.rs`:
   `load_project_instructions(root: &Path, ignore: &Gitignore) -> Option<String>` — lê
   `AGENTS.md` (primário) ou, na ausência dele, `CLAUDE.md` (*fallback*, nunca os dois — mesma
@@ -49,6 +49,10 @@ nesta fase** — decisão explícita da ADR-0023 (parser de frontmatter próprio
   interativa.
 - **Depende de:** ADR-0023 · ADR-0020 (precedência `.agentryignore`/`.claudeignore`) ·
   ADR-0016 (mesmo padrão de manipulação de `Message::system` de `Session::compact`).
+- **Nota de implementação:** `tools::fs::load_ignore` promovida diretamente para `pub`
+  (não `pub(crate)` como o texto original sugeria) — a CLI (crate `agentry`, diferente de
+  `agentry-core`) precisa montar o mesmo `Gitignore` para passar a
+  `load_project_instructions`, e `pub(crate)` não cruza fronteira de crate.
 
 ### MT-60: Descoberta de `SKILL.md` + lista compacta no *system prompt*
 - **Objetivo:** novo módulo `crates/core/src/skills.rs`: `SkillDescriptor { name,
