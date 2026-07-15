@@ -75,7 +75,7 @@ nesta fase — só camada de configuração sobre o `Router` já existente.
   contrariaria a config declarada pelo usuário; deixado fora de escopo desta ticket (UI de
   configuração interativa já estava explicitamente fora de escopo).
 
-### MT-57: Exemplo `--init` enriquecido — convenção autoexplicativa (ADR-0022)
+### MT-57: Exemplo `--init` enriquecido — convenção autoexplicativa (ADR-0022) ✅ concluído
 - **Objetivo:** `GENERIC_SETTINGS_EXAMPLE` (`crates/cli/src/main.rs`) ganha o bloco
   `taskClasses` com a task-class `chat` default (Ollama/`local-only`) **mais exemplos
   comentados** de alternativas (ex.: uma task-class de nuvem `cloud-ok`; uma de dados
@@ -91,6 +91,13 @@ nesta fase — só camada de configuração sobre o `Router` já existente.
   agora cobrindo também `taskClasses`); `--init` continua gravando o arquivo (smoke-test).
 - **Fora de escopo:** documentação do site (MT-58).
 - **Depende de:** MT-55 (schema existe) · ADR-0022.
+- **Notas de implementação:** `taskClasses` é `HashMap<String, TaskClassSettings>` sem
+  *wrapper* — uma chave `_comentario` solta dentro do bloco quebraria o parse (toda chave
+  vira uma tentativa de `TaskClassSettings` de verdade); a explicação do mecanismo entra
+  dentro do `_comentario` da própria task-class `chat`, que é garantida presente. Auditoria
+  encontrou um gap real: `context.gitignore.enabled` (ADR-0020 §3, desde o MT-53/54) nunca
+  tinha sido adicionado ao `GENERIC_SETTINGS_EXAMPLE` — só a documentação do site
+  (`docs/usuario/configuracao.md`) mostrava o campo; corrigido junto.
 
 ### MT-58: Documentação do site (task-class + convenção)
 - **Objetivo:** `docs/usuario/configuracao.md` ganha a seção `taskClasses` (candidatos,
