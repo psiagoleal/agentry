@@ -42,7 +42,7 @@ verificação de maturidade completa. Nenhuma outra dependência nova.
   configuráveis (MT-71 só a tabela *default*, customização por usuário é ticket futuro).
 - **Depende de:** ADR-0027.
 
-### MT-71: Tabela de *keybindings* (mapa único) + navegação básica
+### MT-71: Tabela de *keybindings* (mapa único) + navegação básica ✅ concluído (fb39a2a)
 - **Objetivo:** `crates/cli/src/tui/keybind.rs` (novo): uma única tabela `Definitions` (nome
   de ação → tecla *default* + descrição — ex.: `quit` → `q`, `scroll_up` → `↑`/`k`), mesmo
   espírito de `packages/tui/src/config/keybind.ts` do OpenCode (referência de UX, não de

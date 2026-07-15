@@ -9,7 +9,7 @@
 
 - **Data:** 2026-07-15
 - **Branch:** `main`
-- **Commit:** `5b18d80`
+- **Commit:** `fb39a2a`
 - **Fase:** Roadmap v0.1..v0.4 **fechados/imutáveis**; **Fase 10 concluída** (LiteLLM).
   **Execução autônoma em andamento** (`/loop /implementar-roadmap`, modelo Sonnet 5) — ver
   `docs/decisoes-autonomas.md` para decisões tomadas sozinho (**2 decisões registradas**:
@@ -40,6 +40,14 @@
   para sair) em vez do REPL de texto, sem tocar o caminho existente. Usa
   `ratatui::try_init`/`restore` (já instalam o *panic hook* que restaura o terminal antes de
   propagar) em vez de montar o backend `crossterm` na mão.
+
+  **MT-71 concluído** — `crates/cli/src/tui/keybind.rs` (novo): tabela única `DEFINITIONS`
+  (ação→tecla *default*+descrição, espírito de `packages/tui/src/config/keybind.ts` do
+  OpenCode); `resolve()` traduz `KeyEvent` para `Option<Action>`, `legenda()` monta o rodapé de
+  ajuda direto da tabela (torna a descrição de cada *binding* dado usado de verdade, não morto).
+  O laço de eventos do MT-70 passa a consultar `keybind::resolve` (nunca inspeciona `KeyCode`
+  direto) e a rolar um histórico de mensagens **mock** (`Estado::aplicar`, função pura, satura
+  nos limites) via `↑`/`k`/`↓`/`j` — prova a navegação antes do *streaming* real (MT-72).
 
 ## Metas cumpridas / Em andamento / Próximo passo
 
@@ -908,12 +916,33 @@
   sozinha (processo não trava, sem *escape sequence* vazando). `cargo build --release` limpo
   com a dependência nova.
 
+- [x] **MT-71** — `crates/cli/src/tui/keybind.rs` (novo): tabela única `DEFINITIONS`
+  (ação→tecla *default*+descrição, mesmo espírito de
+  `packages/tui/src/config/keybind.ts` do OpenCode); `resolve()` traduz `KeyEvent` para
+  `Option<Action>` consultando a tabela (tecla sem ação mapeada é `None`, não erro — mesmo
+  padrão do MT-14); `legenda()` monta o rodapé de ajuda direto da tabela (dedupe por ação) — o
+  campo `description` fica de fato usado, não morto (clippy `dead_code` pego na primeira
+  rodada, corrigido assim em vez de `#[allow]`). `crates/cli/src/tui/mod.rs`: laço de eventos
+  passa a chamar `keybind::resolve` em vez de inspecionar `KeyCode` direto (a mudança de escopo
+  do ticket: widgets nunca leem tecla bruta); histórico de mensagens **mock** (`MENSAGENS_MOCK`
+  — troca pelo histórico real da `Session` fica para o MT-72) fica rolável via
+  `Estado::aplicar` (função pura, `ScrollUp`/`ScrollDown` saturam nos limites, `Quit` não
+  altera o estado). 9 testes novos (tabela sem conflito de tecla *default*, resolução cobre
+  todas as entradas, tecla desconhecida não é erro, evento de *release* ignorado, legenda sem
+  duplicata; navegação: topo/fim saturam, scroll para cima/baixo, `Quit` não muda o estado).
+  Smoke-test manual do binário `--release` via `tmux`: histórico e rodapé (legenda gerada pela
+  tabela) renderizam certo, `j` desce duas linhas visíveis, `q` sai com código 0 e terminal
+  restaurado.
+
 **Em andamento:** nada pendente — árvore de trabalho limpa, tudo commitado.
 
-**Próximo passo:** **MT-71** (`docs/roadmap-v0.9.md`, `crates/cli/src/tui/keybind.rs` novo,
-`crates/cli/src/tui/mod.rs`) — tabela de *keybindings* (mapa único ação→tecla, mesmo espírito
-de `packages/tui/src/config/keybind.ts` do OpenCode) + navegação básica de um histórico ainda
-estático/mock (sem o agente real — isso é o MT-72), segundo ticket da Fase 15. Outros itens em
+**Próximo passo:** **MT-72** (`docs/roadmap-v0.9.md`, `crates/cli/src/tui/mod.rs`, novo
+`crates/cli/src/tui/chat.rs`) — view de chat com *streaming* real: conecta a TUI à
+`Session`/`Router` já construídos por `main()` (reaproveitados, não duplicados);
+`Session::run_streaming` roda numa *task* separada (`tokio::spawn`), o *callback* já genérico
+(desde o MT-10) envia cada `StreamEvent` (já `Clone`) por um `tokio::sync::mpsc` de volta ao
+laço de eventos, que passa a fazer `tokio::select!` entre eventos de terminal e eventos do
+canal — **nenhuma mudança em `crates/core`**, terceiro ticket da Fase 15. Outros itens em
 aberto, sem ticket: deploy do site MkDocs (GitHub Pages) — decisão explícita do usuário de não
 fazer ainda; CI multi-SO ainda não observado verde (falta um push que dispare a matriz);
 backlog independente do `ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de
@@ -937,6 +966,7 @@ pendentes de validação de implementação).
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-15 | `fb39a2a` | MT-71: tabela de keybindings (mapa único) + navegação básica | MT-71 |
 | 2026-07-15 | `5b18d80` | MT-70: scaffold ratatui/crossterm + flag --tui + laço de eventos mínimo | MT-70 |
 | 2026-07-15 | `2e3916a` | ADR-0027: TUI via ratatui (autorizada pelo mantenedor); prepara a Fase 15 | — |
 | 2026-07-15 | `c87d458` | docs(handoff): fecha a Fase 14 inteira; loop autônomo parado (dependência nova exigida) | — |
