@@ -2,7 +2,7 @@
 
 # ADR 0023: Memória de projeto — leitura de `AGENTS.md`/`CLAUDE.md` + *progressive disclosure* de `SKILL.md`
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Data:** 2026-07-15
 - **Decisores:** Iago Leal (mantenedor)
 - **Tags:** contexto, memória de projeto, tools, configuração

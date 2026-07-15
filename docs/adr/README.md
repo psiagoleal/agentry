@@ -9,7 +9,7 @@ Registros de decisões estruturais (ver skill `adr-writer`). Use
 |-----|--------|--------|
 | [0001](0001-fundacao-camada-llm.md) | Fundação da camada LLM por abstração própria sobre `reqwest` | Accepted |
 | [0002](0002-modelo-privacidade-egresso.md) | Modelo de privacidade/egresso e taxonomia de classes | Accepted |
-| [0003](0003-consumo-artefatos-profiles.md) | Consumo dos artefatos de política do `ai-coding-agent-profiles` | Proposed |
+| [0003](0003-consumo-artefatos-profiles.md) | Consumo dos artefatos de política do `ai-coding-agent-profiles` | Accepted |
 | [0004](0004-postura-sinergia-open-source.md) | Postura de sinergia com projetos open-source | Proposed |
 | [0005](0005-portabilidade-cross-platform.md) | Portabilidade cross-platform (Linux, Windows, macOS) | Accepted |
 | [0006](0006-litellm-fonte-de-modelos.md) | LiteLLM como fonte de modelos via adapter OpenAI-compatible | Accepted |
@@ -29,7 +29,7 @@ Registros de decisões estruturais (ver skill `adr-writer`). Use
 | [0020](0020-agentryignore-com-respeito-opcional-a-gitignore.md) | Arquivo `.agentryignore` (renomeando `.claudeignore`) com respeito opcional a `.gitignore` | Accepted |
 | [0021](0021-schema-de-configuracao-de-task-class.md) | Schema de configuração de task-class (rotas e presets configuráveis) | Accepted |
 | [0022](0022-convencao-de-configuracao-autoexplicativa.md) | Convenção de configuração autoexplicativa (`_comentario` obrigatório) | Accepted |
-| [0023](0023-memoria-de-projeto-agents-md-e-skills.md) | Memória de projeto: leitura de `AGENTS.md`/`CLAUDE.md` + *progressive disclosure* de `SKILL.md` | Proposed |
+| [0023](0023-memoria-de-projeto-agents-md-e-skills.md) | Memória de projeto: leitura de `AGENTS.md`/`CLAUDE.md` + *progressive disclosure* de `SKILL.md` | Accepted |
 
 > **Faixa reservada (roadmap de longo prazo, `docs/roadmap-longo-prazo.md`):** ADR-0024 (tool
 > AskUser, Fase 14), ADR-0025 (web tools / SearXNG, Fase 14), ADR-0026 (Glob + shell

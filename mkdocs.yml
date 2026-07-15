@@ -66,6 +66,7 @@ nav:
       - Instalação: usuario/instalacao.md
       - Configuração (agentry.settings.json): usuario/configuracao.md
       - Uso da CLI e do REPL: usuario/uso.md
+      - Skills: usuario/skills.md
       - Guardrails de conteúdo: usuario/guardrails.md
       - Perguntas frequentes: usuario/faq.md
   - Governança & Compliance:

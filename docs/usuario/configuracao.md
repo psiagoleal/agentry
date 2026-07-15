@@ -62,7 +62,8 @@ nunca cai silenciosamente no exemplo genérico. O mesmo comando existe dentro do
     "repoMap": { "enabled": true },
     "semanticRag": { "enabled": true },
     "lspGrounding": { "enabled": true },
-    "gitignore": { "enabled": false }
+    "gitignore": { "enabled": false },
+    "agentsFile": { "enabled": true }
   },
   "providers": {
     "ollama": { "structuredOutput": true },
@@ -129,6 +130,34 @@ Liga/desliga as capacidades de contexto do agente:
   para o comportamento atual continuar igual, e configurar isso não afeta confidencialidade
   (ver [Arquivo de ignore do `agentry`](#arquivo-de-ignore-do-agentry-agentryignore) abaixo
   para o mecanismo que de fato controla isso).
+- `agentsFile.enabled` — leitura de `AGENTS.md`/`CLAUDE.md` como instruções de projeto (ver
+  [Memória de projeto](#memoria-de-projeto-agentsmdclaudemd) abaixo). `true` por padrão —
+  mesma categoria das três primeiras (custo baixo: leitura local de um arquivo pequeno).
+
+### Memória de projeto (`AGENTS.md`/`CLAUDE.md`)
+
+Se a raiz do projeto tiver um `AGENTS.md` (fonte única de convenções — [convenção
+`agents.md`](https://agents.md), a mesma usada por este próprio repositório) ou, na ausência
+dele, um `CLAUDE.md` (*fallback* — comum em projetos que só têm convenções para o Claude
+Code), o conteúdo é lido automaticamente e passa a fazer parte do *system prompt* de toda
+sessão — o agente já chega sabendo convenções, arquitetura ou restrições do repositório, sem
+nenhuma configuração extra.
+
+- **`AGENTS.md` é sempre primário; `CLAUDE.md` só é lido na ausência dele — nunca os dois
+  juntos.** Se o seu `CLAUDE.md` só aponta para `AGENTS.md` (como o deste próprio
+  repositório), isso é o comportamento esperado: com `AGENTS.md` presente, `CLAUDE.md` nunca
+  chega a ser lido.
+- O texto lido entra **antes** do `system_prompt` de uma eventual `task-class` (ver
+  [`taskClasses`](#taskclasses)) — instruções de projeto primeiro (mais gerais), preset da
+  tarefa depois (mais específico) — numa única mensagem de sistema.
+- **Respeita `.agentryignore`/`.claudeignore`**: se `AGENTS.md`/`CLAUDE.md` estiver coberto
+  pelo seu arquivo de ignore, ele é pulado como qualquer outro arquivo escondido do agente —
+  não existe um segundo controle de confidencialidade paralelo (ver [Arquivo de ignore do
+  `agentry`](#arquivo-de-ignore-do-agentry-agentryignore) abaixo).
+- Desligue com `context.agentsFile.enabled: false` se não quiser esse comportamento.
+
+Skills (`.claude/skills/<nome>/SKILL.md`) são um mecanismo relacionado, mas
+separado — ver [Skills](skills.md).
 
 ### Arquivo de ignore do `agentry` (`.agentryignore`)
 

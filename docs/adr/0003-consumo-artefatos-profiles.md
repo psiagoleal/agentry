@@ -2,7 +2,7 @@
 
 # ADR 0003: Consumo dos artefatos de política do `ai-coding-agent-profiles`
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Data:** 2026-06-19
 - **Decisores:** Iago Leal (mantenedor)
 - **Tags:** integração, dados, formato, governança
@@ -23,6 +23,18 @@ mantido só como *fallback* de compatibilidade quando `.agentryignore` está aus
 `ai-coding-agent-profiles` continua distribuindo `.claudeignore` em seus três perfis sem
 nenhuma mudança por enquanto — ver ADR-0020 para o racional completo e o item de migração
 futura do lado `profiles`.
+
+**Emenda (2026-07-15, ADR-0018/ADR-0023) — fechamento:** `.claude/settings.json` (formato
+nativo do Claude Code, padrões `Bash(...)` em `permissions`) **não é consumido** — incompatível
+por design com `agentry::config::Permissions` (nomes exatos de tool); o `agentry` tem seu
+próprio artefato, `.agentry/agentry.settings.json` (ADR-0018), já registrado como mudança de
+fronteira no `exchange-log` na época. Os demais artefatos previstos aqui estão **todos**
+implementados: `AGENTS.md` (primário, `CLAUDE.md` como *fallback*) e `SKILL.md` por
+*progressive disclosure* real — `name`+`description` sempre no contexto, corpo completo só
+sob demanda via tool (MT-59..61, ADR-0023) —, `.agentryignore`/`.claudeignore` (ADR-0020),
+taxonomia de privacidade (ADR-0002) e `settings-schema:1` com abortar *fail-closed* em
+divergência de versão (`ConfigError::UnsupportedSchema`, desde o MT-04). Com isso, o objetivo
+original desta ADR está cumprido e ela passa a `Accepted`.
 
 ## Decisão
 
