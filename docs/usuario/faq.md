@@ -4,16 +4,20 @@
 
 **Preciso de conta em algum serviço de nuvem para usar o `agentry`?**
 
-Não, na v0.1. A CLI fala só com um servidor [Ollama](https://ollama.com/) local — nenhuma
-tarefa sai da sua máquina. Adapters de nuvem existem na biblioteca, mas ainda não há flag
-nem configuração para escolhê-los pela CLI.
+Não, por padrão. A CLI fala só com um servidor [Ollama](https://ollama.com/) local —
+nenhuma tarefa sai da sua máquina. Se sua empresa tiver um gateway
+[LiteLLM](https://www.litellm.ai/), você pode configurá-lo em `providers.litellm` (ver
+[Configuração](configuracao.md#providerslitellm)) e escolhê-lo explicitamente via
+`--provider litellm`/`/provider litellm` — sem essa escolha, o Ollama local continua sendo
+usado. Um adapter para a API da Anthropic existe na biblioteca, mas ainda sem flag/comando
+para ativá-lo pela CLI.
 
 **O `agentry` funciona sem internet?**
 
 Sim, contanto que o Ollama esteja rodando localmente com o modelo já puxado. `--init
---profile <nome>` é a única operação que precisa de rede (busca a configuração do perfil no
-repositório `ai-coding-agent-profiles`) — e é opcional; `--init` sem `--profile` não toca a
-rede.
+--profile <nome>` (busca a configuração do perfil no repositório
+`ai-coding-agent-profiles`) e um LiteLLM configurado em `providers.litellm` são as duas
+únicas operações que precisam de rede — as duas são opcionais.
 
 **Como troco de modelo no meio de uma conversa (REPL)?**
 

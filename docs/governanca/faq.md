@@ -4,11 +4,12 @@
 
 **O `agentry` envia nosso código-fonte para algum serviço de terceiros?**
 
-Hoje (v0.1), não há caminho de configuração para isso: a CLI distribuída só se conecta a um
-servidor Ollama local. Se/quando adapters de nuvem forem conectados à CLI, o envio continua
-sujeito à classe de egresso ativa (ver [Modelo de privacidade e
-egresso](privacidade-e-egresso.md)) — `local-only` proíbe egresso para nuvem por completo, e
-esse é o *default* quando a configuração é ausente ou ambígua.
+Por padrão, sem nenhuma configuração adicional, não: a CLI só se conecta a um servidor
+Ollama local. Se você configurar um segundo provider (gateway LiteLLM, `providers.litellm`)
+e escolhê-lo explicitamente via `--provider`/`/provider`, o envio fica sujeito à classe de
+egresso declarada para aquele endpoint (ver [Modelo de privacidade e
+egresso](privacidade-e-egresso.md)) — `local-only` proíbe egresso para nuvem por completo,
+e é o *default* mais restritivo quando a classe não é declarada explicitamente.
 
 **O software tem telemetria?**
 
@@ -31,9 +32,12 @@ pequeno e público). Ver [Auditoria e rastreabilidade](auditoria.md).
 
 **Podemos rodar isso totalmente isolado de rede (air-gapped)?**
 
-Sim, na configuração padrão de hoje: o único provedor conectável é um Ollama local, que pode
-rodar na mesma rede isolada. `--init --profile <nome>` é a única funcionalidade que
-precisa de rede externa (busca de configuração de perfil) — e é opcional.
+Sim, na configuração padrão: o único provedor conectável é um Ollama local, que pode rodar
+na mesma rede isolada. `--init --profile <nome>` (busca de configuração de perfil) e um
+gateway LiteLLM configurado em `providers.litellm` são as duas funcionalidades que
+precisam de rede externa/corporativa — as duas são opcionais e exigem uma ação explícita
+para serem usadas (a flag `--profile`, ou configurar `providers.litellm` e escolhê-lo via
+`--provider litellm`).
 
 **Quem responde em caso de vulnerabilidade encontrada?**
 

@@ -45,24 +45,41 @@ Perfil ausente, desconhecido, ou com grafia inesperada resolve **sempre** para a
 restritiva (`local-only`) — nunca para a mais permissiva. Configuração incompleta ou
 ambígua nunca é interpretada como "liberar por padrão".
 
-## O que isso significa na prática, hoje (v0.1)
+## O que isso significa na prática, hoje
 
-A CLI distribuída hoje só tem um provedor de modelo **efetivamente conectável**: um servidor
+**Por padrão, sem nenhuma configuração adicional**, a CLI só fala com um servidor
 [Ollama](https://ollama.com/) rodando **localmente**, na mesma máquina ou rede que você
-controla. Adapters para provedores de nuvem (compatíveis com a API da OpenAI, e um adapter
-nativo para a API da Anthropic) já existem como código na biblioteca — mas não há, ainda,
-caminho de configuração pela CLI para ativá-los. Ou seja: **nenhum código-fonte, prompt ou
-resposta sai da máquina onde o `agentry` roda**, independentemente da classe de egresso
-configurada, porque não há hoje nenhum destino de rede, além do Ollama local, para o qual
-esse tipo de conteúdo possa ser enviado. O modelo de classes de egresso descrito acima é a
-base arquitetural que já existe em código para quando adapters de nuvem forem conectados à
-CLI — vale a pena entender antes desse momento chegar, não depois.
+controla — nenhum código-fonte, prompt ou resposta sai da máquina, porque não há nenhum
+outro destino de rede configurado.
 
-**Exceção, fora do escopo de conteúdo de tarefa:** o comando `--init --profile <nome>` (ou
-`/init <perfil>` no REPL) contata a rede para buscar um artefato de configuração público do
-repositório de perfis — nunca conteúdo de código, prompt ou resposta, só o arquivo de
-política a aplicar localmente. É a única operação de rede além do Ollama local disponível
-hoje na CLI, e é opcional (`--init` sem `--profile` não toca a rede).
+**Um segundo provider já é conectável de fato, de forma opcional:** um gateway
+[LiteLLM](https://www.litellm.ai/) (`providers.litellm` no `agentry.settings.json` — ver
+[Configuração](../usuario/configuracao.md#providerslitellm)), comum em ambientes
+corporativos na frente de modelos maiores/de nuvem. Duas coisas tornam isso seguro por
+design, não por convenção:
+
+- **A classe de egresso desse endpoint é sempre explícita**, nunca inferida do host — um
+  gateway hospedado "localmente" (na rede da empresa) não é automaticamente tratado como
+  `local-only` só por isso; ele pode encaminhar para *backends* de nuvem por trás, e tratá-lo
+  como local por inferência degradaria a confidencialidade em silêncio. Se a classe não for
+  declarada, o *default* é o mais restritivo para liberar (`cloud-ok` do ponto de vista de
+  risco — ver a tabela de classes acima) — na prática, isso bloqueia o endpoint sob qualquer
+  perfil que não seja explicitamente permissivo, até alguém declarar a classe de propósito.
+- **Selecionar esse provider é sempre um ato explícito do operador** — via `--provider
+  litellm`/`/provider litellm` (ver [Uso da CLI e do REPL](../usuario/uso.md)). Sem essa
+  escolha, o Ollama local continua sendo o candidato preferencial; configurar
+  `providers.litellm` no arquivo não muda, sozinho, para onde uma tarefa é enviada.
+
+Um adapter nativo para a API da Anthropic também já existe como código na biblioteca, mas
+sem nenhum caminho de configuração pela CLI para ativá-lo ainda — diferente do LiteLLM, que
+já está conectado de ponta a ponta.
+
+**Além disso, fora do escopo de conteúdo de tarefa:** o comando `--init --profile <nome>`
+(ou `/init <perfil>` no REPL) contata a rede para buscar um artefato de configuração
+público do repositório de perfis — nunca conteúdo de código, prompt ou resposta, só o
+arquivo de política a aplicar localmente. É opcional (`--init` sem `--profile` não toca a
+rede) e independente do LiteLLM — os dois são os únicos caminhos de rede além do Ollama
+local disponíveis hoje na CLI.
 
 ## O que audita e o que não sabe
 

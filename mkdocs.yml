@@ -101,11 +101,13 @@ nav:
           - "0017 — Diretório de estado local": adr/0017-diretorio-de-estado-local-do-agente.md
           - "0018 — Schema mínimo de configuração": adr/0018-artefato-e-schema-minimo-de-configuracao-do-agentry.md
           - "0019 — Bootstrap via --init": adr/0019-bootstrap-de-agentry-settings-json-via-init.md
+          - "0020 — .agentryignore com gitignore opcional": adr/0020-agentryignore-com-respeito-opcional-a-gitignore.md
       - Roadmap:
           - v0.1: roadmap-v0.1.md
           - v0.2: roadmap-v0.2.md
           - v0.3: roadmap-v0.3.md
           - v0.4: roadmap-v0.4.md
+          - v0.5: roadmap-v0.5.md
       - Interoperabilidade com ai-coding-agent-profiles:
           - Visão geral: interop/README.md
           - Exchange log: interop/exchange-log.md

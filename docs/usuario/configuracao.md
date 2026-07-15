@@ -13,6 +13,11 @@ primeira campo a campo):
 Nenhum dos dois é obrigatório — sem arquivo e sem variáveis, a CLI roda com os *defaults*
 descritos abaixo.
 
+Uma terceira variável, `AGENTRY_LITELLM_API_KEY`, é tratada à parte — nunca é uma camada de
+configuração (não define nenhum campo do arquivo); é só a chave de API do gateway LiteLLM,
+lida diretamente no momento de montar a conexão (ver [`providers.litellm`](#providerslitellm)
+abaixo). Segredo nunca fica no arquivo de configuração.
+
 ## Criar o arquivo (`--init` / `/init`)
 
 ```bash
@@ -21,7 +26,11 @@ agentry --init
 
 Cria `.agentry/agentry.settings.json` com um exemplo genérico (todas as capacidades
 ligadas, permissões vazias) e imprime um comando manual alternativo. Não sobrescreve um
-arquivo já existente.
+arquivo já existente. **Todo campo do schema já vem no arquivo gerado** — os que ficam
+inertes até você preencher (`profile`, `model`, `max_tokens`, `providers.litellm.*`)
+aparecem como `null` (JSON não tem comentário; `null` é o jeito de mostrar "a chave existe,
+ainda desligada"); cada bloco tem uma chave `_comentario` explicando o que fazer ali —
+ignorada pelo `agentry`, só para leitura humana.
 
 Se você tem um perfil do
 [`ai-coding-agent-profiles`](https://github.com/psiagoleal/ai-coding-agent-profiles)
@@ -55,7 +64,12 @@ nunca cai silenciosamente no exemplo genérico. O mesmo comando existe dentro do
     "lspGrounding": { "enabled": true }
   },
   "providers": {
-    "ollama": { "structuredOutput": true }
+    "ollama": { "structuredOutput": true },
+    "litellm": {
+      "baseUrl": "https://litellm.minhaempresa.com",
+      "model": "empresa/gpt-30b",
+      "egressClass": "local-only"
+    }
   },
   "guardrails": {
     "input": [
@@ -97,6 +111,33 @@ Liga/desliga as três capacidades de contexto do agente — todas `true` por pad
 
 Liga (`true`, padrão) ou desliga saída estruturada (*constrained decoding*) nas chamadas ao
 Ollama, usada para tornar as chamadas de tool mais confiáveis.
+
+### `providers.litellm`
+
+Conecta a CLI a um gateway [LiteLLM](https://www.litellm.ai/) (comum em ambientes
+corporativos, na frente de modelos maiores/de nuvem) como um **segundo provider**,
+selecionável via [`--provider litellm` / `/provider litellm`](uso.md#flags-de-invocacao-one-shot)
+— por padrão, sem essa flag, o Ollama local continua sendo usado.
+
+- `baseUrl` — URL base do gateway (ex.: `https://litellm.minhaempresa.com`).
+- `model` — identificador do modelo nesse gateway.
+- `egressClass` — `"local-only"`, `"cloud-opt-out"` ou `"cloud-ok"` (ver [Modelo de
+  privacidade e egresso](../governanca/privacidade-e-egresso.md) para o que cada uma
+  significa). **Sempre declare explicitamente** — ausente (`null`) é tratado como
+  `"cloud-ok"` (a mais restritiva para liberar), então um gateway só acessível pela rede
+  interna/VPN da empresa, por exemplo, precisa de `"egressClass": "local-only"` para ficar
+  de fato alcançável; sem essa declaração, o candidato fica registrado mas nunca resolve
+  (nenhum erro fatal — só cai de volta para o Ollama, ou falha de rota tratada se nem o
+  Ollama estiver disponível).
+
+**`baseUrl` e `model` precisam estar os dois preenchidos** para este provider ativar —
+qualquer um ausente (ou `null`) e a CLI se comporta exatamente como se `providers.litellm`
+não existisse.
+
+A chave de API do gateway (se ele exigir uma) **não vai neste arquivo** — vem da variável
+de ambiente `AGENTRY_LITELLM_API_KEY`, lida só no momento de montar a conexão. Ausente, a
+CLI simplesmente não anexa nenhum cabeçalho de autorização (gateways internos sem
+autenticação continuam funcionando normalmente).
 
 ### `guardrails`
 

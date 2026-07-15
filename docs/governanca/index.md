@@ -22,11 +22,13 @@ Para uma avaliação de risco honesta, é importante entender o que o `agentry` 
 - **Projeto pessoal de código aberto**, mantido por um único desenvolvedor, licença **MIT**,
   código-fonte público e auditável em
   [github.com/psiagoleal/agentry](https://github.com/psiagoleal/agentry).
-- **Versão 0.1** — na prática, hoje, a CLI fala **somente** com um servidor
-  [Ollama](https://ollama.com/) **local**. Adapters para provedores de nuvem
-  (OpenAI-compatible, Anthropic) já existem na biblioteca, mas ainda não há caminho de
-  configuração para ativá-los pela CLI — ver [Modelo de privacidade e
-  egresso](privacidade-e-egresso.md).
+- **Versão 0.1** — por padrão, sem configuração adicional, a CLI fala só com um servidor
+  [Ollama](https://ollama.com/) **local**. Um segundo provider (gateway
+  [LiteLLM](https://www.litellm.ai/), comum em ambientes corporativos) já é conectável de
+  forma opcional e explícita — sempre sob uma classe de egresso declarada, nunca inferida
+  do host. Um adapter nativo para a API da Anthropic existe na biblioteca, mas ainda sem
+  caminho de configuração pela CLI para ativá-lo — ver [Modelo de privacidade e
+  egresso](privacidade-e-egresso.md) para o que isso significa na prática.
 - **Sem certificação formal.** O projeto não é certificado SOC 2, ISO 27001, nem equivalente,
   e não passou por auditoria de segurança externa independente. As afirmações desta trilha
   descrevem controles técnicos existentes no código, verificáveis por leitura direta do
