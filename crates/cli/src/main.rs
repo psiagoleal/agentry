@@ -94,30 +94,48 @@ const DEFAULT_LSP_COMMAND: &str = "rust-analyzer";
 /// o equivalente mais próximo de "campo existe, ainda desligado": mostra a
 /// chave sem ativar nada (`Config::resolve` só liga o candidato LiteLLM
 /// quando `baseUrl` **e** `model` estão ambos presentes, MT-48).
+///
+/// **Comentários explicativos via `_comentario`** (avaliado trocar o
+/// formato inteiro para TOML — descartado: o `ai-coding-agent-profiles`
+/// já distribui este artefato em JSON real, com uma ferramenta de merge
+/// não-destrutivo própria para JSON, `update_json_settings()`/
+/// `hybrid_json` em `scripts/setup-profile.sh`; trocar de formato quebraria
+/// essa ferramenta e criaria dois formatos coexistindo — `--init` genérico
+/// vs. `--init --profile`. Os arquivos reais daquele repositório já usam
+/// `_comentario` — chave prefixada com `_`, ignorada pelo parser real
+/// (`Settings` não usa `deny_unknown_fields`) — para o mesmo propósito;
+/// aqui só se estende essa convenção já estabelecida a cada bloco, em vez
+/// de introduzir um formato novo.
 const GENERIC_SETTINGS_EXAMPLE: &str = r#"{
   "$schema": "https://agentry.dev/schema/agentry-settings-schema-1.json",
+  "_comentario": "Configuração local do agentry para este projeto. Guia completo: docs/usuario/configuracao.md no repositório do agentry. Campos com valor null existem no schema mas ficam desligados até você preencher.",
   "schemaVersion": 1,
   "profile": null,
   "model": null,
   "max_tokens": null,
   "permissions": {
+    "_comentario": "deny: nomes de tool sempre bloqueados. ask: nomes de tool que pedem confirmação antes de rodar. Fora das duas listas, a tool roda sem perguntar (exceto a tool de shell, bloqueada por padrão nesta CLI).",
     "deny": [],
     "ask": []
   },
   "context": {
+    "_comentario": "As três capacidades de contexto do agente — todas ligadas por padrão.",
     "repoMap": { "enabled": true },
     "semanticRag": { "enabled": true },
     "lspGrounding": { "enabled": true }
   },
   "providers": {
+    "_comentario": "Ollama (local) é o provider padrão desta CLI. litellm é opcional — preencha baseUrl e model no bloco abaixo para ativar um gateway LiteLLM (ex.: corporativo) como segundo provider, selecionável via --provider litellm / comando /provider.",
     "ollama": { "structuredOutput": true },
     "litellm": {
+      "_comentario": "baseUrl e model precisam estar os dois preenchidos para este provider ativar. egressClass (local-only / cloud-opt-out / cloud-ok) decide se o endpoint é alcançável sob o perfil ativo — ausente (null) é tratado como cloud-ok, o mais restritivo para liberar; gateways só acessíveis via rede interna/VPN geralmente precisam declarar local-only explicitamente.",
       "baseUrl": null,
       "model": null,
       "egressClass": null
     }
   },
   "guardrails": {
+    "_comentario": "Regras de bloqueio/mascaramento de conteúdo, verificadas antes (input) e depois (output) de cada chamada ao modelo. Cada regra tem id (identificador único), match (texto a procurar, sem diferenciar maiúsculas/minúsculas) e action (block ou redact). Guia: docs/usuario/guardrails.md.",
     "input": [],
     "output": []
   }
