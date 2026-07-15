@@ -9,7 +9,7 @@
 
 - **Data:** 2026-07-15
 - **Branch:** `main`
-- **Commit:** `1e666ca`
+- **Commit:** `4e3f5ee`
 - **Fase:** Roadmap v0.1..v0.4 **fechados/imutáveis**; **Fase 10 concluída** (LiteLLM).
   **Execução autônoma em andamento** (`/loop /implementar-roadmap`, modelo Sonnet 5) — ver
   `docs/decisoes-autonomas.md` para decisões tomadas sozinho (**2 decisões registradas**:
@@ -21,12 +21,12 @@
   `docs/roadmap-v0.7.md`, MT-59..62) — memória de projeto (`AGENTS.md`/`CLAUDE.md`) e skills
   (*progressive disclosure* completo, descoberta + tool `skill`); **ADR-0003 também promovida a
   `Accepted`** (objetivo original — consumo de artefatos do `profiles` — cumprido). **Fase 14
-  em andamento** (ADR-0024/0025/0026 `Proposed`, `docs/roadmap-v0.8.md`) — **MT-63/64/65/66/67
-  concluídos** (`AskUser` completo; `WebFetch`+`WebSearch` completos, ADR-0025 inteira
-  implementada; tool `glob`); só falta **MT-68** (shell em background) e **MT-69**
-  (documentação, fecha a fase). **Fases 15–17+** (mapa/stubs, ADR 0027/0028 reservadas) ainda
-  não iniciadas. **Housekeeping:** ADR-0020/0021/0022 promovidas de `Proposed` para `Accepted`
-  (suas fases já concluídas há várias iterações; status ficou desatualizado).
+  quase concluída** (ADR-0024/0025/0026 `Proposed`, `docs/roadmap-v0.8.md`) — **MT-63..68
+  concluídos** (`AskUser`; `WebFetch`+`WebSearch`, ADR-0025 inteira; `glob`;
+  `shell_background`); só falta **MT-69** (documentação, fecha a fase inteira). **Fases 15–17+**
+  (mapa/stubs, ADR 0027/0028 reservadas) ainda não iniciadas. **Housekeeping:**
+  ADR-0020/0021/0022 promovidas de `Proposed` para `Accepted` (suas fases já concluídas há
+  várias iterações; status ficou desatualizado).
 
 ## Metas cumpridas / Em andamento / Próximo passo
 
@@ -842,11 +842,25 @@
   limitação de *tool-calling* já registrada — não regressão, coberta pelos testes. Nenhuma
   dependência nova.
 
+- [x] **MT-68** — `crates/core/src/tools/shell.rs`: `ShellBackgroundTool` (`shell_background`,
+  ação `start`/`output`/`stop`), extensão de `ShellPolicy`/MT-13 (mesma política *default-deny*,
+  nunca uma paralela). `start` spawna via `tokio::process` sem esperar terminar
+  (`kill_on_drop(true)` como rede de segurança, mesmo espírito do `Drop` do `LspClient`);
+  `stdout`/`stderr` acumulados em buffer truncado a 50k caracteres (`aplica_teto`, testada
+  isoladamente); `output` drena o buffer sem tocar o `Child`; `stop` mata de fato
+  (`Child::kill`). 10 testes novos, incluindo verificação real de *spawn*/*kill* via `kill -0`
+  (mesmo padrão do `LspClient`, MT-23). 354 testes no core (344+10) + 52 na CLI, fmt/clippy
+  limpos, `cargo build --release` verde. Smoke-test reproduz a mesma limitação de
+  *tool-calling* já registrada; a tool também fica bloqueada por padrão (*allow-list* vazia,
+  mesmo comportamento do `shell_exec`). Nenhuma dependência nova.
+
 **Em andamento:** nada pendente no turno.
 
-**Próximo passo:** **MT-68** (`docs/roadmap-v0.8.md`, `crates/core/src/tools/shell.rs`) —
-tool `shell_background` (`start`/`output`/`stop`), extensão de `ShellPolicy`/MT-13, sobre
-`tokio::process`. As Fases 15–17+ seguem só como mapa. Outros itens em aberto, sem
+**Próximo passo:** **MT-69** (`docs/roadmap-v0.8.md`, `docs/usuario/configuracao.md`,
+`docs/usuario/uso.md`, `docs/governanca/privacidade-e-egresso.md`) — documentação de
+`tools.webFetch`/`tools.webSearch`/`ask_user`/`glob`/`shell_background`, promoção de
+ADR-0024/0025/0026 a `Accepted`. Fecha a Fase 14 inteira. As Fases 15–17+ seguem só como
+mapa. Outros itens em aberto, sem
 ticket: deploy do site MkDocs (GitHub Pages) — decisão explícita do usuário de
 não fazer ainda; CI multi-SO ainda não observado verde (falta um push que dispare a matriz);
 backlog independente do `ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de
@@ -870,6 +884,7 @@ pendentes de validação de implementação).
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-15 | `4e3f5ee` | MT-68: tool shell_background -- start/output/stop (ADR-0026) | MT-68 |
 | 2026-07-15 | `1e666ca` | MT-67: tool glob (ADR-0026) | MT-67 |
 | 2026-07-15 | `b23b184` | MT-66: tool web_search via SearXNG configurável (ADR-0025) | MT-66 |
 | 2026-07-15 | `733fa63` | MT-65: tool web_fetch + coringa ANY_HOST na Allowlist (ADR-0025) | MT-65 |

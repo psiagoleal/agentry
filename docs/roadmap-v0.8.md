@@ -136,7 +136,7 @@ nesta fase** — decisão explícita das três ADRs (reaproveitam `ignore`/`toki
   dos modelos locais já registrada (MT-61/64/65/66) — não regressão, coberta com confiança
   pelos 5 testes automatizados.
 
-### MT-68: Shell em background/streaming (`shell_background`)
+### MT-68: Shell em background/streaming (`shell_background`) ✅ concluído
 - **Objetivo:** extensão de `crates/core/src/tools/shell.rs` (MT-13, não uma política
   paralela): nova tool `shell_background` com campo `action` (`"start"`/`"output"`/`"stop"`),
   sob a **mesma** `ShellPolicy`/checagem *default-deny* de comando já usada por `ShellTool` —
@@ -158,6 +158,18 @@ nesta fase** — decisão explícita das três ADRs (reaproveitam `ignore`/`toki
 - **Fora de escopo:** múltiplos processos nomeados/agrupados (um `id` por `start`, suficiente
   para o caso de uso — `dev server`/`watch` único por vez).
 - **Depende de:** ADR-0026 · MT-13 (`ShellPolicy`/`CommandRunner`).
+- **Nota de implementação:** não reaproveita `CommandRunner` (o *hook* de sandbox do MT-13) —
+  `.output()` (usado por `CommandRunner::run`) espera o processo terminar por construção,
+  incompatível com o contrato de `start` (nunca esperar); `monta_comando` duplica a lógica de
+  despacho por SO (`sh -c`/`cmd /C`) em vez de generalizar a abstração para os dois contratos,
+  decisão deliberada para não forçar uma trait a cobrir dois casos de uso genuinamente
+  diferentes. `kill_on_drop(true)` é a rede de segurança de "processo esquecido morre com o
+  `agentry`" — mesma limitação aceita do `Drop` do `LspClient` (não cobre
+  `std::process::exit`). Smoke-test reproduz a mesma limitação de *tool-calling* já registrada;
+  `shell_background` também fica bloqueada por padrão nesta CLI (mesma *allow-list* vazia do
+  `shell_exec`), então mesmo uma *tool-call* real hoje devolveria erro por política — correção
+  coberta com confiança pelos 10 testes automatizados, incluindo *spawn*/*kill* de processo
+  real.
 
 ### MT-69: Documentação (usuário + governança)
 - **Objetivo:** `docs/usuario/configuracao.md` ganha as seções `tools.webFetch`/
