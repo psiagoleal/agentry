@@ -332,6 +332,11 @@ pub struct Session {
     /// `None` por padrão (nenhum arquivo lido/configurado). Concatenadas
     /// antes do `system_prompt` do preset em [`Self::ensure_system_prompt`].
     project_instructions: Option<String>,
+    /// Lista compacta de skills descobertas (`SKILL.md`, MT-60/ADR-0023),
+    /// já renderizada (`skills::render_skills_list`) — `None` por padrão.
+    /// Concatenada **por último** em [`Self::ensure_system_prompt`], depois
+    /// das instruções de projeto e do `system_prompt` do preset.
+    skills_list: Option<String>,
 }
 
 impl Session {
@@ -352,6 +357,7 @@ impl Session {
             review_retry_limit: 0,
             guardrails: None,
             project_instructions: None,
+            skills_list: None,
         }
     }
 
@@ -395,6 +401,16 @@ impl Session {
     #[must_use]
     pub fn with_project_instructions(mut self, texto: impl Into<String>) -> Self {
         self.project_instructions = Some(texto.into());
+        self
+    }
+
+    /// Define a lista compacta de skills descobertas (`SKILL.md`, MT-60/
+    /// ADR-0023) desta sessão — *default* nenhuma. Já deve vir renderizada
+    /// (`skills::render_skills_list`); concatenada **por último** na
+    /// mensagem de sistema (ver [`Self::ensure_system_prompt`]).
+    #[must_use]
+    pub fn with_skills_list(mut self, texto: impl Into<String>) -> Self {
+        self.skills_list = Some(texto.into());
         self
     }
 
@@ -473,11 +489,12 @@ impl Session {
 
     /// Garante que a mensagem de sistema esteja no início do histórico —
     /// insere só uma vez; chamadas seguintes (novos turnos, ou novas
-    /// mensagens de usuário) não duplicam. Concatena, nesta ordem, as
+    /// mensagens de usuário) não duplicam. Concatena, nesta ordem: as
     /// instruções de projeto (`AGENTS.md`/`CLAUDE.md`, MT-59/ADR-0023 — mais
-    /// gerais) e o `system_prompt` do preset da `task-class` ativa (mais
-    /// específico), separados por uma linha em branco quando os dois
-    /// existem — uma única mensagem de sistema, nunca duas.
+    /// gerais), o `system_prompt` do preset da `task-class` ativa (mais
+    /// específico) e, por último, a lista compacta de skills descobertas
+    /// (MT-60/ADR-0023) — separados por uma linha em branco entre os
+    /// presentes; uma única mensagem de sistema, nunca mais de uma.
     fn ensure_system_prompt(&mut self) {
         if self.messages.iter().any(|m| m.role == Role::System) {
             return;
@@ -485,6 +502,7 @@ impl Session {
         let combinado = [
             self.project_instructions.as_deref(),
             self.preset.system_prompt.as_deref(),
+            self.skills_list.as_deref(),
         ]
         .into_iter()
         .flatten()
@@ -1500,6 +1518,58 @@ mod tests {
         session.run(&router_vazio()).await.expect("deve completar");
 
         assert_eq!(mock.chat_requests()[0].messages[0].role, Role::User);
+    }
+
+    // --- MT-60: lista de skills concatenada por último (ADR-0023) ---
+
+    #[tokio::test]
+    async fn lista_de_skills_e_concatenada_por_ultimo_apos_projeto_e_preset() {
+        let mock = Arc::new(MockProvider::new("mock"));
+        mock.enqueue_chat(Ok(resposta_final("ok", Usage::default())));
+        let executor = Arc::new(CountingExecutor::default());
+        let preset = CallPreset {
+            system_prompt: Some("Instrução da task-class.".into()),
+            ..CallPreset::default()
+        };
+        let mut session = Session::new(
+            ResolvedRoute::new(mock.clone(), "modelo-x", preset),
+            executor,
+            TokenBudget::new(10_000),
+        )
+        .with_project_instructions("Regras do projeto.")
+        .with_skills_list("- adr-writer: cria ADRs.");
+        session.push_user_message("oi");
+
+        session.run(&router_vazio()).await.expect("deve completar");
+
+        assert_eq!(
+            mock.chat_requests()[0].messages[0],
+            Message::system(
+                "Regras do projeto.\n\nInstrução da task-class.\n\n- adr-writer: cria ADRs."
+            )
+        );
+    }
+
+    #[tokio::test]
+    async fn sem_skills_descobertas_nenhuma_lista_vazia_e_inserida() {
+        let mock = Arc::new(MockProvider::new("mock"));
+        mock.enqueue_chat(Ok(resposta_final("ok", Usage::default())));
+        let executor = Arc::new(CountingExecutor::default());
+        let mut session = Session::new(
+            ResolvedRoute::new(mock.clone(), "modelo-x", CallPreset::default()),
+            executor,
+            TokenBudget::new(10_000),
+        )
+        .with_project_instructions("Regras do projeto.");
+        session.push_user_message("oi");
+
+        session.run(&router_vazio()).await.expect("deve completar");
+
+        assert_eq!(
+            mock.chat_requests()[0].messages[0],
+            Message::system("Regras do projeto."),
+            "sem with_skills_list, nada extra deve ser concatenado"
+        );
     }
 
     #[tokio::test]

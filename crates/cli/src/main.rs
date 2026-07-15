@@ -679,13 +679,25 @@ async fn main() {
         .unwrap_or(DEFAULT_TOKEN_BUDGET);
     let mut session = Session::new(rota, executor, TokenBudget::new(budget))
         .with_guardrails(Arc::new(cfg.guardrails), Arc::new(StderrAuditSink));
+    let context_ignore =
+        agentry_core::tools::fs::load_ignore(&workspace_root, cfg.respect_gitignore);
     if cfg.agents_file_enabled {
-        let ignore = agentry_core::tools::fs::load_ignore(&workspace_root, cfg.respect_gitignore);
-        if let Some(instrucoes) =
-            agentry_core::project_instructions::load_project_instructions(&workspace_root, &ignore)
-        {
+        if let Some(instrucoes) = agentry_core::project_instructions::load_project_instructions(
+            &workspace_root,
+            &context_ignore,
+        ) {
             session = session.with_project_instructions(instrucoes);
         }
+    }
+    // Descoberta de skills (MT-60/ADR-0023) não tem opt-out próprio —
+    // custo desprezível (só nome+descrição, corpo lido sob demanda pela
+    // tool `skill`, MT-61) e listar as skills disponíveis não é uma decisão
+    // de confidencialidade, diferente de `context.agentsFile.enabled`.
+    let skills_descobertas =
+        agentry_core::skills::discover_skills(&workspace_root, &context_ignore);
+    let lista_de_skills = agentry_core::skills::render_skills_list(&skills_descobertas);
+    if !lista_de_skills.is_empty() {
+        session = session.with_skills_list(lista_de_skills);
     }
 
     if let Some(tarefa) = args.tarefa {

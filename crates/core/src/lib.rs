@@ -24,6 +24,7 @@ pub mod project_instructions;
 pub mod provider;
 pub mod router;
 pub mod session;
+pub mod skills;
 pub mod state_dir;
 pub mod tools;
 pub mod transport;
