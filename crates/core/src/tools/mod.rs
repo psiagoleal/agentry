@@ -19,12 +19,35 @@ pub mod repo_map;
 pub mod shell;
 
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::Arc;
 
 use permission::{Permission, PermissionGate};
 
 use crate::model::{ToolCall, ToolResult};
 use crate::provider::{BoxFuture, ToolSpec};
+
+/// Nome canônico do arquivo de ignore do `agentry` (ADR-0020) — artefato
+/// próprio do `agentry`, não mais do contrato de interop v1 (ver ADR-0003
+/// emendada). Checado **antes** do legado.
+pub(crate) const IGNORE_FILE_NAME: &str = ".agentryignore";
+/// Nome legado (`.claudeignore`, herdado do contrato de interop pré-ADR-0020)
+/// — mantido só como *fallback* de compatibilidade quando
+/// [`IGNORE_FILE_NAME`] está ausente (MT-52).
+pub(crate) const LEGACY_IGNORE_FILE_NAME: &str = ".claudeignore";
+
+/// Decide qual arquivo de ignore usar em `root`: `.agentryignore` se
+/// presente, senão `.claudeignore` (*fallback* de compatibilidade). Se os
+/// dois existirem, `.agentryignore` vence **sozinho** — nunca um merge dos
+/// dois padrões (ADR-0020 §2). Compartilhada por `fs`/`repo_map`/
+/// `code_search` para não triplicar a mesma decisão.
+pub(crate) fn resolve_ignore_file_name(root: &Path) -> &'static str {
+    if root.join(IGNORE_FILE_NAME).is_file() {
+        IGNORE_FILE_NAME
+    } else {
+        LEGACY_IGNORE_FILE_NAME
+    }
+}
 
 /// Resultado bruto da execução de uma tool — sem `call_id`, que pertence à
 /// chamada ([`ToolCall`], MT-02), não à tool em si.
@@ -286,5 +309,73 @@ mod tests {
         assert_eq!(specs.len(), 1);
         assert_eq!(specs[0].name, "dummy");
         assert_eq!(specs[0].description, "tool de teste");
+    }
+
+    // --- MT-52: resolve_ignore_file_name (ADR-0020) ---
+
+    struct TempDir(std::path::PathBuf);
+
+    impl TempDir {
+        fn new() -> Self {
+            let unico = format!(
+                "agentry-tools-mod-test-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .expect("relógio do sistema não deve estar antes de 1970")
+                    .as_nanos()
+            );
+            let path = std::env::temp_dir().join(unico);
+            std::fs::create_dir_all(&path).expect("deve criar diretório temporário de teste");
+            Self(path)
+        }
+
+        fn path(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn resolve_ignore_file_name_sem_nenhum_arquivo_cai_no_legado() {
+        let dir = TempDir::new();
+        assert_eq!(
+            resolve_ignore_file_name(dir.path()),
+            LEGACY_IGNORE_FILE_NAME
+        );
+    }
+
+    #[test]
+    fn resolve_ignore_file_name_so_com_agentryignore() {
+        let dir = TempDir::new();
+        std::fs::write(dir.path().join(IGNORE_FILE_NAME), "").unwrap();
+        assert_eq!(resolve_ignore_file_name(dir.path()), IGNORE_FILE_NAME);
+    }
+
+    #[test]
+    fn resolve_ignore_file_name_so_com_claudeignore_legado() {
+        let dir = TempDir::new();
+        std::fs::write(dir.path().join(LEGACY_IGNORE_FILE_NAME), "").unwrap();
+        assert_eq!(
+            resolve_ignore_file_name(dir.path()),
+            LEGACY_IGNORE_FILE_NAME
+        );
+    }
+
+    #[test]
+    fn resolve_ignore_file_name_com_os_dois_vence_agentryignore_sozinho() {
+        let dir = TempDir::new();
+        std::fs::write(dir.path().join(IGNORE_FILE_NAME), "").unwrap();
+        std::fs::write(dir.path().join(LEGACY_IGNORE_FILE_NAME), "").unwrap();
+        assert_eq!(
+            resolve_ignore_file_name(dir.path()),
+            IGNORE_FILE_NAME,
+            "ADR-0020 §2: nunca faz merge dos dois, .agentryignore vence sozinho"
+        );
     }
 }

@@ -7,11 +7,13 @@
 //! Roda sob o mesmo `ToolRegistry`/gate de permissão de qualquer outra
 //! tool — nenhuma lógica de permissão própria (mesma disciplina do
 //! MT-12/21/24). Lê arquivos-fonte sob uma raiz fixa, respeitando
-//! `.claudeignore` (mesma técnica de `crate::tools::repo_map`, MT-21 — a
-//! duplicação do laço de `WalkBuilder` é deliberada: as duas tools
-//! produzem formatos de saída diferentes o bastante — `SourceFile`
-//! emprestado ali, `ArquivoFonte` possuído aqui — que compartilhar uma
-//! função só complicaria as assinaturas sem remover risco real).
+//! `.agentryignore` (mesma técnica de `crate::tools::repo_map`, MT-21;
+//! `.claudeignore` continua funcionando como *fallback* de compatibilidade,
+//! ADR-0020/MT-52) — a duplicação do laço de `WalkBuilder` é deliberada: as
+//! duas tools produzem formatos de saída diferentes o bastante —
+//! `SourceFile` emprestado ali, `ArquivoFonte` possuído aqui — que
+//! compartilhar uma função só complicaria as assinaturas sem remover risco
+//! real).
 //!
 //! [`CodeSearchSession`] mantém os índices lexical/semântico em cache
 //! (`tokio::sync::Mutex`, para poder segurar o *lock* através de um
@@ -47,9 +49,8 @@ use crate::context::rag::lexical_index::{LexicalIndex, LexicalIndexError};
 use crate::context::rag::semantic_index::{SemanticIndex, SemanticIndexError};
 use crate::provider::{BoxFuture, EmbeddingsRequest, LlmProvider, ProviderError};
 use crate::state_dir;
-use crate::tools::{Tool, ToolOutput, ToolRegistry};
+use crate::tools::{resolve_ignore_file_name, Tool, ToolOutput, ToolRegistry};
 
-const IGNORE_FILE_NAME: &str = ".claudeignore";
 const LIMITE_PADRAO: usize = 5;
 
 fn linguagem_por_extensao(caminho: &Path) -> Option<Language> {
@@ -64,7 +65,7 @@ fn ler_arquivos(root: &Path) -> Vec<ArquivoFonte> {
     let mut arquivos = Vec::new();
     let walker = WalkBuilder::new(root)
         .standard_filters(false)
-        .add_custom_ignore_filename(IGNORE_FILE_NAME)
+        .add_custom_ignore_filename(resolve_ignore_file_name(root))
         .build();
     for entrada in walker {
         let Ok(entrada) = entrada else { continue };

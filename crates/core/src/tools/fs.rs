@@ -5,9 +5,10 @@
 //! permissão de qualquer outra tool — nenhuma lógica de permissão própria
 //! aqui. Todo caminho é resolvido dentro de uma raiz fixa (workspace) e nunca
 //! escapa dela: caminho absoluto ou com `..` é rejeitado antes de qualquer
-//! I/O. Arquivos/diretórios cobertos por `.claudeignore` (mesma semântica de
-//! `.gitignore`, via crate `ignore` — não reimplementada na mão) ficam
-//! inacessíveis a estas tools.
+//! I/O. Arquivos/diretórios cobertos por `.agentryignore` (mesma semântica de
+//! `.gitignore`, via crate `ignore` — não reimplementada na mão; `.claudeignore`
+//! continua funcionando como *fallback* de compatibilidade, ADR-0020/MT-52)
+//! ficam inacessíveis a estas tools.
 
 use std::fs;
 use std::path::{Component, Path, PathBuf};
@@ -16,10 +17,7 @@ use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use ignore::WalkBuilder;
 
 use crate::provider::BoxFuture;
-use crate::tools::{Tool, ToolOutput};
-
-/// Nome do arquivo de ignore reconhecido por estas tools.
-const IGNORE_FILE_NAME: &str = ".claudeignore";
+use crate::tools::{resolve_ignore_file_name, Tool, ToolOutput};
 
 /// Resolve `relative` dentro de `root`, rejeitando caminho absoluto ou que
 /// contenha `..` — lógica pura, sem tocar o filesystem.
@@ -37,16 +35,18 @@ fn resolve_within_root(root: &Path, relative: &str) -> Result<PathBuf, String> {
     Ok(root.join(rel_path))
 }
 
-/// Carrega o `.claudeignore` da raiz — ausência do arquivo é normal e trata
-/// como "nada ignorado" (nunca erro).
+/// Carrega o arquivo de ignore da raiz (`.agentryignore`, ou `.claudeignore`
+/// como *fallback*, MT-52) — ausência dos dois é normal e trata como "nada
+/// ignorado" (nunca erro).
 fn load_ignore(root: &Path) -> Gitignore {
     let mut builder = GitignoreBuilder::new(root);
-    let _ = builder.add(root.join(IGNORE_FILE_NAME));
+    let _ = builder.add(root.join(resolve_ignore_file_name(root)));
     builder.build().unwrap_or_else(|_| Gitignore::empty())
 }
 
 /// Contexto compartilhado pelas tools de filesystem: raiz do workspace +
-/// matcher de `.claudeignore` já carregado.
+/// matcher do arquivo de ignore ativo (`.agentryignore`, ou `.claudeignore`
+/// como *fallback*) já carregado.
 struct FsContext {
     root: PathBuf,
     ignore: Gitignore,
@@ -59,12 +59,15 @@ impl FsContext {
         Self { root, ignore }
     }
 
-    /// Resolve e valida `relative`: dentro da raiz e não coberto por
-    /// `.claudeignore`.
+    /// Resolve e valida `relative`: dentro da raiz e não coberto pelo
+    /// arquivo de ignore ativo.
     fn resolve(&self, relative: &str) -> Result<PathBuf, String> {
         let path = resolve_within_root(&self.root, relative)?;
         if self.ignore.matched(&path, path.is_dir()).is_ignore() {
-            return Err(format!("'{relative}' está coberto por .claudeignore"));
+            return Err(format!(
+                "'{relative}' está coberto por {}",
+                resolve_ignore_file_name(&self.root)
+            ));
         }
         Ok(path)
     }
@@ -261,9 +264,10 @@ impl Tool for FsEditTool {
 
 /// Tool de busca (`fs_search`): substring literal (sem regex — mesma
 /// disciplina de dependências mínimas do MT-06) em arquivos de texto do
-/// workspace, respeitando **apenas** `.claudeignore` (os filtros padrão de
-/// `.gitignore`/`.git/info/exclude` ficam desligados — escopo do MT-12 é
-/// só `.claudeignore`).
+/// workspace, respeitando **apenas** o arquivo de ignore ativo
+/// (`.agentryignore`, ou `.claudeignore` como *fallback*, MT-52) — os
+/// filtros padrão de `.gitignore`/`.git/info/exclude` ficam desligados
+/// (escopo do MT-12/53 é só o arquivo de ignore próprio do `agentry`).
 pub struct FsSearchTool {
     ctx: FsContext,
 }
@@ -284,7 +288,7 @@ impl Tool for FsSearchTool {
     }
 
     fn description(&self) -> &str {
-        "Busca uma substring literal em arquivos de texto do workspace, respeitando .claudeignore."
+        "Busca uma substring literal em arquivos de texto do workspace, respeitando .agentryignore."
     }
 
     fn input_schema(&self) -> serde_json::Value {
@@ -315,7 +319,7 @@ impl Tool for FsSearchTool {
             let mut resultados = Vec::new();
             let walker = WalkBuilder::new(&start)
                 .standard_filters(false)
-                .add_custom_ignore_filename(IGNORE_FILE_NAME)
+                .add_custom_ignore_filename(resolve_ignore_file_name(&self.ctx.root))
                 .build();
             for entrada in walker {
                 let Ok(entrada) = entrada else { continue };
@@ -545,7 +549,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn respeita_claudeignore_no_read_e_no_search() {
+    async fn respeita_claudeignore_legado_no_read_e_no_search() {
+        // Só .claudeignore (sem .agentryignore) — exercita o fallback de
+        // compatibilidade (MT-52, ADR-0020 §2).
         let dir = TempDir::new();
         fs::write(dir.path().join(".claudeignore"), "segredo.txt\n").unwrap();
         fs::write(dir.path().join("segredo.txt"), "alvo confidencial").unwrap();
@@ -568,6 +574,62 @@ mod tests {
         assert!(
             !saida_busca.content.contains("segredo.txt"),
             "arquivo ignorado não deveria aparecer na busca"
+        );
+    }
+
+    #[tokio::test]
+    async fn respeita_agentryignore_no_read_e_no_search() {
+        // .agentryignore sozinho (sem .claudeignore) — nome canônico novo.
+        let dir = TempDir::new();
+        fs::write(dir.path().join(".agentryignore"), "segredo.txt\n").unwrap();
+        fs::write(dir.path().join("segredo.txt"), "alvo confidencial").unwrap();
+        fs::write(dir.path().join("normal.txt"), "alvo normal").unwrap();
+
+        let read_tool = FsReadTool::new(dir.path());
+        let saida_leitura = read_tool
+            .execute(serde_json::json!({ "path": "segredo.txt" }))
+            .await;
+        assert!(
+            saida_leitura.is_error,
+            "arquivo coberto por .agentryignore não deveria ser lido"
+        );
+
+        let search_tool = FsSearchTool::new(dir.path());
+        let saida_busca = search_tool
+            .execute(serde_json::json!({ "pattern": "alvo" }))
+            .await;
+        assert!(saida_busca.content.contains("normal.txt"));
+        assert!(!saida_busca.content.contains("segredo.txt"));
+    }
+
+    #[tokio::test]
+    async fn agentryignore_vence_sozinho_quando_os_dois_arquivos_existem() {
+        // ADR-0020 §2: nunca faz merge dos dois — .agentryignore vence
+        // sozinho. Um arquivo coberto só por .claudeignore, nesse cenário,
+        // NÃO fica ignorado.
+        let dir = TempDir::new();
+        fs::write(dir.path().join(".agentryignore"), "novo.txt\n").unwrap();
+        fs::write(dir.path().join(".claudeignore"), "legado.txt\n").unwrap();
+        fs::write(dir.path().join("novo.txt"), "coberto pelo novo").unwrap();
+        fs::write(dir.path().join("legado.txt"), "coberto só pelo legado").unwrap();
+
+        let read_tool = FsReadTool::new(dir.path());
+
+        let saida_novo = read_tool
+            .execute(serde_json::json!({ "path": "novo.txt" }))
+            .await;
+        assert!(
+            saida_novo.is_error,
+            "novo.txt está em .agentryignore, deve continuar ignorado"
+        );
+
+        let saida_legado = read_tool
+            .execute(serde_json::json!({ "path": "legado.txt" }))
+            .await;
+        assert!(
+            !saida_legado.is_error,
+            "legado.txt só está em .claudeignore — com .agentryignore presente, \
+             .claudeignore não é consultado (sem merge, ADR-0020 §2)"
         );
     }
 

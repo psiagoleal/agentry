@@ -6,10 +6,11 @@
 //!
 //! Roda sob o mesmo `ToolRegistry`/gate de permissão de qualquer outra tool
 //! — nenhuma lógica de permissão própria aqui (mesma disciplina do MT-12).
-//! Lê arquivos-fonte sob uma raiz fixa, respeitando `.claudeignore` (mesma
-//! técnica de `crate::tools::fs`, via `ignore::WalkBuilder`); só extensões
-//! reconhecidas (`.rs`, `.py` — mesmas linguagens do MT-18) entram no grafo,
-//! as demais são ignoradas em silêncio.
+//! Lê arquivos-fonte sob uma raiz fixa, respeitando `.agentryignore` (mesma
+//! técnica de `crate::tools::fs`, via `ignore::WalkBuilder`; `.claudeignore`
+//! continua funcionando como *fallback* de compatibilidade, ADR-0020/MT-52);
+//! só extensões reconhecidas (`.rs`, `.py` — mesmas linguagens do MT-18)
+//! entram no grafo, as demais são ignoradas em silêncio.
 //!
 //! Ativada por padrão (ADR-0010, flag `context.repo_map.enabled`) —
 //! [`register_repo_map_tool`] decide, a partir da flag, se a tool é
@@ -27,10 +28,8 @@ use crate::context::ast::Language;
 use crate::context::repo_map::graph::{build_reference_graph, SourceFile};
 use crate::context::repo_map::rank::rank;
 use crate::provider::BoxFuture;
-use crate::tools::{Tool, ToolOutput, ToolRegistry};
+use crate::tools::{resolve_ignore_file_name, Tool, ToolOutput, ToolRegistry};
 
-/// Nome do arquivo de ignore reconhecido (mesma convenção do MT-12).
-const IGNORE_FILE_NAME: &str = ".claudeignore";
 /// Número máximo de arquivos devolvidos no ranking — evita uma resposta
 /// gigante em repositórios grandes.
 const MAX_RESULTADOS: usize = 20;
@@ -58,14 +57,15 @@ impl RepoMapTool {
     }
 
     /// Lê o conteúdo de cada arquivo de linguagem suportada sob a raiz,
-    /// respeitando `.claudeignore`. Arquivos ilegíveis (não-UTF-8, etc.) são
-    /// pulados em silêncio — o repo-map é best-effort, não deve falhar a
-    /// tarefa inteira por causa de um arquivo problemático.
+    /// respeitando o arquivo de ignore ativo (`.agentryignore`, ou
+    /// `.claudeignore` como *fallback*). Arquivos ilegíveis (não-UTF-8,
+    /// etc.) são pulados em silêncio — o repo-map é best-effort, não deve
+    /// falhar a tarefa inteira por causa de um arquivo problemático.
     fn ler_arquivos(&self) -> Vec<(String, String, Language)> {
         let mut arquivos = Vec::new();
         let walker = WalkBuilder::new(&self.root)
             .standard_filters(false)
-            .add_custom_ignore_filename(IGNORE_FILE_NAME)
+            .add_custom_ignore_filename(resolve_ignore_file_name(&self.root))
             .build();
         for entrada in walker {
             let Ok(entrada) = entrada else { continue };
@@ -260,7 +260,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn tool_ignora_arquivos_cobertos_por_claudeignore() {
+    async fn tool_ignora_arquivos_cobertos_por_claudeignore_legado() {
+        // Só .claudeignore (sem .agentryignore) — fallback de compatibilidade
+        // (MT-52, ADR-0020 §2).
         let dir = TempDir::new();
         fs::write(dir.path().join(".claudeignore"), "secreto.rs\n").unwrap();
         fs::write(
@@ -280,6 +282,30 @@ mod tests {
         assert!(
             !saida.content.contains("secreto.rs"),
             "arquivo coberto por .claudeignore não deveria aparecer no ranking"
+        );
+    }
+
+    #[tokio::test]
+    async fn tool_ignora_arquivos_cobertos_por_agentryignore() {
+        let dir = TempDir::new();
+        fs::write(dir.path().join(".agentryignore"), "secreto.rs\n").unwrap();
+        fs::write(
+            dir.path().join("seed.rs"),
+            "fn desde_seed() {\n    popular();\n    de_secreto();\n}\n",
+        )
+        .unwrap();
+        fs::write(dir.path().join("popular.rs"), "fn popular() {}\n").unwrap();
+        fs::write(dir.path().join("secreto.rs"), "fn de_secreto() {}\n").unwrap();
+
+        let tool = RepoMapTool::new(dir.path());
+        let saida = tool
+            .execute(serde_json::json!({ "seeds": ["seed.rs"] }))
+            .await;
+
+        assert!(!saida.is_error);
+        assert!(
+            !saida.content.contains("secreto.rs"),
+            "arquivo coberto por .agentryignore não deveria aparecer no ranking"
         );
     }
 
