@@ -16,6 +16,16 @@ versionado. Só a **Fase 12** (a próxima) já está detalhada — ver `docs/roa
 > Convenções de DoD, granularidade e "dependência nova exige ADR (ADR-0004)": iguais às dos
 > roadmaps versionados (`docs/roadmap-v0.1.md` §Convenções).
 
+## Execução autônoma (loop)
+
+Este roadmap pode ser executado de forma **autônoma** pelo comando
+`.claude/commands/implementar-roadmap.md` (via `/loop`): uma unidade de trabalho por
+iteração, retomável após interrupção, com **paradas de segurança** (dependência nova,
+repo irmão, qualquer afrouxamento de egresso ⇒ escala ao usuário) e **registro de toda
+decisão-sob-dúvida** em [`docs/decisoes-autonomas.md`](./decisoes-autonomas.md) para revisão
+posterior. Fases sem tickets detalhados (13+) são primeiro **preparadas** (ADR + quebra em
+micro-tickets) antes de implementadas.
+
 ## Sequência das fases
 
 ```

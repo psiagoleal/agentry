@@ -80,6 +80,7 @@ nav:
       - Arquitetura: architecture.md
       - Guia de testes: testing.md
       - Estado corrente (handoff): CURRENT-STATE.md
+      - Decisões autônomas (loop): decisoes-autonomas.md
       - Registros de Decisão (ADRs):
           - Índice: adr/README.md
           - "0001 — Fundação da camada LLM": adr/0001-fundacao-camada-llm.md
