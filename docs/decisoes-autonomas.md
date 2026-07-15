@@ -50,7 +50,7 @@ escolha feita sozinho.
   e bem definidos deste projeto. O trade-off aceito (frontmatter fora do subconjunto suportado
   falha de forma tratada, não silenciosa) é proporcional ao ganho de continuar com árvore de
   dependências auditável (ADR-0001).
-- **Commit:** a registrar junto com o commit da ADR-0023.
+- **Commit:** `384899b`.
 
 ### 2026-07-15 — MT-55 (Fase 12, `taskClasses`) — `Config` não sintetiza defaults de task-class
 - **Contexto:** o ticket MT-55 (`docs/roadmap-v0.6.md`) pedia que, quando `taskClasses` não

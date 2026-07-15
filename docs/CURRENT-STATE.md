@@ -9,16 +9,19 @@
 
 - **Data:** 2026-07-15
 - **Branch:** `main`
-- **Commit:** `5457f18`
+- **Commit:** `384899b`
 - **Fase:** Roadmap v0.1..v0.4 **fechados/imutáveis**; **Fase 10 concluída** (LiteLLM).
   **Execução autônoma em andamento** (`/loop /implementar-roadmap`, modelo Sonnet 5) — ver
-  `docs/decisoes-autonomas.md` para decisões tomadas sozinho (**1 decisão registrada**: MT-55,
-  síntese de defaults de task-class deferida à CLI). **Fase 11 concluída inteira** (ADR-0020,
+  `docs/decisoes-autonomas.md` para decisões tomadas sozinho (**2 decisões registradas**:
+  MT-55 síntese de defaults de task-class deferida à CLI; ADR-0023 parser de frontmatter de
+  `SKILL.md` próprio em vez de dependência YAML). **Fase 11 concluída inteira** (ADR-0020,
   `.agentryignore`, MT-52..54, `roadmap-v0.5.md`). **Fase 12 concluída inteira** (ADR-0021/0022,
   config de task-class de ponta a ponta, MT-55..58, `roadmap-v0.6.md`) — o tema mais enfatizado
-  pelo usuário no planejamento original. **Fases 13–17+** (mapa/stubs, ADR 0023–0028
-  reservadas) ainda não iniciadas; a próxima (Fase 13) exige **preparação** (ADR + quebra em
-  micro-tickets) antes de qualquer implementação, conforme a seção 1 do comando de loop.
+  pelo usuário no planejamento original. **Fase 13 preparada** (ADR-0023 escrita, `Proposed`;
+  micro-tickets detalhados em `docs/roadmap-v0.7.md`, MT-59..62) — pronta para começar a
+  implementação a partir do MT-59. **Fases 14–17+** (mapa/stubs, ADR 0024–0028 reservadas)
+  ainda não iniciadas. **Housekeeping:** ADR-0020/0021/0022 promovidas de `Proposed` para
+  `Accepted` (suas fases já concluídas há várias iterações; status ficou desatualizado).
 
 ## Metas cumpridas / Em andamento / Próximo passo
 
@@ -689,13 +692,29 @@
   validado. Nenhuma mudança de código. **Fecha a Fase 12 inteira (MT-55..58)** — o tema mais
   enfatizado pelo usuário no planejamento original.
 
+- [x] **Preparação da Fase 13** — ADR-0023 (`Proposed`) decide: `AGENTS.md` primário /
+  `CLAUDE.md` *fallback* (nunca merge, mesma precedência do ADR-0020); concatenados numa única
+  mensagem de sistema junto do preset da `task-class` ativa; leitura sempre respeita
+  `.agentryignore`/`.claudeignore`; `.claude/skills/*/SKILL.md` reaproveitado verbatim
+  (compatibilidade direta com a convenção já existente do Claude Code, inclusive a deste
+  próprio repositório); skill completa carregada só sob demanda via nova tool `skill` (mesmo
+  padrão `Tool`/`ToolRegistry` do MT-11). Decisão-sob-dúvida registrada: parser de
+  frontmatter de `SKILL.md` **próprio** (só `name`/`description`, incluindo bloco dobrado
+  `>-`), não uma dependência YAML — decidir isso na ADR evita o gatilho de parada dura do loop
+  para dependência nova. `docs/roadmap-v0.7.md` detalha MT-59 (loader AGENTS.md/CLAUDE.md),
+  MT-60 (descoberta de SKILL.md), MT-61 (tool `skill`), MT-62 (documentação + ADR-0003 →
+  `Accepted`), sequência estritamente linear. Housekeeping: ADR-0020/0021/0022 promovidas a
+  `Accepted` (gap de status desatualizado, mesma categoria dos gaps corrigidos no MT-57/58).
+  `mkdocs build --strict` limpo. Nenhuma mudança de código.
+
 **Em andamento:** nada pendente no turno.
 
-**Próximo passo:** **Fase 13** (`docs/roadmap-longo-prazo.md` — memória de projeto:
-`AGENTS.md`/`CLAUDE.md` + Skills, ADR-0023) — fase ainda **sem tickets detalhados**; a próxima
-iteração do loop deve **preparar a fase** primeiro (escrever a ADR-0023 completa, quebrar em
-micro-tickets num novo `docs/roadmap-v0.7.md`, atualizar `docs/adr/README.md` e a `nav` do
-`mkdocs.yml`), só então implementar. As Fases 14–17+ seguem só como mapa. Outros itens em aberto, sem
+**Próximo passo:** **MT-59** (`docs/roadmap-v0.7.md`, `crates/core/src/project_instructions.rs`
+novo, `crates/core/src/session/mod.rs`, `crates/core/src/config/mod.rs`,
+`crates/cli/src/main.rs`) — loader de `AGENTS.md`/`CLAUDE.md`, injetado como mensagem de
+sistema (concatenado ao preset da `task-class`), com `context.agentsFile.enabled` (*default*
+`true`) e respeito a `.agentryignore`/`.claudeignore`. As Fases 14–17+ seguem só como mapa.
+Outros itens em aberto, sem
 ticket: deploy do site MkDocs (GitHub Pages) — decisão explícita do usuário de
 não fazer ainda; CI multi-SO ainda não observado verde (falta um push que dispare a matriz);
 backlog independente do `ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de
@@ -719,6 +738,7 @@ pendentes de validação de implementação).
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-15 | `384899b` | ADR-0023: memória de projeto (AGENTS.md + Skills); prepara a Fase 13 (MT-59..62) | — |
 | 2026-07-15 | `5457f18` | MT-58: documentação do site — taskClasses + convenção autoexplicativa (fecha a Fase 12) | MT-58 |
 | 2026-07-15 | `efca5dd` | MT-57: exemplo --init enriquecido (taskClasses + auditoria de blocos, ADR-0022) | MT-57 |
 | 2026-07-15 | `45d56db` | MT-56: CLI consome task-classes reais + --task-class/`/task-class` (ADR-0021) | MT-56 |
