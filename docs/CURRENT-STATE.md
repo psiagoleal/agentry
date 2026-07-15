@@ -9,7 +9,7 @@
 
 - **Data:** 2026-07-15
 - **Branch:** `main`
-- **Commit:** `4e3f5ee`
+- **Commit:** `5304914`
 - **Fase:** Roadmap v0.1..v0.4 **fechados/imutáveis**; **Fase 10 concluída** (LiteLLM).
   **Execução autônoma em andamento** (`/loop /implementar-roadmap`, modelo Sonnet 5) — ver
   `docs/decisoes-autonomas.md` para decisões tomadas sozinho (**2 decisões registradas**:
@@ -21,12 +21,20 @@
   `docs/roadmap-v0.7.md`, MT-59..62) — memória de projeto (`AGENTS.md`/`CLAUDE.md`) e skills
   (*progressive disclosure* completo, descoberta + tool `skill`); **ADR-0003 também promovida a
   `Accepted`** (objetivo original — consumo de artefatos do `profiles` — cumprido). **Fase 14
-  quase concluída** (ADR-0024/0025/0026 `Proposed`, `docs/roadmap-v0.8.md`) — **MT-63..68
-  concluídos** (`AskUser`; `WebFetch`+`WebSearch`, ADR-0025 inteira; `glob`;
-  `shell_background`); só falta **MT-69** (documentação, fecha a fase inteira). **Fases 15–17+**
-  (mapa/stubs, ADR 0027/0028 reservadas) ainda não iniciadas. **Housekeeping:**
-  ADR-0020/0021/0022 promovidas de `Proposed` para `Accepted` (suas fases já concluídas há
-  várias iterações; status ficou desatualizado).
+  concluída inteira** (ADR-0024/0025/0026 `Accepted`, `docs/roadmap-v0.8.md`, MT-63..69) —
+  `AskUser`, `WebFetch`+`WebSearch` (ADR-0025 inteira), `glob`, `shell_background`, documentação
+  completa. **Housekeeping:** ADR-0020/0021/0022 promovidas de `Proposed` para `Accepted` (suas
+  fases já concluídas há várias iterações; status ficou desatualizado).
+
+  **LOOP AUTÔNOMO PARADO AQUI — decisão do mantenedor necessária.** As Fases 15 (TUI, ADR-0027)
+  e 16 (MCP, ADR-0028) — as duas únicas fases com tickets ainda não detalhados no roadmap-mestre
+  — exigem, cada uma, uma **dependência de runtime nova** (`ratatui` e `rmcp`,
+  respectivamente) só para a fase começar a ser preparada (a própria ADR de cada fase
+  decidiria adotar a dependência, ADR-0004). Isso é uma **parada dura** explícita do comando
+  `.claude/commands/implementar-roadmap.md` (§6) — o loop não decide isso sozinho, mesmo com
+  uma "opção recomendada clara", porque o gatilho é categórico (qualquer dependência nova),
+  não uma questão de julgamento. Nenhuma outra fase do roadmap de longo prazo tem tickets
+  detalhados pendentes no momento. Ver `docs/roadmap-longo-prazo.md` §Sequência das fases.
 
 ## Metas cumpridas / Em andamento / Próximo passo
 
@@ -853,14 +861,31 @@
   limpos, `cargo build --release` verde. Smoke-test reproduz a mesma limitação de
   *tool-calling* já registrada; a tool também fica bloqueada por padrão (*allow-list* vazia,
   mesmo comportamento do `shell_exec`). Nenhuma dependência nova.
+- [x] **MT-69** — `docs/usuario/configuracao.md`: seções `tools.webFetch` (as duas condições
+  exigidas — *opt-in* + perfil `cloud-ok` — e por quê) e `tools.webSearch`
+  (`searxngUrl`/`searxngEgressClass`, sem instância pública pré-configurada). `docs/usuario/uso.md`:
+  seção "Ferramentas do agente" (`ask_user`/`glob`/`shell_background`/`web_fetch`/`web_search`).
+  `docs/governanca/privacidade-e-egresso.md`: seção "Egresso via ferramentas de web" para o
+  público de *compliance* — por que `web_fetch` exige as duas condições (não uma *allowlist*
+  de host, já que o destino não é conhecido de antemão); modelo de anonimato como requisito de
+  código. Corrigida uma afirmação desatualizada ("os dois são os únicos caminhos de rede") —
+  achado de releitura, mesma categoria dos gaps do MT-57/58/62. ADR-0024/0025/0026 promovidas
+  a `Accepted`. `mkdocs build --strict` limpo; *anchors* conferidos no HTML. Nenhuma mudança de
+  código. **Fecha a Fase 14 inteira (MT-63..69).**
 
-**Em andamento:** nada pendente no turno.
+**Em andamento:** nada pendente — árvore de trabalho limpa, tudo commitado.
 
-**Próximo passo:** **MT-69** (`docs/roadmap-v0.8.md`, `docs/usuario/configuracao.md`,
-`docs/usuario/uso.md`, `docs/governanca/privacidade-e-egresso.md`) — documentação de
-`tools.webFetch`/`tools.webSearch`/`ask_user`/`glob`/`shell_background`, promoção de
-ADR-0024/0025/0026 a `Accepted`. Fecha a Fase 14 inteira. As Fases 15–17+ seguem só como
-mapa. Outros itens em aberto, sem
+**Próximo passo — requer decisão do mantenedor, loop autônomo parado:** as únicas fases com
+tickets ainda não detalhados são a **Fase 15** (TUI via `ratatui`, ADR-0027) e a **Fase 16**
+(cliente MCP via `rmcp`, ADR-0028) — cada uma precisa de uma **dependência de runtime nova**
+mesmo só para escrever sua ADR (que decidiria adotar a dependência, ADR-0004). Isso é uma
+parada dura explícita do comando `.claude/commands/implementar-roadmap.md` (§6): o loop nunca
+decide sozinho adotar uma dependência nova, mesmo havendo uma "opção recomendada clara" —
+volte a rodar `/loop /implementar-roadmap` só depois de decidir (a) qual das duas fases
+priorizar, ou (b) se `ratatui`/`rmcp` são de fato as dependências corretas a adotar (a ADR de
+cada fase ainda faria a verificação formal de maturidade/licença, ADR-0004, mas a decisão de
+**seguir em frente com uma dependência nova** é do mantenedor, não do loop). Outros itens em
+aberto, sem
 ticket: deploy do site MkDocs (GitHub Pages) — decisão explícita do usuário de
 não fazer ainda; CI multi-SO ainda não observado verde (falta um push que dispare a matriz);
 backlog independente do `ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de
@@ -884,6 +909,8 @@ pendentes de validação de implementação).
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-15 | `5304914` | docs(roadmap): marca MT-69 concluído; fecha a Fase 14 inteira | — |
+| 2026-07-15 | `e375095` | MT-69: documentação tools essenciais + ADR-0024/0025/0026 -> Accepted | MT-69 |
 | 2026-07-15 | `4e3f5ee` | MT-68: tool shell_background -- start/output/stop (ADR-0026) | MT-68 |
 | 2026-07-15 | `1e666ca` | MT-67: tool glob (ADR-0026) | MT-67 |
 | 2026-07-15 | `b23b184` | MT-66: tool web_search via SearXNG configurável (ADR-0025) | MT-66 |
