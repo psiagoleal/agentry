@@ -49,6 +49,7 @@ use agentry_core::tools::lsp::{register_lsp_tools, LspSession};
 use agentry_core::tools::permission::PermissionGate;
 use agentry_core::tools::repo_map::{register_repo_map_tool, RepoMapTool};
 use agentry_core::tools::shell::{ShellPolicy, ShellTool};
+use agentry_core::tools::skill::SkillTool;
 use agentry_core::tools::ToolRegistry;
 use agentry_core::transport::{host_from_url, AuditSink, Transport};
 
@@ -639,6 +640,20 @@ async fn main() {
             std::process::exit(1)
         });
 
+    // Único `Gitignore` reaproveitado por instruções de projeto (MT-59),
+    // descoberta de skills (MT-60) e a tool `skill` (MT-61) — mesma
+    // checagem de confidencialidade (`.agentryignore`/`.claudeignore`,
+    // ADR-0020) em todos os três, sem reconstruir o matcher a cada um.
+    let context_ignore =
+        agentry_core::tools::fs::load_ignore(&workspace_root, cfg.respect_gitignore);
+    // Descoberta de skills (MT-60/ADR-0023) não tem *opt-out* próprio —
+    // custo desprezível (só nome+descrição na mensagem de sistema; corpo
+    // lido sob demanda pela tool `skill`) e listar as skills disponíveis
+    // não é uma decisão de confidencialidade, diferente de
+    // `context.agentsFile.enabled`.
+    let skills_descobertas =
+        agentry_core::skills::discover_skills(&workspace_root, &context_ignore);
+
     let mut registry = ToolRegistry::new(PermissionGate::new(cfg.permissions.clone()));
     registry.register(Arc::new(FsReadTool::new(
         workspace_root.clone(),
@@ -659,6 +674,7 @@ async fn main() {
     // Sem padrões de `allow` configuráveis ainda (fora de escopo do MT-14):
     // shell fica bloqueado por padrão (default-deny da `ShellPolicy`, MT-13).
     registry.register(Arc::new(ShellTool::new(ShellPolicy::new(vec![]))));
+    registry.register(Arc::new(SkillTool::new(skills_descobertas.clone())));
 
     register_context_tools(
         &mut registry,
@@ -679,8 +695,6 @@ async fn main() {
         .unwrap_or(DEFAULT_TOKEN_BUDGET);
     let mut session = Session::new(rota, executor, TokenBudget::new(budget))
         .with_guardrails(Arc::new(cfg.guardrails), Arc::new(StderrAuditSink));
-    let context_ignore =
-        agentry_core::tools::fs::load_ignore(&workspace_root, cfg.respect_gitignore);
     if cfg.agents_file_enabled {
         if let Some(instrucoes) = agentry_core::project_instructions::load_project_instructions(
             &workspace_root,
@@ -689,12 +703,6 @@ async fn main() {
             session = session.with_project_instructions(instrucoes);
         }
     }
-    // Descoberta de skills (MT-60/ADR-0023) não tem opt-out próprio —
-    // custo desprezível (só nome+descrição, corpo lido sob demanda pela
-    // tool `skill`, MT-61) e listar as skills disponíveis não é uma decisão
-    // de confidencialidade, diferente de `context.agentsFile.enabled`.
-    let skills_descobertas =
-        agentry_core::skills::discover_skills(&workspace_root, &context_ignore);
     let lista_de_skills = agentry_core::skills::render_skills_list(&skills_descobertas);
     if !lista_de_skills.is_empty() {
         session = session.with_skills_list(lista_de_skills);

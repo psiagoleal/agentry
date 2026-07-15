@@ -17,6 +17,7 @@ pub mod lsp;
 pub mod permission;
 pub mod repo_map;
 pub mod shell;
+pub mod skill;
 
 use std::collections::HashMap;
 use std::path::Path;
