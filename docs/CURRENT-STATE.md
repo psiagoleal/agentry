@@ -9,12 +9,12 @@
 
 - **Data:** 2026-07-15
 - **Branch:** `main`
-- **Commit:** `d742265`
+- **Commit:** `6151e26`
 - **Fase:** Roadmap v0.1..v0.4 **fechados/imutáveis**; **Fase 10 concluída** (LiteLLM).
   **Execução autônoma em andamento** (`/loop /implementar-roadmap`, modelo Sonnet 5) — ver
-  `docs/decisoes-autonomas.md` para decisões tomadas sozinho. **Fase 11** (ADR-0020,
-  `.agentryignore`, `roadmap-v0.5.md`): **MT-52 concluído**; faltam MT-53 (`context.gitignore`)
-  e MT-54 (docs). **Fase 12** (ADR-0021/0022, config de task-class, `roadmap-v0.6.md`,
+  `docs/decisoes-autonomas.md` para decisões tomadas sozinho (vazio até agora). **Fase 11**
+  (ADR-0020, `.agentryignore`, `roadmap-v0.5.md`): **MT-52/53 concluídos**; falta só **MT-54**
+  (docs) pra fechar a fase inteira. **Fase 12** (ADR-0021/0022, config de task-class, `roadmap-v0.6.md`,
   MT-55..58) e **Fases 13–17+** (mapa/stubs, ADR 0023–0028 reservadas) ainda não iniciadas.
 
 ## Metas cumpridas / Em andamento / Próximo passo
@@ -579,16 +579,38 @@
   exercitar uma tool-call completa; cobertura de unidade já exercita o caminho de produção
   diretamente). Nenhuma decisão-sob-dúvida neste ticket — escopo objetivo, sem registro em
   `decisoes-autonomas.md` (`d742265`).
+- [x] **MT-53** — `ContextSettings` (`crates/core/src/config/mod.rs`) ganha `gitignore:
+  FeatureToggle` (`context.gitignore.enabled`, mesmo padrão de
+  `repoMap`/`semanticRag`/`lspGrounding`); `Config.respect_gitignore: bool`, *default*
+  `false` — **opt-in**, diferente das outras flags de `context.*` (default `true`): reduzir
+  ruído de contexto nunca muda o comportamento de quem não configurou nada. As três tools
+  ganham o parâmetro: `fs.rs` soma `.gitignore` ao `GitignoreBuilder` já existente (união
+  real, um só matcher); `repo_map`/`code_search`/`FsSearchTool` ganham
+  `.git_ignore(respect_gitignore)` no `WalkBuilder`. **Achado real ao testar:** a crate
+  `ignore` só respeita `.gitignore` dentro de um repo git de verdade por padrão
+  (`WalkBuilder::require_git`, `true`) — duas suítes falharam até eu descobrir isso;
+  corrigido com `.require_git(false)` nos três `WalkBuilder` (não é decisão-sob-dúvida, é
+  correção de comportamento real da dependência — não entra em `decisoes-autonomas.md`).
+  `crates/cli/src/main.rs`: as 4 tools de `fs` + `RepoMapTool` + `CodeSearchSession` passam
+  a receber `cfg.respect_gitignore` na construção real. **Autocorreção:** o commit de código
+  (`3bbd934`) alegou "8 testes novos" incluindo cobertura de schema que na verdade não tinha
+  sido escrita — faltavam 2 testes de `config/mod.rs` (parsing/merge/resolução de
+  `context.gitignore.enabled`); corrigido num commit separado e honesto (`6151e26`), sem
+  `--amend`. 282 testes na lib do core (280+2, mais os das tools) + 4 de integração + 36 na
+  CLI, fmt/clippy limpos, `cargo build --release` verde. Smoke-test do binário real confirma
+  que o novo bloco `context.gitignore` parseia sem erro. Nenhuma dependência nova.
+  **Fecha o penúltimo ticket da Fase 11** — falta só o MT-54.
 
-**Em andamento:** Fase 11 (MT-53 é o próximo).
+**Em andamento:** Fase 11 (MT-54 é o próximo).
 
-**Próximo passo:** **MT-53** (`docs/roadmap-v0.5.md` — schema `context.gitignore`, *default*
-`false`, respeito opcional a `.gitignore` em união com `.agentryignore`/legado, nunca
-substituindo; `crates/core/src/config/mod.rs` + as três tools). Depois MT-54 (documentação),
-fechando a Fase 11. Fase 12 (config de task-class — a mais enfatizada pelo usuário) segue
-depois, independente. As Fases 13–17+ só como mapa; cada uma escreve sua ADR ao iniciar
-(subprocedimento do comando de loop). Outros itens em aberto, sem ticket: deploy do site
-MkDocs (GitHub Pages) — decisão explícita do usuário de
+**Próximo passo:** **MT-54** (`docs/roadmap-v0.5.md` — documentação: `docs/usuario/
+configuracao.md` ganha `context.gitignore` e a explicação de `.agentryignore`/*fallback*
+`.claudeignore`; revisão da trilha de governança deixando explícito que confidencialidade
+e redução de ruído de contexto são mecanismos distintos) — fecha a Fase 11 inteira. Depois:
+Fase 12 (config de task-class — a mais enfatizada pelo usuário), independente. As Fases
+13–17+ só como mapa; cada uma escreve sua ADR ao iniciar (subprocedimento do comando de
+loop). Outros itens em aberto, sem ticket: deploy do site MkDocs (GitHub Pages) — decisão
+explícita do usuário de
 não fazer ainda; CI multi-SO ainda não observado verde (falta um push que dispare a matriz);
 backlog independente do `ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de
 reanálise de maturidade, perfis base+overlay/skills executáveis/config de serviços
@@ -611,6 +633,8 @@ pendentes de validação de implementação).
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-15 | `6151e26` | test: cobre o schema context.gitignore em config/mod.rs (MT-53) | MT-53 |
+| 2026-07-15 | `3bbd934` | MT-53: respeito opcional a .gitignore (ADR-0020 §3) | MT-53 |
 | 2026-07-15 | `d742265` | MT-52: renomeia para .agentryignore com fallback de compatibilidade | MT-52 |
 | 2026-07-15 | `c8cf8a8` | chore(loop): infraestrutura de execução autônoma do roadmap | — |
 | 2026-07-14 | `de46792` | docs(roadmap): planejamento de longo prazo (Fases 11–17+); ADR-0021/0022 | — |

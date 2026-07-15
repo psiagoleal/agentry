@@ -144,7 +144,7 @@ espalhada por documentação gerada por IA); o `OpenCode` real resolve os dois l
   `ai-coding-agent-profiles` (ADR-0020 §5, item futuro separado).
 - **Depende de:** ADR-0020.
 
-### MT-53: Schema `context.gitignore` — respeito opcional a `.gitignore`
+### MT-53: Schema `context.gitignore` — respeito opcional a `.gitignore` — ✅ concluído (`3bbd934`/`6151e26`)
 - **Objetivo:** `Settings.context.gitignore: FeatureToggle` (mesmo padrão de
   `repoMap`/`semanticRag`/`lspGrounding`, ADR-0018), *default* `false`; `Config` expõe o
   booleano resolvido. Quando `true`, as três tools passam a excluir **também** o que
