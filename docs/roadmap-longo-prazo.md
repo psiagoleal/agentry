@@ -12,8 +12,8 @@ micro-tickets** (título + objetivo de uma linha). Seguindo a disciplina do proj
 (`skill adr-writer` / `micro-ticket-planner`): a **ADR completa e os tickets detalhados de
 cada fase são escritos quando a fase começa**, promovidos para um `roadmap-vX.Y.md`
 versionado. **Fases 12 e 13** estão concluídas (`docs/roadmap-v0.6.md`, `docs/roadmap-v0.7.md`).
-**Fase 14** (a próxima) ainda não tem tickets detalhados — precisa de preparação (ADR-0024/
-0025/0026 + micro-tickets) antes de qualquer implementação.
+**Fase 14** já está detalhada — ver `docs/roadmap-v0.8.md` (ADR-0024/0025/0026 escritas,
+MT-63..69).
 
 > Convenções de DoD, granularidade e "dependência nova exige ADR (ADR-0004)": iguais às dos
 > roadmaps versionados (`docs/roadmap-v0.1.md` §Convenções).
@@ -81,29 +81,26 @@ ADR-0023 ambas `Accepted`.
 explícito do usuário por uma **tool de pergunta ao usuário** e por **web search anônimo via
 SearXNG configurável**.
 
-**ADRs necessárias** (*stubs reservados*):
-- **ADR-0024** — Tool **AskUser** (pergunta/confirmação): modelo de interação via um canal
-  `Prompter` injetado (mesmo padrão do `Confirmer`, `crates/cli/src/tool_executor.rs`), sem
-  mudar a `trait Tool`. REPL implementa via texto; a TUI (Fase 15) via widget.
-- **ADR-0025** — **Web tools** (WebFetch + WebSearch): tudo passa pelo `Transport` único
-  (allowlist + auditoria + classe de egresso, ADR-0002); web é **nuvem por natureza**
-  (bloqueado sob perfis restritivos sem allowlist explícita). **WebSearch via SearXNG**
-  configurável (`tools.webSearch.searxngUrl`), **desabilitado até o usuário informar a URL**
-  — sem instância pública hardcoded (risco de disponibilidade/cadeia de suprimentos).
-  **Anonimato/segurança:** sem User-Agent/Referer identificáveis, sem cookies, sem
-  parâmetros de rastreio — reduzir rastreabilidade é requisito, não opção.
-- **ADR-0026** — Tools **Glob** (busca por padrão de arquivo) e **shell em background/
-  streaming** (dev server/watch rodando enquanto o agente segue).
+**ADRs** — todas **escritas** (`Proposed`):
+- **ADR-0024** — Tool **AskUser**: `trait Prompter` definido no `core` (padrão `AuditSink`,
+  não o padrão `Confirmer` — que é tipo só da CLI; ver a ADR para o racional), implementação
+  concreta (`InteractivePrompter`) na CLI. Escopo mínimo: texto livre + sugestões opcionais,
+  sem seleção múltipla/*preview*.
+- **ADR-0025** — **Web tools**: `WebFetch` (URL arbitrária) exige um coringa novo (`"*"`) na
+  `Allowlist` (MT-05), liberado só sob `EgressClass::CloudOk` **e** `tools.webFetch.enabled`
+  (*opt-in* explícito, *default* `false`); `WebSearch` via SearXNG usa o modelo de allowlist
+  já existente (host único, como o LiteLLM) — `tools.webSearch.searxngUrl`/
+  `searxngEgressClass`, **desabilitado até o usuário informar a URL**, sem instância pública
+  *hardcoded*. Anonimato como requisito de código: sem cookies (já garantido pela config atual
+  do `reqwest`), `User-Agent` genérico fixo, sem `Referer`/parâmetro de rastreio.
+  HTML→Markdown fica fora de escopo (exigiria *parser* de HTML, dependência nova).
+- **ADR-0026** — Tools **Glob** (via `ignore::overrides`, já dependência — zero nova) e
+  **shell em background/streaming** (extensão de `ShellPolicy`/MT-13, nunca uma política
+  paralela; `tokio::process`, já dependência).
 
-- **MT-63:** `trait Prompter` + tool **AskUser** no core.
-- **MT-64:** implementação REPL/CLI do `Prompter` (texto).
-- **MT-65:** tool **WebFetch** via `Transport` (classe de egresso + anonimato).
-- **MT-66:** tool **WebSearch** via SearXNG + schema `tools.webSearch.searxngUrl` (desabilitado
-  até configurado) + anonimato.
-- **MT-67:** tool **Glob**.
-- **MT-68:** **shell em background/streaming**.
-- **MT-69:** documentação (usuário + governança: novo caminho de egresso web, modelo de
-  anonimato).
+**Nenhuma dependência nova nesta fase** (as três ADRs decidem isso explicitamente).
+
+**Detalhamento completo:** `docs/roadmap-v0.8.md` (MT-63..69).
 
 ## Fase 15 — TUI (ADR-0027) — *tema 2 do usuário*
 

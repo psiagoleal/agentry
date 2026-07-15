@@ -107,6 +107,9 @@ nav:
           - "0021 — Schema de configuração de task-class": adr/0021-schema-de-configuracao-de-task-class.md
           - "0022 — Convenção de configuração autoexplicativa": adr/0022-convencao-de-configuracao-autoexplicativa.md
           - "0023 — Memória de projeto (AGENTS.md + Skills)": adr/0023-memoria-de-projeto-agents-md-e-skills.md
+          - "0024 — Tool AskUser": adr/0024-tool-askuser.md
+          - "0025 — Web tools (WebFetch/WebSearch via SearXNG)": adr/0025-web-tools-webfetch-websearch-searxng.md
+          - "0026 — Tool Glob e shell em background": adr/0026-tool-glob-e-shell-em-background.md
       - Roadmap:
           - Mapa de longo prazo: roadmap-longo-prazo.md
           - v0.1: roadmap-v0.1.md
@@ -116,6 +119,7 @@ nav:
           - v0.5: roadmap-v0.5.md
           - v0.6: roadmap-v0.6.md
           - v0.7: roadmap-v0.7.md
+          - v0.8: roadmap-v0.8.md
       - Interoperabilidade com ai-coding-agent-profiles:
           - Visão geral: interop/README.md
           - Exchange log: interop/exchange-log.md
