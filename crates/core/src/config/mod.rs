@@ -128,6 +128,13 @@ pub struct ContextSettings {
     /// `context.lspGrounding.enabled` (ADR-0013).
     #[serde(default, rename = "lspGrounding")]
     pub lsp_grounding: FeatureToggle,
+    /// `context.gitignore.enabled` (ADR-0020 §3) — respeito **opcional** a
+    /// `.gitignore`, em união com `.agentryignore`/`.claudeignore` (nunca em
+    /// substituição). Ausente ⇒ `false` (`Config::resolve`) — reduzir
+    /// ruído de contexto é opt-in, nunca muda o comportamento de quem não
+    /// configurou nada.
+    #[serde(default, rename = "gitignore")]
+    pub gitignore: FeatureToggle,
 }
 
 impl ContextSettings {
@@ -136,6 +143,7 @@ impl ContextSettings {
             repo_map: self.repo_map.merged_over(base.repo_map),
             semantic_rag: self.semantic_rag.merged_over(base.semantic_rag),
             lsp_grounding: self.lsp_grounding.merged_over(base.lsp_grounding),
+            gitignore: self.gitignore.merged_over(base.gitignore),
         }
     }
 }
@@ -413,6 +421,10 @@ pub struct Config {
     pub semantic_rag_enabled: bool,
     /// `context.lspGrounding.enabled` (ADR-0013); nenhuma camada define ⇒ `true`.
     pub lsp_grounding_enabled: bool,
+    /// `context.gitignore.enabled` (ADR-0020 §3) — respeito opcional a
+    /// `.gitignore`, em união com `.agentryignore`/`.claudeignore`; nenhuma
+    /// camada define ⇒ `false` (opt-in, MT-53).
+    pub respect_gitignore: bool,
     /// `providers.ollama.structuredOutput` (ADR-0012); nenhuma camada define ⇒ `true`.
     pub ollama_structured_output: bool,
     /// Guardrail Gate resolvido (`guardrails.input`/`guardrails.output`,
@@ -446,6 +458,7 @@ impl Config {
             repo_map_enabled: merged.context.repo_map.enabled.unwrap_or(true),
             semantic_rag_enabled: merged.context.semantic_rag.enabled.unwrap_or(true),
             lsp_grounding_enabled: merged.context.lsp_grounding.enabled.unwrap_or(true),
+            respect_gitignore: merged.context.gitignore.enabled.unwrap_or(false),
             ollama_structured_output: merged.providers.ollama.structured_output.unwrap_or(true),
             guardrails: GuardrailGate {
                 input: merged.guardrails.input,

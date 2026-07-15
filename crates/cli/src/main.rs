@@ -304,7 +304,7 @@ fn register_context_tools(
     register_repo_map_tool(
         registry,
         cfg.repo_map_enabled,
-        RepoMapTool::new(workspace_root.to_path_buf()),
+        RepoMapTool::new(workspace_root.to_path_buf(), cfg.respect_gitignore),
     );
     register_code_search_tool(
         registry,
@@ -314,6 +314,7 @@ fn register_context_tools(
             ollama_provider,
             modelo,
             modelo,
+            cfg.respect_gitignore,
         )),
     );
     register_lsp_tools(
@@ -545,10 +546,22 @@ async fn main() {
         });
 
     let mut registry = ToolRegistry::new(PermissionGate::new(cfg.permissions.clone()));
-    registry.register(Arc::new(FsReadTool::new(workspace_root.clone())));
-    registry.register(Arc::new(FsWriteTool::new(workspace_root.clone())));
-    registry.register(Arc::new(FsEditTool::new(workspace_root.clone())));
-    registry.register(Arc::new(FsSearchTool::new(workspace_root.clone())));
+    registry.register(Arc::new(FsReadTool::new(
+        workspace_root.clone(),
+        cfg.respect_gitignore,
+    )));
+    registry.register(Arc::new(FsWriteTool::new(
+        workspace_root.clone(),
+        cfg.respect_gitignore,
+    )));
+    registry.register(Arc::new(FsEditTool::new(
+        workspace_root.clone(),
+        cfg.respect_gitignore,
+    )));
+    registry.register(Arc::new(FsSearchTool::new(
+        workspace_root.clone(),
+        cfg.respect_gitignore,
+    )));
     // Sem padrões de `allow` configuráveis ainda (fora de escopo do MT-14):
     // shell fica bloqueado por padrão (default-deny da `ShellPolicy`, MT-13).
     registry.register(Arc::new(ShellTool::new(ShellPolicy::new(vec![]))));
@@ -726,6 +739,7 @@ mod tests {
             repo_map_enabled: repo_map,
             semantic_rag_enabled: semantic_rag,
             lsp_grounding_enabled: lsp_grounding,
+            respect_gitignore: false,
             ollama_structured_output: true,
             guardrails: agentry_core::guardrail::GuardrailGate::default(),
             litellm: None,

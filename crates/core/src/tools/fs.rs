@@ -37,10 +37,16 @@ fn resolve_within_root(root: &Path, relative: &str) -> Result<PathBuf, String> {
 
 /// Carrega o arquivo de ignore da raiz (`.agentryignore`, ou `.claudeignore`
 /// como *fallback*, MT-52) — ausência dos dois é normal e trata como "nada
-/// ignorado" (nunca erro).
-fn load_ignore(root: &Path) -> Gitignore {
+/// ignorado" (nunca erro). Quando `respect_gitignore` está ligado
+/// (`context.gitignore.enabled`, ADR-0020 §3, MT-53), `.gitignore` da raiz
+/// também é somado ao matcher — **união**, nunca substituição: um arquivo
+/// ignorado por qualquer um dos dois arquivos continua ignorado.
+fn load_ignore(root: &Path, respect_gitignore: bool) -> Gitignore {
     let mut builder = GitignoreBuilder::new(root);
     let _ = builder.add(root.join(resolve_ignore_file_name(root)));
+    if respect_gitignore {
+        let _ = builder.add(root.join(".gitignore"));
+    }
     builder.build().unwrap_or_else(|_| Gitignore::empty())
 }
 
@@ -50,13 +56,22 @@ fn load_ignore(root: &Path) -> Gitignore {
 struct FsContext {
     root: PathBuf,
     ignore: Gitignore,
+    /// Repassado às tools que fazem seu próprio passeio de árvore
+    /// (`FsSearchTool`) — `self.ignore` já embute o efeito na resolução de
+    /// caminho único, mas um `WalkBuilder` separado precisa do booleano de
+    /// novo (MT-53).
+    respect_gitignore: bool,
 }
 
 impl FsContext {
-    fn new(root: impl Into<PathBuf>) -> Self {
+    fn new(root: impl Into<PathBuf>, respect_gitignore: bool) -> Self {
         let root = root.into();
-        let ignore = load_ignore(&root);
-        Self { root, ignore }
+        let ignore = load_ignore(&root, respect_gitignore);
+        Self {
+            root,
+            ignore,
+            respect_gitignore,
+        }
     }
 
     /// Resolve e valida `relative`: dentro da raiz e não coberto pelo
@@ -81,9 +96,9 @@ pub struct FsReadTool {
 impl FsReadTool {
     /// Cria a tool com `root` como raiz do workspace.
     #[must_use]
-    pub fn new(root: impl Into<PathBuf>) -> Self {
+    pub fn new(root: impl Into<PathBuf>, respect_gitignore: bool) -> Self {
         Self {
-            ctx: FsContext::new(root),
+            ctx: FsContext::new(root, respect_gitignore),
         }
     }
 }
@@ -132,9 +147,9 @@ pub struct FsWriteTool {
 impl FsWriteTool {
     /// Cria a tool com `root` como raiz do workspace.
     #[must_use]
-    pub fn new(root: impl Into<PathBuf>) -> Self {
+    pub fn new(root: impl Into<PathBuf>, respect_gitignore: bool) -> Self {
         Self {
-            ctx: FsContext::new(root),
+            ctx: FsContext::new(root, respect_gitignore),
         }
     }
 }
@@ -197,9 +212,9 @@ pub struct FsEditTool {
 impl FsEditTool {
     /// Cria a tool com `root` como raiz do workspace.
     #[must_use]
-    pub fn new(root: impl Into<PathBuf>) -> Self {
+    pub fn new(root: impl Into<PathBuf>, respect_gitignore: bool) -> Self {
         Self {
-            ctx: FsContext::new(root),
+            ctx: FsContext::new(root, respect_gitignore),
         }
     }
 }
@@ -264,10 +279,11 @@ impl Tool for FsEditTool {
 
 /// Tool de busca (`fs_search`): substring literal (sem regex — mesma
 /// disciplina de dependências mínimas do MT-06) em arquivos de texto do
-/// workspace, respeitando **apenas** o arquivo de ignore ativo
-/// (`.agentryignore`, ou `.claudeignore` como *fallback*, MT-52) — os
-/// filtros padrão de `.gitignore`/`.git/info/exclude` ficam desligados
-/// (escopo do MT-12/53 é só o arquivo de ignore próprio do `agentry`).
+/// workspace, respeitando o arquivo de ignore ativo (`.agentryignore`, ou
+/// `.claudeignore` como *fallback*, MT-52) e, opcionalmente, `.gitignore`
+/// (`context.gitignore.enabled`, *default* `false`, MT-53 — em união com o
+/// arquivo de ignore ativo, nunca substituindo). `.git/info/exclude` e
+/// arquivos ocultos continuam fora do escopo, ligado ou não.
 pub struct FsSearchTool {
     ctx: FsContext,
 }
@@ -275,9 +291,9 @@ pub struct FsSearchTool {
 impl FsSearchTool {
     /// Cria a tool com `root` como raiz do workspace.
     #[must_use]
-    pub fn new(root: impl Into<PathBuf>) -> Self {
+    pub fn new(root: impl Into<PathBuf>, respect_gitignore: bool) -> Self {
         Self {
-            ctx: FsContext::new(root),
+            ctx: FsContext::new(root, respect_gitignore),
         }
     }
 }
@@ -320,6 +336,10 @@ impl Tool for FsSearchTool {
             let walker = WalkBuilder::new(&start)
                 .standard_filters(false)
                 .add_custom_ignore_filename(resolve_ignore_file_name(&self.ctx.root))
+                .git_ignore(self.ctx.respect_gitignore)
+                // Ver comentário equivalente em repo_map.rs: `.gitignore`
+                // deve valer mesmo fora de um repo git de verdade.
+                .require_git(false)
                 .build();
             for entrada in walker {
                 let Ok(entrada) = entrada else { continue };
@@ -404,7 +424,7 @@ mod tests {
         let dir = TempDir::new();
         fs::write(dir.path().join("a.txt"), "conteúdo original").unwrap();
 
-        let tool = FsReadTool::new(dir.path());
+        let tool = FsReadTool::new(dir.path(), false);
         let saida = tool.execute(serde_json::json!({ "path": "a.txt" })).await;
 
         assert!(!saida.is_error);
@@ -414,7 +434,7 @@ mod tests {
     #[tokio::test]
     async fn fs_read_arquivo_inexistente_e_erro() {
         let dir = TempDir::new();
-        let tool = FsReadTool::new(dir.path());
+        let tool = FsReadTool::new(dir.path(), false);
 
         let saida = tool
             .execute(serde_json::json!({ "path": "nao-existe.txt" }))
@@ -426,7 +446,7 @@ mod tests {
     #[tokio::test]
     async fn fs_read_rejeita_path_traversal() {
         let dir = TempDir::new();
-        let tool = FsReadTool::new(dir.path());
+        let tool = FsReadTool::new(dir.path(), false);
 
         for tentativa in ["../fora.txt", "/etc/passwd"] {
             let saida = tool.execute(serde_json::json!({ "path": tentativa })).await;
@@ -437,7 +457,7 @@ mod tests {
     #[tokio::test]
     async fn fs_write_cria_arquivo_novo() {
         let dir = TempDir::new();
-        let tool = FsWriteTool::new(dir.path());
+        let tool = FsWriteTool::new(dir.path(), false);
 
         let saida = tool
             .execute(serde_json::json!({ "path": "novo.txt", "content": "olá" }))
@@ -454,7 +474,7 @@ mod tests {
     async fn fs_write_sobrescreve_arquivo_existente() {
         let dir = TempDir::new();
         fs::write(dir.path().join("a.txt"), "antigo").unwrap();
-        let tool = FsWriteTool::new(dir.path());
+        let tool = FsWriteTool::new(dir.path(), false);
 
         tool.execute(serde_json::json!({ "path": "a.txt", "content": "novo" }))
             .await;
@@ -469,7 +489,7 @@ mod tests {
     async fn fs_edit_substitui_ocorrencia_unica() {
         let dir = TempDir::new();
         fs::write(dir.path().join("a.txt"), "fn foo() {}\nfn bar() {}\n").unwrap();
-        let tool = FsEditTool::new(dir.path());
+        let tool = FsEditTool::new(dir.path(), false);
 
         let saida = tool
             .execute(serde_json::json!({
@@ -490,7 +510,7 @@ mod tests {
     async fn fs_edit_erro_se_old_string_nao_encontrado() {
         let dir = TempDir::new();
         fs::write(dir.path().join("a.txt"), "conteúdo").unwrap();
-        let tool = FsEditTool::new(dir.path());
+        let tool = FsEditTool::new(dir.path(), false);
 
         let saida = tool
             .execute(serde_json::json!({
@@ -507,7 +527,7 @@ mod tests {
     async fn fs_edit_erro_se_old_string_ambiguo() {
         let dir = TempDir::new();
         fs::write(dir.path().join("a.txt"), "x x x").unwrap();
-        let tool = FsEditTool::new(dir.path());
+        let tool = FsEditTool::new(dir.path(), false);
 
         let saida = tool
             .execute(serde_json::json!({ "path": "a.txt", "old_string": "x", "new_string": "y" }))
@@ -526,7 +546,7 @@ mod tests {
         let dir = TempDir::new();
         fs::write(dir.path().join("a.txt"), "linha 1\nalvo aqui\nlinha 3\n").unwrap();
         fs::write(dir.path().join("b.txt"), "nada relevante\n").unwrap();
-        let tool = FsSearchTool::new(dir.path());
+        let tool = FsSearchTool::new(dir.path(), false);
 
         let saida = tool.execute(serde_json::json!({ "pattern": "alvo" })).await;
 
@@ -539,7 +559,7 @@ mod tests {
     async fn fs_search_sem_ocorrencias_nao_e_erro() {
         let dir = TempDir::new();
         fs::write(dir.path().join("a.txt"), "nada aqui\n").unwrap();
-        let tool = FsSearchTool::new(dir.path());
+        let tool = FsSearchTool::new(dir.path(), false);
 
         let saida = tool
             .execute(serde_json::json!({ "pattern": "inexistente" }))
@@ -557,7 +577,7 @@ mod tests {
         fs::write(dir.path().join("segredo.txt"), "alvo confidencial").unwrap();
         fs::write(dir.path().join("normal.txt"), "alvo normal").unwrap();
 
-        let read_tool = FsReadTool::new(dir.path());
+        let read_tool = FsReadTool::new(dir.path(), false);
         let saida_leitura = read_tool
             .execute(serde_json::json!({ "path": "segredo.txt" }))
             .await;
@@ -566,7 +586,7 @@ mod tests {
             "arquivo ignorado não deveria ser lido"
         );
 
-        let search_tool = FsSearchTool::new(dir.path());
+        let search_tool = FsSearchTool::new(dir.path(), false);
         let saida_busca = search_tool
             .execute(serde_json::json!({ "pattern": "alvo" }))
             .await;
@@ -585,7 +605,7 @@ mod tests {
         fs::write(dir.path().join("segredo.txt"), "alvo confidencial").unwrap();
         fs::write(dir.path().join("normal.txt"), "alvo normal").unwrap();
 
-        let read_tool = FsReadTool::new(dir.path());
+        let read_tool = FsReadTool::new(dir.path(), false);
         let saida_leitura = read_tool
             .execute(serde_json::json!({ "path": "segredo.txt" }))
             .await;
@@ -594,7 +614,7 @@ mod tests {
             "arquivo coberto por .agentryignore não deveria ser lido"
         );
 
-        let search_tool = FsSearchTool::new(dir.path());
+        let search_tool = FsSearchTool::new(dir.path(), false);
         let saida_busca = search_tool
             .execute(serde_json::json!({ "pattern": "alvo" }))
             .await;
@@ -613,7 +633,7 @@ mod tests {
         fs::write(dir.path().join("novo.txt"), "coberto pelo novo").unwrap();
         fs::write(dir.path().join("legado.txt"), "coberto só pelo legado").unwrap();
 
-        let read_tool = FsReadTool::new(dir.path());
+        let read_tool = FsReadTool::new(dir.path(), false);
 
         let saida_novo = read_tool
             .execute(serde_json::json!({ "path": "novo.txt" }))
@@ -641,7 +661,7 @@ mod tests {
             ask: vec![],
         });
         let mut registry = ToolRegistry::new(gate);
-        registry.register(Arc::new(FsWriteTool::new(dir.path())));
+        registry.register(Arc::new(FsWriteTool::new(dir.path(), false)));
 
         let outcome = registry
             .execute(&call(
@@ -655,5 +675,70 @@ mod tests {
             !dir.path().join("novo.txt").exists(),
             "deny deve impedir a escrita de fato, não só sinalizar"
         );
+    }
+
+    // --- MT-53: respeito opcional a `.gitignore` (ADR-0020 §3) ---
+
+    #[tokio::test]
+    async fn respect_gitignore_desligado_preserva_comportamento_atual() {
+        let dir = TempDir::new();
+        fs::write(dir.path().join(".gitignore"), "so_no_git.txt\n").unwrap();
+        fs::write(dir.path().join("so_no_git.txt"), "conteudo").unwrap();
+
+        let read_tool = FsReadTool::new(dir.path(), false);
+        let saida = read_tool
+            .execute(serde_json::json!({ "path": "so_no_git.txt" }))
+            .await;
+        assert!(
+            !saida.is_error,
+            "flag desligada (default): arquivo só coberto por .gitignore continua visível"
+        );
+    }
+
+    #[tokio::test]
+    async fn respect_gitignore_ligado_exclui_arquivo_coberto_so_por_gitignore() {
+        let dir = TempDir::new();
+        fs::write(dir.path().join(".gitignore"), "so_no_git.txt\n").unwrap();
+        fs::write(dir.path().join("so_no_git.txt"), "conteudo").unwrap();
+        fs::write(dir.path().join("normal.txt"), "conteudo normal").unwrap();
+
+        let read_tool = FsReadTool::new(dir.path(), true);
+        let saida = read_tool
+            .execute(serde_json::json!({ "path": "so_no_git.txt" }))
+            .await;
+        assert!(
+            saida.is_error,
+            "flag ligada: arquivo só coberto por .gitignore passa a ser ignorado"
+        );
+
+        let search_tool = FsSearchTool::new(dir.path(), true);
+        let saida_busca = search_tool
+            .execute(serde_json::json!({ "pattern": "conteudo" }))
+            .await;
+        assert!(saida_busca.content.contains("normal.txt"));
+        assert!(
+            !saida_busca.content.contains("so_no_git.txt"),
+            "FsSearchTool (WalkBuilder próprio) também deve respeitar .gitignore quando ligado"
+        );
+    }
+
+    #[tokio::test]
+    async fn respect_gitignore_ligado_e_agentryignore_e_uniao_nunca_conflito() {
+        // Arquivo coberto pelos dois (.agentryignore e .gitignore) continua
+        // ignorado — união, sem conflito (ADR-0020 §3).
+        let dir = TempDir::new();
+        fs::write(
+            dir.path().join(".agentryignore"),
+            "coberto_pelos_dois.txt\n",
+        )
+        .unwrap();
+        fs::write(dir.path().join(".gitignore"), "coberto_pelos_dois.txt\n").unwrap();
+        fs::write(dir.path().join("coberto_pelos_dois.txt"), "conteudo").unwrap();
+
+        let read_tool = FsReadTool::new(dir.path(), true);
+        let saida = read_tool
+            .execute(serde_json::json!({ "path": "coberto_pelos_dois.txt" }))
+            .await;
+        assert!(saida.is_error);
     }
 }

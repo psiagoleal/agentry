@@ -61,11 +61,15 @@ fn linguagem_por_extensao(caminho: &Path) -> Option<Language> {
     }
 }
 
-fn ler_arquivos(root: &Path) -> Vec<ArquivoFonte> {
+fn ler_arquivos(root: &Path, respect_gitignore: bool) -> Vec<ArquivoFonte> {
     let mut arquivos = Vec::new();
     let walker = WalkBuilder::new(root)
         .standard_filters(false)
         .add_custom_ignore_filename(resolve_ignore_file_name(root))
+        .git_ignore(respect_gitignore)
+        // Ver comentário equivalente em repo_map.rs: `.gitignore` deve
+        // valer mesmo fora de um repo git de verdade.
+        .require_git(false)
         .build();
     for entrada in walker {
         let Ok(entrada) = entrada else { continue };
@@ -148,6 +152,8 @@ pub struct CodeSearchSession {
     reranker_model: String,
     indexer: IncrementalIndexer,
     indices: Mutex<Option<(LexicalIndex, SemanticIndex)>>,
+    /// `context.gitignore.enabled` resolvido (ADR-0020 §3, MT-53).
+    respect_gitignore: bool,
 }
 
 impl CodeSearchSession {
@@ -160,6 +166,7 @@ impl CodeSearchSession {
         provider: Arc<dyn LlmProvider>,
         embedding_model: impl Into<String>,
         reranker_model: impl Into<String>,
+        respect_gitignore: bool,
     ) -> Self {
         let root = root.into();
         let estado = state_dir::ensure_state_dir(&root).unwrap_or_else(|_| root.join(".agentry"));
@@ -170,11 +177,12 @@ impl CodeSearchSession {
             embedding_model: embedding_model.into(),
             reranker_model: reranker_model.into(),
             indices: Mutex::new(None),
+            respect_gitignore,
         }
     }
 
     async fn buscar(&self, query: &str, limite: usize) -> Result<Vec<Chunk>, CodeSearchError> {
-        let arquivos = ler_arquivos(&self.root);
+        let arquivos = ler_arquivos(&self.root, self.respect_gitignore);
         let resultado_reindex = self
             .indexer
             .reindex(&arquivos)
@@ -359,6 +367,7 @@ mod tests {
             provider,
             "embed-x",
             "rerank-x",
+            false,
         ))
     }
 

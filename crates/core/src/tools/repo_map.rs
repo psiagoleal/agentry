@@ -47,25 +47,42 @@ fn linguagem_por_extensao(caminho: &Path) -> Option<Language> {
 /// Tool `repo_map`: repo-map estilo Aider (MT-19/20) exposta ao agent loop.
 pub struct RepoMapTool {
     root: PathBuf,
+    /// `context.gitignore.enabled` resolvido (ADR-0020 §3, MT-53) — quando
+    /// `true`, `.gitignore` (aninhado por subdiretório, suporte nativo da
+    /// crate `ignore`) também é respeitado, em união com o arquivo de
+    /// ignore ativo. *Default* `false` (preserva o comportamento anterior).
+    respect_gitignore: bool,
 }
 
 impl RepoMapTool {
     /// Cria a tool com `root` como raiz do workspace.
     #[must_use]
-    pub fn new(root: impl Into<PathBuf>) -> Self {
-        Self { root: root.into() }
+    pub fn new(root: impl Into<PathBuf>, respect_gitignore: bool) -> Self {
+        Self {
+            root: root.into(),
+            respect_gitignore,
+        }
     }
 
     /// Lê o conteúdo de cada arquivo de linguagem suportada sob a raiz,
     /// respeitando o arquivo de ignore ativo (`.agentryignore`, ou
-    /// `.claudeignore` como *fallback*). Arquivos ilegíveis (não-UTF-8,
-    /// etc.) são pulados em silêncio — o repo-map é best-effort, não deve
-    /// falhar a tarefa inteira por causa de um arquivo problemático.
+    /// `.claudeignore` como *fallback*) e, se `respect_gitignore`, também
+    /// `.gitignore`. Arquivos ilegíveis (não-UTF-8, etc.) são pulados em
+    /// silêncio — o repo-map é best-effort, não deve falhar a tarefa
+    /// inteira por causa de um arquivo problemático.
     fn ler_arquivos(&self) -> Vec<(String, String, Language)> {
         let mut arquivos = Vec::new();
         let walker = WalkBuilder::new(&self.root)
             .standard_filters(false)
             .add_custom_ignore_filename(resolve_ignore_file_name(&self.root))
+            .git_ignore(self.respect_gitignore)
+            // A crate `ignore` só respeita `.gitignore` dentro de um repo
+            // git de verdade por padrão (`require_git`, `true`) — mas
+            // `context.gitignore.enabled` não tem essa condição implícita
+            // (mesmo espírito incondicional de `add_custom_ignore_filename`
+            // acima); `require_git(false)` respeita `.gitignore` sempre que
+            // presente, repo git ou não.
+            .require_git(false)
             .build();
         for entrada in walker {
             let Ok(entrada) = entrada else { continue };
@@ -233,7 +250,7 @@ mod tests {
         fs::write(dir.path().join("obscuro.rs"), "fn obscuro() {}\n").unwrap();
         fs::write(dir.path().join("isolado.rs"), "fn isolado() {}\n").unwrap();
 
-        let tool = RepoMapTool::new(dir.path());
+        let tool = RepoMapTool::new(dir.path(), false);
         let saida = tool
             .execute(serde_json::json!({ "seeds": ["seed.rs"] }))
             .await;
@@ -273,7 +290,7 @@ mod tests {
         fs::write(dir.path().join("popular.rs"), "fn popular() {}\n").unwrap();
         fs::write(dir.path().join("secreto.rs"), "fn de_secreto() {}\n").unwrap();
 
-        let tool = RepoMapTool::new(dir.path());
+        let tool = RepoMapTool::new(dir.path(), false);
         let saida = tool
             .execute(serde_json::json!({ "seeds": ["seed.rs"] }))
             .await;
@@ -297,7 +314,7 @@ mod tests {
         fs::write(dir.path().join("popular.rs"), "fn popular() {}\n").unwrap();
         fs::write(dir.path().join("secreto.rs"), "fn de_secreto() {}\n").unwrap();
 
-        let tool = RepoMapTool::new(dir.path());
+        let tool = RepoMapTool::new(dir.path(), false);
         let saida = tool
             .execute(serde_json::json!({ "seeds": ["seed.rs"] }))
             .await;
@@ -314,7 +331,7 @@ mod tests {
         let dir = TempDir::new();
         fs::write(dir.path().join("nota.md"), "só markdown por aqui\n").unwrap();
 
-        let tool = RepoMapTool::new(dir.path());
+        let tool = RepoMapTool::new(dir.path(), false);
         let saida = tool.execute(serde_json::json!({})).await;
 
         assert!(!saida.is_error);
@@ -328,7 +345,7 @@ mod tests {
             ask: vec![],
         });
         let mut registry = ToolRegistry::new(gate);
-        registry.register(Arc::new(RepoMapTool::new(dir.path())));
+        registry.register(Arc::new(RepoMapTool::new(dir.path(), false)));
 
         let outcome = registry
             .execute(&call("repo_map", serde_json::json!({})))
@@ -343,7 +360,7 @@ mod tests {
         let gate = PermissionGate::new(Permissions::default());
         let mut registry = ToolRegistry::new(gate);
 
-        register_repo_map_tool(&mut registry, false, RepoMapTool::new(dir.path()));
+        register_repo_map_tool(&mut registry, false, RepoMapTool::new(dir.path(), false));
 
         assert!(
             registry.specs().is_empty(),
@@ -357,8 +374,54 @@ mod tests {
         let gate = PermissionGate::new(Permissions::default());
         let mut registry = ToolRegistry::new(gate);
 
-        register_repo_map_tool(&mut registry, true, RepoMapTool::new(dir.path()));
+        register_repo_map_tool(&mut registry, true, RepoMapTool::new(dir.path(), false));
 
         assert!(registry.specs().iter().any(|spec| spec.name == "repo_map"));
+    }
+
+    // --- MT-53: respeito opcional a `.gitignore` (ADR-0020 §3) ---
+
+    #[tokio::test]
+    async fn respect_gitignore_desligado_preserva_comportamento_atual() {
+        let dir = TempDir::new();
+        fs::write(dir.path().join(".gitignore"), "secreto.rs\n").unwrap();
+        fs::write(dir.path().join("seed.rs"), "fn f() { secreto(); }\n").unwrap();
+        fs::write(dir.path().join("secreto.rs"), "fn secreto() {}\n").unwrap();
+
+        let tool = RepoMapTool::new(dir.path(), false);
+        let saida = tool
+            .execute(serde_json::json!({ "seeds": ["seed.rs"] }))
+            .await;
+
+        assert!(
+            saida.content.contains("secreto.rs"),
+            "flag desligada (default): arquivo só coberto por .gitignore continua visível"
+        );
+    }
+
+    #[tokio::test]
+    async fn respect_gitignore_ligado_respeita_gitignore_aninhado_por_subdiretorio() {
+        let dir = TempDir::new();
+        fs::create_dir_all(dir.path().join("sub")).unwrap();
+        fs::write(dir.path().join("sub/.gitignore"), "secreto.rs\n").unwrap();
+        fs::write(
+            dir.path().join("seed.rs"),
+            "fn f() { secreto(); normal(); }\n",
+        )
+        .unwrap();
+        fs::write(dir.path().join("sub/secreto.rs"), "fn secreto() {}\n").unwrap();
+        fs::write(dir.path().join("sub/normal.rs"), "fn normal() {}\n").unwrap();
+
+        let tool = RepoMapTool::new(dir.path(), true);
+        let saida = tool
+            .execute(serde_json::json!({ "seeds": ["seed.rs"] }))
+            .await;
+
+        assert!(
+            !saida.content.contains("secreto.rs"),
+            "flag ligada: .gitignore de um subdiretório deve ser respeitado (suporte nativo \
+             da crate ignore, não só a raiz)"
+        );
+        assert!(saida.content.contains("normal.rs"));
     }
 }
