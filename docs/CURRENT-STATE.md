@@ -9,7 +9,7 @@
 
 - **Data:** 2026-07-15
 - **Branch:** `main`
-- **Commit:** `af2c3d8`
+- **Commit:** `38f8bcb`
 - **Fase:** Roadmap v0.1..v0.4 **fechados/imutáveis**; **Fase 10 concluída** (LiteLLM).
   **Execução autônoma em andamento** (`/loop /implementar-roadmap`, modelo Sonnet 5) — ver
   `docs/decisoes-autonomas.md` para decisões tomadas sozinho (**2 decisões registradas**:
@@ -18,11 +18,12 @@
   `.agentryignore`, MT-52..54, `roadmap-v0.5.md`). **Fase 12 concluída inteira** (ADR-0021/0022,
   config de task-class de ponta a ponta, MT-55..58, `roadmap-v0.6.md`) — o tema mais enfatizado
   pelo usuário no planejamento original. **Fase 13 em andamento** (ADR-0023 `Proposed`,
-  `docs/roadmap-v0.7.md`) — **MT-59/60 concluídos** (leitor de `AGENTS.md`/`CLAUDE.md`;
-  descoberta de `SKILL.md` + lista compacta); MT-61/62 pendentes. **Fases 14–17+** (mapa/stubs,
-  ADR 0024–0028 reservadas) ainda não iniciadas. **Housekeeping:** ADR-0020/0021/0022
-  promovidas de `Proposed` para `Accepted` (suas fases já concluídas há várias iterações;
-  status ficou desatualizado).
+  `docs/roadmap-v0.7.md`) — **MT-59/60/61 concluídos** (leitor de `AGENTS.md`/`CLAUDE.md`;
+  descoberta de `SKILL.md` + lista compacta; tool `skill` — *progressive disclosure* completo);
+  só falta **MT-62** (documentação, fecha a Fase 13). **Fases 14–17+** (mapa/stubs, ADR
+  0024–0028 reservadas) ainda não iniciadas. **Housekeeping:** ADR-0020/0021/0022 promovidas de
+  `Proposed` para `Accepted` (suas fases já concluídas há várias iterações; status ficou
+  desatualizado).
 
 ## Metas cumpridas / Em andamento / Próximo passo
 
@@ -737,12 +738,28 @@
   `.claude/skills/`): o modelo listou as 5 corretamente a partir do *system prompt* injetado.
   Nenhuma dependência nova.
 
+- [x] **MT-61** — `crates/core/src/tools/skill.rs` (novo): `SkillTool` implementa `Tool`
+  sobre o `Vec<SkillDescriptor>` do MT-60 — `{"name": "<skill>"}` devolve o corpo do
+  `SKILL.md` correspondente (tudo após o `---` de fechamento, nunca os metadados); nome
+  desconhecido/argumento ausente é erro tratado. Registrada como qualquer outra tool, sob o
+  mesmo `PermissionGate`, sem *default-deny* especial. `main.rs`: descoberta de skills e
+  `context_ignore` subiram para antes da montagem do `ToolRegistry` (a tool precisa do
+  `Vec<SkillDescriptor>` no momento do registro). 6 testes novos, 312 testes no core (306+6) +
+  43 na CLI, fmt/clippy limpos, `cargo build --release` verde. **Smoke-test:** tentativa de
+  invocação via linguagem natural não confirmou o *round-trip* completo — modelos locais
+  disponíveis não chamaram a tool de fato mesmo para `fs_read` (já madura), simulando resposta
+  em vez de *tool-call* real — limitação de confiabilidade de *tool-calling* de modelos locais
+  pequenos neste ambiente, não regressão do ticket; correção coberta com confiança pelos
+  testes de integração via `ToolRegistry::execute` real (inclusive o gate de permissão).
+  Nenhuma dependência nova. **Fecha o mecanismo de *progressive disclosure* (MT-59..61).**
+
 **Em andamento:** nada pendente no turno.
 
-**Próximo passo:** **MT-61** (`docs/roadmap-v0.7.md`, `crates/core/src/tools/skill.rs` novo) —
-tool `skill` (mesma trait `Tool`/`ToolRegistry` do MT-11) carrega o corpo completo de uma
-skill descoberta pelo MT-60 sob demanda, fechando o mecanismo de *progressive disclosure*. As
-Fases 14–17+ seguem só como mapa. Outros itens em aberto, sem
+**Próximo passo:** **MT-62** (`docs/roadmap-v0.7.md`, `docs/usuario/configuracao.md`, novo
+`docs/usuario/skills.md`) — documentação do site: seção `context.agentsFile`, convenção
+`.claude/skills/<nome>/SKILL.md`, tool `skill`; **ADR-0003 → `Accepted`** (fecha o item
+pendente desde o MT-04). Fecha a Fase 13 inteira. As Fases 14–17+ seguem só como mapa. Outros
+itens em aberto, sem
 ticket: deploy do site MkDocs (GitHub Pages) — decisão explícita do usuário de
 não fazer ainda; CI multi-SO ainda não observado verde (falta um push que dispare a matriz);
 backlog independente do `ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de
@@ -766,6 +783,7 @@ pendentes de validação de implementação).
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-15 | `38f8bcb` | MT-61: tool skill — carrega o corpo completo sob demanda (ADR-0023) | MT-61 |
 | 2026-07-15 | `af2c3d8` | MT-60: descoberta de SKILL.md + lista compacta no system prompt (ADR-0023) | MT-60 |
 | 2026-07-15 | `eb9c518` | MT-59: loader de AGENTS.md/CLAUDE.md; injeção como mensagem de sistema (ADR-0023) | MT-59 |
 | 2026-07-15 | `384899b` | ADR-0023: memória de projeto (AGENTS.md + Skills); prepara a Fase 13 (MT-59..62) | — |

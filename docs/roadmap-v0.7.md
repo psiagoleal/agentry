@@ -87,7 +87,7 @@ nesta fase** — decisão explícita da ADR-0023 (parser de frontmatter próprio
   preserva o texto exatamente como escrito. Achado de sintaxe do Rust, não do parser em si (o
   parser estava correto; o dado de teste que o alimentava estava malformado).
 
-### MT-61: Tool `skill` — carrega o corpo completo sob demanda
+### MT-61: Tool `skill` — carrega o corpo completo sob demanda ✅ concluído
 - **Objetivo:** `SkillTool` (novo, `crates/core/src/tools/skill.rs`), implementando `Tool`
   (mesma trait do MT-11) sobre o `Vec<SkillDescriptor>` descoberto pelo MT-60: recebe um nome
   de skill, lê o **corpo** do `SKILL.md` correspondente (todo o conteúdo após o frontmatter,
@@ -109,6 +109,18 @@ nesta fase** — decisão explícita da ADR-0023 (parser de frontmatter próprio
   "quando" chamar a skill — a decisão é sempre do modelo, orientado pela lista de nome+
   descrição já presente na mensagem de sistema (MT-60).
 - **Depende de:** MT-60.
+- **Nota de implementação:** a descoberta de skills e a construção do `Gitignore`
+  (`context_ignore`) precisaram mudar de posição em `main()` — o MT-60 as colocava **depois**
+  da montagem do `ToolRegistry` (só usadas para a mensagem de sistema); a `SkillTool` precisa
+  do `Vec<SkillDescriptor>` **antes** do registro da tool, então ambas subiram para antes da
+  construção do `registry`, reaproveitadas depois tanto pelo registro da tool quanto por
+  `render_skills_list`. **Smoke-test:** tentativa de invocação via linguagem natural não
+  confirmou o *round-trip* completo — os modelos locais disponíveis (`llama3.1:8b`,
+  `qwen2.5:7b`) não chamaram a tool de fato mesmo para `fs_read` (tool já madura, testada em
+  tickets anteriores), simulando/alucinando uma resposta em vez de emitir uma *tool-call*
+  real — limitação de confiabilidade de *tool-calling* de modelos locais pequenos neste
+  ambiente, não uma regressão deste ticket. Correção coberta com confiança pelos testes de
+  integração via `ToolRegistry::execute` real (inclusive o gate de permissão).
 
 ### MT-62: Documentação do site + ADR-0003 → `Accepted`
 - **Objetivo:** `docs/usuario/configuracao.md` ganha a seção `context.agentsFile` (o que é
