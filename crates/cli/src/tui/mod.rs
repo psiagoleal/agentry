@@ -1,72 +1,88 @@
 // Caminho relativo: crates/cli/src/tui/mod.rs
-//! Modo TUI opt-in (`--tui`, MT-70/ADR-0027) — *scaffold* mínimo: entra na
-//! tela alternativa, desenha um conteúdo estático e sai limpo em `q`/`Ctrl+C`.
+//! Modo TUI opt-in (`--tui`, ADR-0027) — laço de eventos: entra na tela
+//! alternativa, desenha um histórico de mensagens rolável e sai limpo em
+//! `q`/`Ctrl+C` (MT-70). Navegação (`↑`/`k`/`↓`/`j`, MT-71) já funciona
+//! sobre a tabela de *keybindings* de [`keybind`], mas o histórico ainda é
+//! **mock/estático** — prova a navegação antes de acoplar o *streaming*
+//! real com `Session`/`Router` (MT-72).
 //!
 //! Usa `ratatui::try_init`/`ratatui::restore` (em vez de montar o backend
 //! `crossterm` na mão) — já instalam o *hook* de panic que restaura o
 //! terminal antes de propagar, exatamente o padrão recomendado pela própria
 //! documentação do `ratatui` para não deixar o terminal do usuário quebrado.
-//!
-//! Integração com `Session`/`Router` fica para o MT-72; *keybindings*
-//! configuráveis (além do `q`/`Ctrl+C` fixos aqui) ficam para o MT-71.
+
+mod keybind;
 
 use std::io;
 
-use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use ratatui::crossterm::event::{self, Event};
 use ratatui::layout::Alignment;
-use ratatui::style::Stylize;
 use ratatui::text::Line;
 use ratatui::widgets::{Block, Paragraph};
 use ratatui::{DefaultTerminal, Frame};
 
-/// Ação pura resolvida a partir de uma tecla — extraída do laço de eventos
-/// para ser testável sem terminal real (critério de aceite do MT-70; o laço
-/// de eventos em si, que depende de E/S de terminal real, não é coberto por
-/// teste automatizado nesta ticket).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Action {
-    /// Sai do modo TUI (`q` ou `Ctrl+C`).
-    Quit,
-    /// Tecla sem ação mapeada nesta ticket — ignorada, mesmo padrão de
-    /// "comando desconhecido não derruba o REPL" já usado no REPL de texto
-    /// (MT-14).
-    Unknown,
+use keybind::Action;
+
+/// Histórico de mensagens **mock** (MT-71) — só para provar a navegação
+/// funcionando; substituído pelo histórico real da `Session` no MT-72.
+const MENSAGENS_MOCK: &[&str] = &[
+    "usuário: oi, tudo bem?",
+    "agente: tudo certo! Como posso ajudar?",
+    "usuário: o que é o modo TUI?",
+    "agente: um modo interativo opcional (--tui) que roda sobre a mesma \
+     Session/Router do REPL de texto — nenhuma lógica de domínio duplicada.",
+    "usuário: e como eu saio dele?",
+    "agente: pressione 'q' ou Ctrl+C a qualquer momento.",
+];
+
+/// Estado de navegação do laço de eventos — offset de rolagem sobre
+/// [`MENSAGENS_MOCK`]. Separado do laço de E/S para ser testável sem
+/// terminal real (critério de aceite do MT-70/71).
+struct Estado {
+    scroll: usize,
 }
 
-/// Resolve uma tecla pressionada para a [`Action`] correspondente. Só
-/// considera eventos de **pressionar** (`KeyEventKind::Press`) — em
-/// terminais que emitem o protocolo estendido do `crossterm` (ex.: Windows),
-/// uma tecla também gera evento de *release*, que dobraria a ação caso não
-/// filtrado aqui.
-fn action_for_key(key: KeyEvent) -> Action {
-    if key.kind != KeyEventKind::Press {
-        return Action::Unknown;
+impl Estado {
+    fn new() -> Self {
+        Self { scroll: 0 }
     }
-    match key.code {
-        KeyCode::Char('q') => Action::Quit,
-        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => Action::Quit,
-        _ => Action::Unknown,
+
+    /// Aplica uma [`Action`] de navegação ao estado — função pura.
+    /// `ScrollUp`/`ScrollDown` saturam nos limites do histórico (nunca rola
+    /// para um índice negativo nem além da última mensagem); `Quit` não
+    /// altera o estado (tratada no laço de eventos, que encerra antes de
+    /// desenhar de novo).
+    fn aplicar(&mut self, action: Action) {
+        match action {
+            Action::ScrollUp => self.scroll = self.scroll.saturating_sub(1),
+            Action::ScrollDown => {
+                let maximo = MENSAGENS_MOCK.len().saturating_sub(1);
+                self.scroll = (self.scroll + 1).min(maximo);
+            }
+            Action::Quit => {}
+        }
     }
 }
 
-/// Tela estática do *scaffold* — título + instrução de saída (ADR-0027: view
-/// de chat real com histórico rolante é o MT-71/72, fora de escopo aqui).
-fn draw(frame: &mut Frame<'_>) {
-    let conteudo = vec![
-        Line::from("agentry — modo TUI".bold()),
-        Line::from(""),
-        Line::from("pressione 'q' para sair"),
-    ];
-    let paragrafo = Paragraph::new(conteudo)
-        .block(Block::bordered().title(" agentry "))
-        .alignment(Alignment::Center);
+/// Tela do *scaffold*: histórico de mensagens (rolável) num bloco com
+/// título e instrução de saída/navegação no rodapé.
+fn draw(frame: &mut Frame<'_>, estado: &Estado) {
+    let linhas: Vec<Line> = MENSAGENS_MOCK.iter().map(|m| Line::from(*m)).collect();
+    let rodape = format!(" {} ", keybind::legenda());
+    let paragrafo = Paragraph::new(linhas)
+        .block(
+            Block::bordered()
+                .title(" agentry ")
+                .title_bottom(Line::from(rodape).alignment(Alignment::Center)),
+        )
+        .scroll((estado.scroll as u16, 0));
     frame.render_widget(paragrafo, frame.area());
 }
 
-/// Ponto de entrada do modo TUI (`--tui`) — laço de eventos mínimo: desenha
-/// a tela estática e processa teclado só o suficiente para sair
-/// (`q`/`Ctrl+C`). O terminal é restaurado em qualquer caminho de saída
-/// (normal ou erro) — nunca só no caminho feliz.
+/// Ponto de entrada do modo TUI (`--tui`) — laço de eventos: desenha o
+/// histórico e processa teclado via [`keybind::resolve`] (nunca inspeciona
+/// `KeyCode` diretamente aqui). O terminal é restaurado em qualquer caminho
+/// de saída (normal ou erro) — nunca só no caminho feliz.
 ///
 /// # Errors
 ///
@@ -80,11 +96,14 @@ pub fn run() -> io::Result<()> {
 }
 
 fn loop_eventos(terminal: &mut DefaultTerminal) -> io::Result<()> {
+    let mut estado = Estado::new();
     loop {
-        terminal.draw(draw)?;
+        terminal.draw(|frame| draw(frame, &estado))?;
         if let Event::Key(key) = event::read()? {
-            if action_for_key(key) == Action::Quit {
-                return Ok(());
+            match keybind::resolve(key) {
+                Some(Action::Quit) => return Ok(()),
+                Some(acao) => estado.aplicar(acao),
+                None => {}
             }
         }
     }
@@ -94,46 +113,44 @@ fn loop_eventos(terminal: &mut DefaultTerminal) -> io::Result<()> {
 mod tests {
     use super::*;
 
-    fn tecla(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
-        KeyEvent::new(code, modifiers)
+    #[test]
+    fn scroll_up_no_topo_permanece_em_zero() {
+        let mut estado = Estado::new();
+        estado.aplicar(Action::ScrollUp);
+        assert_eq!(estado.scroll, 0);
     }
 
     #[test]
-    fn q_minusculo_sai() {
-        assert_eq!(
-            action_for_key(tecla(KeyCode::Char('q'), KeyModifiers::NONE)),
-            Action::Quit
-        );
+    fn scroll_down_avanca_um_por_vez() {
+        let mut estado = Estado::new();
+        estado.aplicar(Action::ScrollDown);
+        assert_eq!(estado.scroll, 1);
     }
 
     #[test]
-    fn ctrl_c_sai() {
-        assert_eq!(
-            action_for_key(tecla(KeyCode::Char('c'), KeyModifiers::CONTROL)),
-            Action::Quit
-        );
+    fn scroll_down_satura_no_final_do_historico() {
+        let mut estado = Estado::new();
+        for _ in 0..(MENSAGENS_MOCK.len() + 5) {
+            estado.aplicar(Action::ScrollDown);
+        }
+        assert_eq!(estado.scroll, MENSAGENS_MOCK.len() - 1);
     }
 
     #[test]
-    fn c_sem_ctrl_nao_sai() {
-        assert_eq!(
-            action_for_key(tecla(KeyCode::Char('c'), KeyModifiers::NONE)),
-            Action::Unknown
-        );
+    fn scroll_down_depois_up_volta_um_passo() {
+        let mut estado = Estado::new();
+        estado.aplicar(Action::ScrollDown);
+        estado.aplicar(Action::ScrollDown);
+        estado.aplicar(Action::ScrollUp);
+        assert_eq!(estado.scroll, 1);
     }
 
     #[test]
-    fn tecla_sem_acao_mapeada_e_ignorada() {
-        assert_eq!(
-            action_for_key(tecla(KeyCode::Char('x'), KeyModifiers::NONE)),
-            Action::Unknown
-        );
-    }
-
-    #[test]
-    fn evento_de_release_e_ignorado_mesmo_para_q() {
-        let mut key = tecla(KeyCode::Char('q'), KeyModifiers::NONE);
-        key.kind = KeyEventKind::Release;
-        assert_eq!(action_for_key(key), Action::Unknown);
+    fn quit_nao_altera_o_estado_de_navegacao() {
+        let mut estado = Estado::new();
+        estado.aplicar(Action::ScrollDown);
+        let scroll_antes = estado.scroll;
+        estado.aplicar(Action::Quit);
+        assert_eq!(estado.scroll, scroll_antes);
     }
 }
