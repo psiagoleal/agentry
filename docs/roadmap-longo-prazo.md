@@ -11,9 +11,11 @@ Cada fase abaixo lista **objetivo**, **ADR(s) necessária(s)** e a **primeira le
 micro-tickets** (título + objetivo de uma linha). Seguindo a disciplina do projeto
 (`skill adr-writer` / `micro-ticket-planner`): a **ADR completa e os tickets detalhados de
 cada fase são escritos quando a fase começa**, promovidos para um `roadmap-vX.Y.md`
-versionado. **Fases 12 e 13** estão concluídas (`docs/roadmap-v0.6.md`, `docs/roadmap-v0.7.md`).
-**Fase 14** já está detalhada — ver `docs/roadmap-v0.8.md` (ADR-0024/0025/0026 escritas,
-MT-63..69).
+versionado. **Fases 12, 13 e 14** estão concluídas (`docs/roadmap-v0.6.md`,
+`docs/roadmap-v0.7.md`, `docs/roadmap-v0.8.md`). **Fases 15 e 16** (a próximas) exigem
+dependência de runtime nova (`ratatui`/`rmcp`) — parada dura do comando de loop; preparar
+essas fases (mesmo só para escrever a ADR, que decidiria adotar a dependência) exige decisão
+do mantenedor antes de qualquer trabalho autônomo continuar.
 
 > Convenções de DoD, granularidade e "dependência nova exige ADR (ADR-0004)": iguais às dos
 > roadmaps versionados (`docs/roadmap-v0.1.md` §Convenções).
@@ -75,7 +77,7 @@ sob demanda via nova tool `skill`. Ao concluir, ADR-0003 → `Accepted`.
 **Detalhamento completo:** `docs/roadmap-v0.7.md` (MT-59..62, **concluídos**). ADR-0003 e
 ADR-0023 ambas `Accepted`.
 
-## Fase 14 — Tools essenciais (ADR-0024, ADR-0025, ADR-0026)
+## Fase 14 — Tools essenciais (ADR-0024, ADR-0025, ADR-0026) ✅ concluída
 
 **Objetivo:** aproximar o conjunto de ferramentas do Claude Code/OpenCode. Inclui o pedido
 explícito do usuário por uma **tool de pergunta ao usuário** e por **web search anônimo via
@@ -100,7 +102,8 @@ SearXNG configurável**.
 
 **Nenhuma dependência nova nesta fase** (as três ADRs decidem isso explicitamente).
 
-**Detalhamento completo:** `docs/roadmap-v0.8.md` (MT-63..69).
+**Detalhamento completo:** `docs/roadmap-v0.8.md` (MT-63..69, **concluídos**). ADR-0024/0025/
+0026 todas `Accepted`.
 
 ## Fase 15 — TUI (ADR-0027) — *tema 2 do usuário*
 

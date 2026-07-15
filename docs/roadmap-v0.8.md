@@ -171,7 +171,7 @@ nesta fase** — decisão explícita das três ADRs (reaproveitam `ignore`/`toki
   coberta com confiança pelos 10 testes automatizados, incluindo *spawn*/*kill* de processo
   real.
 
-### MT-69: Documentação (usuário + governança)
+### MT-69: Documentação (usuário + governança) ✅ concluído
 - **Objetivo:** `docs/usuario/configuracao.md` ganha as seções `tools.webFetch`/
   `tools.webSearch` (o que fazem, *defaults*, como habilitar) e uma nota sobre `ask_user`/
   `glob`/`shell_background` em `docs/usuario/uso.md` (comportamento observável, não muda
@@ -188,6 +188,11 @@ nesta fase** — decisão explícita das três ADRs (reaproveitam `ignore`/`toki
   trilhas de usuário/governança ficou desatualizado.
 - **Fora de escopo:** nenhum código novo.
 - **Depende de:** MT-63..68 (todos).
+- **Nota de implementação:** releitura encontrou uma afirmação desatualizada em
+  `docs/governanca/privacidade-e-egresso.md` ("os dois [Ollama+LiteLLM] são os únicos caminhos
+  de rede além do Ollama local disponíveis hoje na CLI") — já não era mais verdade com
+  `web_fetch`/`web_search`; corrigida junto, mesma categoria dos gaps encontrados e corrigidos
+  em MT-57/58/62.
 
 ---
 
