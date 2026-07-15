@@ -1,6 +1,7 @@
 // Caminho relativo: crates/cli/src/tui/mod.rs
 //! Modo TUI opt-in (`--tui`, ADR-0027) — laço de eventos: histórico de chat
-//! rolável (MT-70/71) agora ligado à `Session`/`Router` reais (MT-72).
+//! rolável (MT-70/71) ligado à `Session`/`Router` reais (MT-72), com
+//! seletor de modelo/*provider* por busca difusa (MT-73).
 //!
 //! `Session::run_streaming` roda numa *task* separada (`tokio::spawn`); o
 //! *callback* (já genérico desde o MT-10) envia cada [`StreamEvent`] (já
@@ -18,27 +19,29 @@
 //! Fora de escopo desta ticket: confirmação de tool via widget (MT-74 — sob
 //! `ask`, a `Session` ainda usa o `Confirmer`/`Prompter` de texto simples já
 //! injetados por `main()`, o que pode brigar com o modo bruto do terminal;
-//! aceito por ora, só para não travar) e seletor de modelo (MT-73).
+//! aceito por ora, só para não travar).
 
 mod chat;
 mod keybind;
+mod model_picker;
 
 use std::io;
 use std::sync::Arc;
 
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
-use ratatui::layout::{Alignment, Constraint, Direction, Layout};
+use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::text::Line;
-use ratatui::widgets::{Block, Paragraph};
+use ratatui::widgets::{Block, Clear, Paragraph};
 use ratatui::{DefaultTerminal, Frame};
 use tokio::sync::mpsc;
 
 use agentry_core::model::StreamEvent;
-use agentry_core::router::Router;
+use agentry_core::router::{RouteTarget, Router, RuntimeOverride};
 use agentry_core::session::{Session, SessionError, SessionOutcome};
 
 use chat::{Autor, ChatState};
 use keybind::Action;
+use model_picker::CandidatoExibicao;
 
 /// Evento recebido pelo laço principal a partir da *task* de streaming.
 enum EventoAgente {
@@ -55,8 +58,67 @@ struct TurnoConcluido {
     resultado: Result<SessionOutcome, SessionError>,
 }
 
-/// Estado do laço de eventos: histórico de chat, caixa de entrada e posição
-/// de rolagem. Separado do laço de E/S para ser testável sem terminal real.
+/// Estado do seletor de modelo/*provider* (MT-73) — só existe enquanto o
+/// seletor está aberto (`Estado::seletor: Option<Self>`); fechar o seletor é
+/// simplesmente voltar esse campo a `None`.
+struct SeletorDeModeloEstado {
+    /// Todos os candidatos declarados na `task-class` ativa, sem filtrar —
+    /// [`Self::candidatos_filtrados`] aplica a busca a cada consulta.
+    candidatos: Vec<CandidatoExibicao>,
+    consulta: String,
+    selecionado: usize,
+    /// Mensagem do último `Router::resolve_with_override` que falhou (ex.:
+    /// candidato exige mais classe de egresso do que a sessão ativa
+    /// permite, ADR-0002) — `None` enquanto nada foi tentado ainda ou a
+    /// última tentativa funcionou.
+    erro: Option<String>,
+}
+
+impl SeletorDeModeloEstado {
+    fn novo(candidatos: Vec<CandidatoExibicao>) -> Self {
+        Self {
+            candidatos,
+            consulta: String::new(),
+            selecionado: 0,
+            erro: None,
+        }
+    }
+
+    fn candidatos_filtrados(&self) -> Vec<CandidatoExibicao> {
+        model_picker::buscar(&self.candidatos, &self.consulta)
+    }
+
+    /// Move a seleção dentro da lista filtrada atual, saturando nos
+    /// limites (nunca um índice fora da lista).
+    fn mover_selecao(&mut self, delta: isize) {
+        let total = self.candidatos_filtrados().len();
+        if total == 0 {
+            self.selecionado = 0;
+            return;
+        }
+        let atual = self.selecionado.min(total - 1) as isize;
+        self.selecionado = (atual + delta).clamp(0, total as isize - 1) as usize;
+    }
+
+    /// O candidato atualmente selecionado na lista filtrada — `None` só
+    /// quando a busca não casa com nenhum candidato declarado.
+    fn escolhido(&self) -> Option<RouteTarget> {
+        let filtrados = self.candidatos_filtrados();
+        let indice = self.selecionado.min(filtrados.len().checked_sub(1)?);
+        filtrados.get(indice).map(|c| c.alvo.clone())
+    }
+
+    /// Qualquer edição da consulta invalida a seleção/erro anteriores.
+    fn editar_consulta(&mut self, f: impl FnOnce(&mut String)) {
+        f(&mut self.consulta);
+        self.selecionado = 0;
+        self.erro = None;
+    }
+}
+
+/// Estado do laço de eventos: histórico de chat, caixa de entrada, posição
+/// de rolagem e o seletor de modelo (quando aberto). Separado do laço de
+/// E/S para ser testável sem terminal real.
 struct Estado {
     chat: ChatState,
     entrada: String,
@@ -65,15 +127,26 @@ struct Estado {
     /// *task* de streaming) — bloqueia um novo envio até a resposta atual
     /// terminar.
     enviando: bool,
+    /// `Some` só enquanto o seletor de modelo/*provider* está aberto
+    /// (MT-73) — controla tanto o estado quanto qual modo o laço de
+    /// eventos está em (nenhum campo `Modo` redundante).
+    seletor: Option<SeletorDeModeloEstado>,
+    /// Override de `provider`/`model`/parâmetros ativo — herda o que veio
+    /// das flags de invocação (`--model`, `--temperature`, ...) e é
+    /// atualizado quando o seletor confirma uma escolha; mesmo campo que
+    /// `session_override` no REPL de texto (MT-14/MT-33).
+    overrides: RuntimeOverride,
 }
 
 impl Estado {
-    fn new() -> Self {
+    fn new(overrides: RuntimeOverride) -> Self {
         Self {
             chat: ChatState::new(),
             entrada: String::new(),
             scroll: 0,
             enviando: false,
+            seletor: None,
+            overrides,
         }
     }
 
@@ -101,9 +174,38 @@ impl Estado {
     }
 }
 
+/// Aplica a escolha do seletor à sessão: monta o mesmo
+/// `RuntimeOverride`/`Router::resolve_with_override` já usados pelos
+/// comandos `/model`/`/provider` de texto do REPL (`crates/cli/src/repl.rs`,
+/// reaproveitado, não duplicado) e chama `Session::apply_route` com o
+/// resultado.
+///
+/// # Errors
+///
+/// Devolve o erro (formatado) de `Router::resolve_with_override` —
+/// tipicamente quando o candidato escolhido exige mais classe de egresso do
+/// que a sessão ativa permite (ADR-0002 *fail-closed*: o seletor nunca
+/// contorna essa checagem, só chama a mesma função que o REPL já usa).
+fn aplicar_selecao(
+    alvo: &RouteTarget,
+    task_class: &str,
+    router: &Router,
+    overrides: &mut RuntimeOverride,
+    sessao: &mut Session,
+) -> Result<(), String> {
+    overrides.provider = Some(alvo.provider.clone());
+    overrides.model = Some(alvo.model.clone());
+    let rota = router
+        .resolve_with_override(task_class, overrides)
+        .map_err(|erro| erro.to_string())?;
+    sessao.apply_route(rota);
+    Ok(())
+}
+
 /// Tela: histórico de chat (área rolável) em cima, caixa de entrada fixa
 /// embaixo — rodapé da caixa de entrada mostra a legenda de *keybindings*
-/// (lida direto de [`keybind::legenda`], nunca um texto solto).
+/// (lida direto de [`keybind::legenda`], nunca um texto solto). Com o
+/// seletor de modelo aberto, um modal centralizado é desenhado por cima.
 fn draw(frame: &mut Frame<'_>, estado: &Estado) {
     let areas = Layout::default()
         .direction(Direction::Vertical)
@@ -139,19 +241,90 @@ fn draw(frame: &mut Frame<'_>, estado: &Estado) {
             .title_bottom(Line::from(rodape).alignment(Alignment::Center)),
     );
     frame.render_widget(caixa_de_entrada, areas[1]);
+
+    if let Some(seletor) = &estado.seletor {
+        draw_seletor(frame, seletor);
+    }
 }
 
-/// Ponto de entrada do modo TUI (`--tui`) — recebe a mesma `Session`/`Router`
-/// já montados por `main()` (reaproveitados, nunca reconstruídos). O
-/// terminal é restaurado em qualquer caminho de saída (normal ou erro).
+/// Área centralizada ocupando `percent_x`/`percent_y` da tela — idioma
+/// padrão do `ratatui` para modais.
+fn area_centralizada(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
+    let vertical = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage((100 - percent_y) / 2),
+            Constraint::Percentage(percent_y),
+            Constraint::Percentage((100 - percent_y) / 2),
+        ])
+        .split(area);
+    Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage((100 - percent_x) / 2),
+            Constraint::Percentage(percent_x),
+            Constraint::Percentage((100 - percent_x) / 2),
+        ])
+        .split(vertical[1])[1]
+}
+
+/// Modal do seletor de modelo/*provider*: caixa de busca em cima, lista de
+/// candidatos filtrados embaixo (marcador `>` na seleção atual) — a última
+/// mensagem de erro de `Router::resolve_with_override`, se houver, aparece
+/// no título da lista em vez do rótulo genérico.
+fn draw_seletor(frame: &mut Frame<'_>, seletor: &SeletorDeModeloEstado) {
+    let area = area_centralizada(60, 60, frame.area());
+    frame.render_widget(Clear, area);
+
+    let layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(3), Constraint::Min(1)])
+        .split(area);
+
+    let busca = Paragraph::new(seletor.consulta.as_str()).block(
+        Block::bordered().title(" selecionar modelo/provider (Esc cancela, Enter confirma) "),
+    );
+    frame.render_widget(busca, layout[0]);
+
+    let filtrados = seletor.candidatos_filtrados();
+    let linhas: Vec<Line> = if filtrados.is_empty() {
+        vec![Line::from("nenhum candidato corresponde à busca")]
+    } else {
+        let indice_selecionado = seletor.selecionado.min(filtrados.len() - 1);
+        filtrados
+            .iter()
+            .enumerate()
+            .map(|(i, candidato)| {
+                let marcador = if i == indice_selecionado { "> " } else { "  " };
+                Line::from(format!("{marcador}{}", candidato.rotulo))
+            })
+            .collect()
+    };
+    let titulo_lista = seletor.erro.as_deref().map_or_else(
+        || " candidatos declarados ".to_string(),
+        |erro| format!(" erro: {erro} "),
+    );
+    let lista = Paragraph::new(linhas).block(Block::bordered().title(titulo_lista));
+    frame.render_widget(lista, layout[1]);
+}
+
+/// Ponto de entrada do modo TUI (`--tui`) — recebe a mesma `Session`/
+/// `Router`/`task_class`/`overrides` já montados por `main()` (reaproveitados,
+/// nunca reconstruídos). O terminal é restaurado em qualquer caminho de
+/// saída (normal ou erro).
 ///
 /// # Errors
 ///
 /// Devolve o `io::Error` de inicializar, desenhar ou ler eventos do
 /// terminal.
-pub async fn run(session: Session, router: Router) -> io::Result<()> {
+pub async fn run(
+    session: Session,
+    router: Router,
+    task_class: String,
+    overrides: RuntimeOverride,
+) -> io::Result<()> {
     let mut terminal = ratatui::try_init()?;
-    let resultado = loop_eventos(&mut terminal, session, router).await;
+    let resultado = loop_eventos(&mut terminal, session, router, task_class, overrides).await;
     ratatui::restore();
     resultado
 }
@@ -209,9 +382,11 @@ async fn loop_eventos(
     terminal: &mut DefaultTerminal,
     sessao_inicial: Session,
     router: Router,
+    task_class: String,
+    overrides: RuntimeOverride,
 ) -> io::Result<()> {
     let router = Arc::new(router);
-    let mut estado = Estado::new();
+    let mut estado = Estado::new(overrides);
     let mut sessao_atual = Some(sessao_inicial);
     let mut rx_terminal = iniciar_leitor_de_terminal();
     let (tx_agente, mut rx_agente) = mpsc::unbounded_channel::<EventoAgente>();
@@ -231,32 +406,91 @@ async fn loop_eventos(
                 if key.kind != KeyEventKind::Press {
                     continue;
                 }
-                match keybind::resolve(key) {
-                    Some(Action::Quit) => return Ok(()),
-                    Some(Action::ScrollUp) => estado.rolar_para_cima(),
-                    Some(Action::ScrollDown) => estado.rolar_para_baixo(),
-                    Some(Action::Send) => {
-                        if let Some(sessao) = sessao_atual.take() {
-                            match estado.preparar_envio() {
-                                Some(texto) => disparar_turno(
+                let acao = keybind::resolve(key);
+
+                if estado.seletor.is_some() {
+                    match acao {
+                        Some(Action::Quit) => return Ok(()),
+                        Some(Action::Cancel) => estado.seletor = None,
+                        Some(Action::ScrollUp) => {
+                            if let Some(seletor) = estado.seletor.as_mut() {
+                                seletor.mover_selecao(-1);
+                            }
+                        }
+                        Some(Action::ScrollDown) => {
+                            if let Some(seletor) = estado.seletor.as_mut() {
+                                seletor.mover_selecao(1);
+                            }
+                        }
+                        Some(Action::Send) => {
+                            let escolhido = estado.seletor.as_ref().and_then(SeletorDeModeloEstado::escolhido);
+                            if let (Some(alvo), Some(sessao)) = (escolhido, sessao_atual.as_mut()) {
+                                match aplicar_selecao(
+                                    &alvo,
+                                    &task_class,
+                                    &router,
+                                    &mut estado.overrides,
                                     sessao,
-                                    texto,
-                                    Arc::clone(&router),
-                                    tx_agente.clone(),
-                                ),
-                                None => sessao_atual = Some(sessao),
+                                ) {
+                                    Ok(()) => estado.seletor = None,
+                                    Err(erro) => {
+                                        if let Some(seletor) = estado.seletor.as_mut() {
+                                            seletor.erro = Some(erro);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Some(Action::OpenModelPicker) | None => {
+                            if let (None, Some(seletor)) = (acao, estado.seletor.as_mut()) {
+                                match key.code {
+                                    KeyCode::Backspace => {
+                                        seletor.editar_consulta(|c| { c.pop(); });
+                                    }
+                                    KeyCode::Char(c) if e_apenas_digitacao(key.modifiers) => {
+                                        seletor.editar_consulta(|consulta| consulta.push(c));
+                                    }
+                                    _ => {}
+                                }
                             }
                         }
                     }
-                    None => match key.code {
-                        KeyCode::Backspace => {
-                            estado.entrada.pop();
+                } else {
+                    match acao {
+                        Some(Action::Quit) => return Ok(()),
+                        Some(Action::ScrollUp) => estado.rolar_para_cima(),
+                        Some(Action::ScrollDown) => estado.rolar_para_baixo(),
+                        Some(Action::Cancel) => {}
+                        Some(Action::OpenModelPicker) => {
+                            let candidatos = router
+                                .route_entry(&task_class)
+                                .map(|entry| model_picker::a_partir_de_candidatos(&entry.candidates))
+                                .unwrap_or_default();
+                            estado.seletor = Some(SeletorDeModeloEstado::novo(candidatos));
                         }
-                        KeyCode::Char(c) if e_apenas_digitacao(key.modifiers) => {
-                            estado.entrada.push(c);
+                        Some(Action::Send) => {
+                            if let Some(sessao) = sessao_atual.take() {
+                                match estado.preparar_envio() {
+                                    Some(texto) => disparar_turno(
+                                        sessao,
+                                        texto,
+                                        Arc::clone(&router),
+                                        tx_agente.clone(),
+                                    ),
+                                    None => sessao_atual = Some(sessao),
+                                }
+                            }
                         }
-                        _ => {}
-                    },
+                        None => match key.code {
+                            KeyCode::Backspace => {
+                                estado.entrada.pop();
+                            }
+                            KeyCode::Char(c) if e_apenas_digitacao(key.modifiers) => {
+                                estado.entrada.push(c);
+                            }
+                            _ => {}
+                        },
+                    }
                 }
             }
             Some(evento_agente) = rx_agente.recv() => {
@@ -278,10 +512,20 @@ async fn loop_eventos(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use agentry_core::config::privacy::EgressClass;
+    use agentry_core::model::{Message, Usage};
+    use agentry_core::provider::mock::MockProvider;
+    use agentry_core::provider::ChatResponse;
+    use agentry_core::router::{CallPreset, ResolvedRoute, RouteEntry};
+    use agentry_core::session::{TokenBudget, ToolExecutor};
+
+    fn estado_vazio() -> Estado {
+        Estado::new(RuntimeOverride::default())
+    }
 
     #[test]
     fn preparar_envio_move_o_texto_para_o_historico_e_marca_enviando() {
-        let mut estado = Estado::new();
+        let mut estado = estado_vazio();
         estado.entrada = "oi".into();
 
         let enviado = estado.preparar_envio();
@@ -295,7 +539,7 @@ mod tests {
 
     #[test]
     fn preparar_envio_com_entrada_vazia_nao_envia_nada() {
-        let mut estado = Estado::new();
+        let mut estado = estado_vazio();
 
         let enviado = estado.preparar_envio();
 
@@ -306,7 +550,7 @@ mod tests {
 
     #[test]
     fn preparar_envio_com_entrada_so_espacos_nao_envia_nada() {
-        let mut estado = Estado::new();
+        let mut estado = estado_vazio();
         estado.entrada = "   ".into();
 
         assert_eq!(estado.preparar_envio(), None);
@@ -314,7 +558,7 @@ mod tests {
 
     #[test]
     fn rolar_para_cima_no_topo_permanece_em_zero() {
-        let mut estado = Estado::new();
+        let mut estado = estado_vazio();
 
         estado.rolar_para_cima();
 
@@ -323,7 +567,7 @@ mod tests {
 
     #[test]
     fn rolar_para_baixo_sem_mensagens_permanece_em_zero() {
-        let mut estado = Estado::new();
+        let mut estado = estado_vazio();
 
         estado.rolar_para_baixo();
 
@@ -332,7 +576,7 @@ mod tests {
 
     #[test]
     fn rolar_para_baixo_satura_no_numero_de_mensagens() {
-        let mut estado = Estado::new();
+        let mut estado = estado_vazio();
         estado.entrada = "oi".into();
         estado.preparar_envio(); // 2 mensagens (usuário + turno do agente)
 
@@ -349,5 +593,165 @@ mod tests {
         assert!(e_apenas_digitacao(KeyModifiers::SHIFT));
         assert!(!e_apenas_digitacao(KeyModifiers::CONTROL));
         assert!(!e_apenas_digitacao(KeyModifiers::ALT));
+    }
+
+    fn candidato_exibicao(provider: &str, model: &str) -> CandidatoExibicao {
+        CandidatoExibicao {
+            rotulo: format!("{provider}/{model}"),
+            alvo: RouteTarget::new(provider, model, EgressClass::LocalOnly),
+        }
+    }
+
+    #[test]
+    fn mover_selecao_satura_nos_limites_da_lista_filtrada() {
+        let mut seletor = SeletorDeModeloEstado::novo(vec![
+            candidato_exibicao("ollama", "a"),
+            candidato_exibicao("ollama", "b"),
+        ]);
+
+        seletor.mover_selecao(-1);
+        assert_eq!(seletor.selecionado, 0, "não desce abaixo de zero");
+
+        seletor.mover_selecao(1);
+        assert_eq!(seletor.selecionado, 1);
+
+        seletor.mover_selecao(1);
+        assert_eq!(seletor.selecionado, 1, "não passa do último candidato");
+    }
+
+    #[test]
+    fn mover_selecao_sem_candidatos_permanece_em_zero() {
+        let mut seletor = SeletorDeModeloEstado::novo(vec![]);
+
+        seletor.mover_selecao(1);
+
+        assert_eq!(seletor.selecionado, 0);
+    }
+
+    #[test]
+    fn escolhido_devolve_o_alvo_do_candidato_selecionado() {
+        let mut seletor = SeletorDeModeloEstado::novo(vec![
+            candidato_exibicao("ollama", "a"),
+            candidato_exibicao("litellm", "b"),
+        ]);
+        seletor.mover_selecao(1);
+
+        let escolhido = seletor.escolhido().expect("deve haver um candidato");
+
+        assert_eq!(escolhido.provider, "litellm");
+        assert_eq!(escolhido.model, "b");
+    }
+
+    #[test]
+    fn escolhido_e_none_quando_a_busca_nao_casa_com_nada() {
+        let mut seletor = SeletorDeModeloEstado::novo(vec![candidato_exibicao("ollama", "a")]);
+        seletor.editar_consulta(|c| c.push_str("zzz"));
+
+        assert_eq!(seletor.escolhido(), None);
+    }
+
+    #[test]
+    fn editar_consulta_reseta_selecao_e_erro() {
+        let mut seletor = SeletorDeModeloEstado::novo(vec![
+            candidato_exibicao("ollama", "a"),
+            candidato_exibicao("litellm", "b"),
+        ]);
+        seletor.mover_selecao(1);
+        seletor.erro = Some("erro anterior".into());
+
+        seletor.editar_consulta(|c| c.push('x'));
+
+        assert_eq!(seletor.selecionado, 0);
+        assert_eq!(seletor.erro, None);
+    }
+
+    struct NoopExecutor;
+    impl ToolExecutor for NoopExecutor {
+        fn execute(
+            &self,
+            call: &agentry_core::model::ToolCall,
+        ) -> agentry_core::provider::BoxFuture<'_, agentry_core::model::ToolResult> {
+            let call_id = call.id.clone();
+            Box::pin(async move {
+                agentry_core::model::ToolResult {
+                    call_id,
+                    content: String::new(),
+                    is_error: false,
+                }
+            })
+        }
+    }
+
+    fn sessao_de_teste(mock: Arc<MockProvider>) -> Session {
+        let route = ResolvedRoute::new(mock, "modelo-inicial", CallPreset::default());
+        Session::new(route, Arc::new(NoopExecutor), TokenBudget::new(10_000))
+    }
+
+    #[tokio::test]
+    async fn aplicar_selecao_reaproveita_resolve_with_override_e_muda_a_rota_da_sessao() {
+        let mut router = Router::new(EgressClass::LocalOnly);
+        let candidato_ollama = Arc::new(MockProvider::new("ollama"));
+        let candidato_litellm = Arc::new(MockProvider::new("litellm"));
+        router.register_provider(candidato_ollama.clone());
+        router.register_provider(candidato_litellm.clone());
+        router.set_route(
+            "chat",
+            RouteEntry {
+                candidates: vec![
+                    RouteTarget::new("ollama", "modelo-inicial", EgressClass::LocalOnly),
+                    RouteTarget::new("litellm", "modelo-nuvem", EgressClass::LocalOnly),
+                ],
+                preset: CallPreset::default(),
+            },
+        );
+        let mut sessao = sessao_de_teste(candidato_ollama.clone());
+        let mut overrides = RuntimeOverride::default();
+        let alvo = RouteTarget::new("litellm", "modelo-nuvem", EgressClass::LocalOnly);
+
+        aplicar_selecao(&alvo, "chat", &router, &mut overrides, &mut sessao)
+            .expect("candidato declarado deve resolver");
+
+        assert_eq!(overrides.provider.as_deref(), Some("litellm"));
+        assert_eq!(overrides.model.as_deref(), Some("modelo-nuvem"));
+
+        // Prova que a rota da sessão realmente mudou: o próximo turno bate
+        // no provider recém-selecionado, nunca mais no inicial.
+        candidato_litellm.enqueue_chat(Ok(ChatResponse {
+            message: Message::assistant("ok"),
+            usage: Usage::default(),
+        }));
+        sessao.push_user_message("oi");
+        sessao.run(&router).await.expect("deve completar");
+
+        assert_eq!(candidato_litellm.chat_requests().len(), 1);
+        assert_eq!(candidato_ollama.chat_requests().len(), 0);
+    }
+
+    #[test]
+    fn aplicar_selecao_com_egresso_insuficiente_devolve_erro_sem_mudar_a_sessao() {
+        // A sessão está em LocalOnly; o único candidato declarado exige
+        // CloudOk — a seleção deve falhar (fail-closed, ADR-0002), nunca
+        // contornar a checagem de egresso do Router.
+        let mut router = Router::new(EgressClass::LocalOnly);
+        let provider = Arc::new(MockProvider::new("litellm"));
+        router.register_provider(provider.clone());
+        router.set_route(
+            "chat",
+            RouteEntry {
+                candidates: vec![RouteTarget::new(
+                    "litellm",
+                    "modelo-nuvem",
+                    EgressClass::CloudOk,
+                )],
+                preset: CallPreset::default(),
+            },
+        );
+        let mut sessao = sessao_de_teste(provider);
+        let mut overrides = RuntimeOverride::default();
+        let alvo = RouteTarget::new("litellm", "modelo-nuvem", EgressClass::CloudOk);
+
+        let resultado = aplicar_selecao(&alvo, "chat", &router, &mut overrides, &mut sessao);
+
+        assert!(resultado.is_err());
     }
 }

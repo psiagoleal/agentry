@@ -341,6 +341,18 @@ impl Router {
         })
     }
 
+    /// Devolve a [`RouteEntry`] bruta declarada para `task_class`, sem
+    /// resolver contra a classe de egresso ativa nem aplicar nenhum
+    /// [`RuntimeOverride`] — acesso de leitura direto aos candidatos já
+    /// declarados (MT-73/ADR-0027: a TUI usa isto para listar os candidatos
+    /// de um seletor de modelo/provider, sem duplicar a lógica de
+    /// registro/merge já centralizada em [`Self::set_route`]). `None` se a
+    /// `task-class` não tiver entrada cadastrada.
+    #[must_use]
+    pub fn route_entry(&self, task_class: &str) -> Option<&RouteEntry> {
+        self.routes.get(task_class)
+    }
+
     /// Registra `model` como o último modelo resolvido para `provider` e
     /// devolve se isso representa uma **troca** em relação ao valor anterior
     /// (MT-17, ADR-0009). Rastreio otimista: assume que toda resolução será
@@ -789,5 +801,31 @@ mod tests {
             "primeira resolução de um provider diferente também é troca, mesmo que outro \
              provider já tenha visto esse mesmo nome de modelo"
         );
+    }
+
+    #[test]
+    fn route_entry_devolve_a_entrada_bruta_declarada_sem_resolver() {
+        let mut router = router_com_providers(EgressClass::LocalOnly, &["ollama"]);
+        let entrada = RouteEntry {
+            candidates: vec![
+                RouteTarget::new("ollama", "llama3.1:8b", EgressClass::LocalOnly),
+                RouteTarget::new("anthropic", "claude-x", EgressClass::CloudOk),
+            ],
+            preset: CallPreset::default(),
+        };
+        router.set_route("chat", entrada.clone());
+
+        let obtida = router
+            .route_entry("chat")
+            .expect("task-class declarada deve ter entrada");
+
+        assert_eq!(*obtida, entrada);
+    }
+
+    #[test]
+    fn route_entry_de_task_class_desconhecida_e_none() {
+        let router = router_com_providers(EgressClass::LocalOnly, &["ollama"]);
+
+        assert!(router.route_entry("inexistente").is_none());
     }
 }

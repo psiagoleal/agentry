@@ -27,6 +27,37 @@ escolha feita sozinho.
 
 ## Entradas (mais recente no topo)
 
+### 2026-07-15 — MT-73 (Fase 15, TUI) — novo acessor `Router::route_entry` em `crates/core` (fora da lista original de arquivos do ticket)
+- **Contexto:** o MT-73 (`docs/roadmap-v0.9.md`) lista só `crates/cli/src/tui/model_picker.rs`
+  (novo) e `crates/cli/src/tui/mod.rs` como arquivos no escopo. Para popular o seletor com os
+  candidatos já declarados na `task-class` ativa (`RouteEntry.candidates`, o objetivo central
+  do ticket), a TUI precisa ler essa lista bruta — mas `Router` (`crates/core/src/router/mod.rs`)
+  só expunha `resolve`/`resolve_with_override` (que devolvem **um** candidato já escolhido, não
+  a lista inteira); o campo `routes: HashMap<String, RouteEntry>` é privado.
+- **Opções consideradas:**
+  (a) reconstruir a lista de candidatos de forma independente em `main()`, a partir de
+  `cfg.task_classes` + a lógica de síntese de defaults já em `register_declared_task_classes`
+  (`crates/cli/src/main.rs`, MT-56), sem tocar `crates/core`;
+  (b) adicionar um acessor de leitura mínimo `Router::route_entry(&self, task_class: &str) ->
+  Option<&RouteEntry>` em `crates/core/src/router/mod.rs` — só devolve o que `self.routes` já
+  tem, sem resolver egresso nem aplicar overrides.
+- **Escolha (recomendada):** (b).
+- **Justificativa:** (a) duplicaria a lógica de merge declarado+sintetizado que já vive em
+  `register_declared_task_classes` — o Router, depois que essa função roda, é a **única** fonte
+  de verdade sobre quais candidatos existem de fato para uma `task-class`; reconstruir a lista
+  em paralelo arriscaria os dois lugarem divergirem silenciosamente (ex.: um bug futuro em só um
+  dos dois). (b) é um acessor de leitura direto (não uma decisão de roteamento nova, não
+  contorna egresso/overrides — `resolve_with_override` continua sendo a única forma de
+  *escolher* um candidato, exigido pela ADR-0027/ADR-0014), simétrico ao padrão já usado por
+  `ChatState::mensagens()` (getter só-leitura) escrito nesta mesma fase. Adicionar um método a
+  um tipo existente do `core` não é "reimplementar lógica de domínio na TUI" (proibido pela
+  Diretriz de Conformidade da ADR-0027) — é o oposto: expõe a lógica já centralizada em vez de
+  duplicá-la fora dela. A lista de "Arquivos no escopo" de um micro-ticket é escrita antes da
+  implementação (disciplina `micro-ticket-planner`) e não antecipa toda necessidade de acessor;
+  o ticket permanece de tamanho mínimo (um método getter de poucas linhas + um teste no `core`,
+  não uma feature nova).
+- **Commit:** `<preenchido no commit de código do MT-73>`.
+
 ### 2026-07-15 — MT-72 (Fase 15, TUI) — auditoria descartada sob `--tui`, não redirecionada para um widget
 - **Contexto:** o smoke-test manual do MT-72 (`agentry --tui`, mensagem real via Ollama)
   revelou que `StderrAuditSink`/o `impl GuardrailAuditSink` (ambos em `crates/cli/src/main.rs`,

@@ -26,6 +26,13 @@ pub enum Action {
     /// Envia o conteúdo atual da caixa de entrada como mensagem do usuário
     /// (MT-72).
     Send,
+    /// Abre o seletor de modelo/*provider* (MT-73) — reinterpretada pelo
+    /// laço de eventos conforme o modo ativo (fora do seletor: abre; dentro
+    /// dele, sem efeito adicional).
+    OpenModelPicker,
+    /// Cancela um modo secundário aberto (ex.: fecha o seletor de modelo
+    /// sem escolher nada) — sem efeito no modo de chat normal.
+    Cancel,
 }
 
 /// Uma entrada da tabela de *keybindings*: ação, tecla *default* (com
@@ -74,6 +81,18 @@ pub const DEFINITIONS: &[KeyBinding] = &[
         code: KeyCode::Enter,
         modifiers: KeyModifiers::NONE,
         description: "envia a mensagem digitada",
+    },
+    KeyBinding {
+        action: Action::OpenModelPicker,
+        code: KeyCode::Char('p'),
+        modifiers: KeyModifiers::CONTROL,
+        description: "abre o seletor de modelo/provider",
+    },
+    KeyBinding {
+        action: Action::Cancel,
+        code: KeyCode::Esc,
+        modifiers: KeyModifiers::NONE,
+        description: "fecha o seletor de modelo",
     },
 ];
 

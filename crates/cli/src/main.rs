@@ -833,10 +833,12 @@ async fn main() {
     }
 
     if args.tui {
-        tui::run(session, router).await.unwrap_or_else(|erro| {
-            eprintln!("erro: {erro}");
-            std::process::exit(1)
-        });
+        tui::run(session, router, task_class, overrides)
+            .await
+            .unwrap_or_else(|erro| {
+                eprintln!("erro: {erro}");
+                std::process::exit(1)
+            });
     } else if let Some(tarefa) = args.tarefa {
         session.push_user_message(tarefa);
         streaming::stream_to_writer(&mut session, io::stdout(), &router)
