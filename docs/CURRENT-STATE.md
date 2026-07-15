@@ -9,11 +9,11 @@
 
 - **Data:** 2026-07-14
 - **Branch:** `main`
-- **Commit:** `95406c1`
-- **Fase:** Roadmap v0.1/v0.2/v0.3/v0.4 **fechados/imutáveis**. `docs/roadmap-v0.5.md` tem
-  duas fases abertas: **Fase 10** (ADR-0006, conexão com LiteLLM) — **MT-48/49/50
-  concluídos**, falta só **MT-51** (site MkDocs) pra fechar a fase inteira; e a **Fase 11**
-  (ADR-0020, `.agentryignore` + `context.gitignore.enabled`) — só a ADR registrada ainda,
+- **Commit:** `3f908bf`
+- **Fase:** Roadmap v0.1/v0.2/v0.3/v0.4 **fechados/imutáveis**. `docs/roadmap-v0.5.md`:
+  **Fase 10 concluída** (ADR-0006, conexão com LiteLLM — MT-48/49/50/51 todos prontos); a
+  **Fase 11** (ADR-0020, `.agentryignore` + `context.gitignore.enabled`) segue aberta, só a
+  ADR registrada ainda,
   nenhum código (MT-52..54 não iniciados).
 
 ## Metas cumpridas / Em andamento / Próximo passo
@@ -528,16 +528,31 @@
   exemplo como JSON válido/todo campo `null` inerte continua verde. 36 testes na CLI, 268
   na lib do core + 4 de integração, fmt/clippy limpos, `cargo build --release` verde.
   Pacote Windows (`dist/`) regenerado com o exemplo atualizado (`95406c1`).
+- [x] **MT-51** — `docs/usuario/configuracao.md` ganha a seção `providers.litellm`
+  completa (`baseUrl`/`model`/`egressClass`, `AGENTRY_LITELLM_API_KEY`, fail-closed quando
+  `egressClass` ausente) + exemplo JSON atualizado + nota sobre `_comentario`. A afirmação
+  "nenhum destino de rede além do Ollama local"/"não há caminho de configuração" — que
+  deixou de ser verdade a partir do MT-49 — foi corrigida **em toda parte onde aparecia**:
+  além de `docs/governanca/privacidade-e-egresso.md` (o único arquivo listado no ticket),
+  um `grep` encontrou mais 3 ocorrências (`docs/governanca/index.md`,
+  `docs/governanca/faq.md`, `docs/usuario/faq.md`), todas corrigidas também — reafirma o
+  que continua verdade (Ollama local por padrão sem nenhuma configuração; LiteLLM é opt-in,
+  exige escolha explícita via `--provider`/`/provider`; classe de egresso sempre declarada,
+  nunca inferida do host; Anthropic ainda sem fiação de CLI). **Achado adicional durante a
+  revisão:** `mkdocs.yml` já estava com `--strict` quebrado antes desta sessão —
+  `roadmap-v0.5.md` e `adr/0020` não estavam na `nav` (corrigido); `docs/testing.md` tinha
+  um link relativo pra `README.md` que fica fora do `docs_dir` (trocado por URL real do
+  GitHub). `mkdocs build --strict` validado limpo depois de cada edição; anchors novos
+  (`#providerslitellm`, `#flags-de-invocacao-one-shot`) conferidos direto no HTML gerado,
+  não por suposição (`9c5e495`). **Fecha a Fase 10 inteira** (MT-48..51) — roadmap marcado
+  concluído (`3f908bf`).
 
 **Em andamento:** nada pendente no turno.
 
-**Próximo passo:** **MT-51** (`docs/roadmap-v0.5.md` — atualizar `docs/usuario`/
-`docs/governanca` do site MkDocs: novo bloco `providers.litellm`/flag `--provider`/comando
-`/provider`; a afirmação atual em `docs/governanca/privacidade-e-egresso.md` de "nenhum
-destino de rede além do Ollama local" deixa de ser verdade a partir do MT-49) — fecha a
-Fase 10 inteira. Depois: **Fase 11** completa (MT-52/53/54, `.agentryignore` +
-`context.gitignore.enabled`, ADR-0020) — nenhum código ainda. Outros itens em aberto, sem
-ticket: deploy do site MkDocs (GitHub Pages)
+**Próximo passo:** nenhum ticket aberto na Fase 10 (concluída). **Fase 11** completa
+(MT-52/53/54, `.agentryignore` + `context.gitignore.enabled`, ADR-0020) — nenhum código
+ainda; próximo passo natural se o usuário quiser continuar o roadmap. Outros itens em
+aberto, sem ticket: deploy do site MkDocs (GitHub Pages)
 — decisão explícita do usuário de não fazer ainda, retomar quando pedido; CI multi-SO
 ainda não observado verde (falta um push que dispare a matriz); backlog independente do
 `ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de
@@ -561,6 +576,8 @@ pendentes de validação de implementação).
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-14 | `3f908bf` | docs(roadmap): marca MT-51 concluído; Fase 10 completa | — |
+| 2026-07-14 | `9c5e495` | MT-51: documentação do site reflete o LiteLLM (fecha a Fase 10) | MT-51 |
 | 2026-07-14 | `95406c1` | docs: exemplo gerado por --init ganha _comentario por bloco | — |
 | 2026-07-14 | `ed0988c` | fix: agentry.settings.json gerado por --init mostra todo campo configurável | — |
 | 2026-07-14 | `0a0897a` | build: Makefile para cross-compile Windows + empacotamento em zip | — |
