@@ -40,7 +40,7 @@ use agentry_core::guardrail::{GuardrailAuditEntry, GuardrailAuditSink};
 use agentry_core::provider::ollama::OllamaProvider;
 use agentry_core::provider::openai_compat::OpenAiCompatProvider;
 use agentry_core::provider::LlmProvider;
-use agentry_core::router::{CallPreset, RouteTarget, Router, RuntimeOverride};
+use agentry_core::router::{CallPreset, RouteEntry, RouteTarget, Router, RuntimeOverride};
 use agentry_core::session::{Session, TokenBudget, ToolExecutor};
 use agentry_core::state_dir;
 use agentry_core::tools::code_search::{register_code_search_tool, CodeSearchSession};
@@ -202,6 +202,15 @@ struct Args {
     /// exemplo genérico.
     #[arg(long, requires = "init")]
     profile: Option<String>,
+
+    /// Task-class a usar nesta invocação — escolhe entre as task-classes
+    /// **declaradas** (`taskClasses`, MT-55/ADR-0021) para esta chamada;
+    /// default `chat`. Mesmo padrão de override vetado de
+    /// `--provider`/`--model` (ADR-0014): nunca introduz um alvo não
+    /// declarado — nome desconhecido ou candidato indisponível é o mesmo
+    /// erro tratado de `Router::resolve_with_override`.
+    #[arg(long = "task-class")]
+    task_class: Option<String>,
 }
 
 /// Resultado de [`run_init_local`] — usado tanto por `--init` quanto por
@@ -436,6 +445,59 @@ fn build_litellm_provider(
     Ok(Some((provider, candidato)))
 }
 
+/// Nomes das task-classes internas **auxiliares** — além de `chat`, que já é
+/// sintetizada por [`repl::set_chat_route`] antes desta função rodar (MT-14),
+/// e que continua sem rota real hoje: `compact` (`/compact`, ADR-0016) e
+/// `guardrail-compliance` (Reviewer, ADR-0015). Ambas ficam sem candidato
+/// nenhum na CLI distribuída até este ticket — `/compact` falhava com
+/// `RouterError::UnknownTaskClass` em qualquer sessão real.
+const TASK_CLASSES_AUXILIARES: [&str; 2] = ["compact", "guardrail-compliance"];
+
+/// Registra no `router` toda `task-class` declarada em `cfg.task_classes`
+/// (MT-55/ADR-0021) e sintetiza os defaults internos de
+/// [`TASK_CLASSES_AUXILIARES`] para os nomes **ausentes** do bloco
+/// declarado — mesmo par `(Ollama local-only [+ LiteLLM se configurado],
+/// CallPreset::default())` já usado por `chat` via [`repl::set_chat_route`],
+/// preservando zero-config idêntico ao comportamento anterior ao MT-56.
+///
+/// Responsabilidade herdada do desvio registrado no MT-55
+/// (`docs/decisoes-autonomas.md`): `crates/core` não sintetiza esses
+/// defaults por não dever conhecer `"ollama"` como escolha de produto; a
+/// CLI é o lugar certo, por já hardcodar essa escolha em
+/// [`repl::set_chat_route`] hoje.
+///
+/// Task-classes declaradas sempre vencem — inclusive um `chat`/`compact`/
+/// `guardrail-compliance` customizado pelo usuário, que substitui o default
+/// sintetizado do mesmo nome (`Router::set_route` roda por último para cada
+/// entrada declarada).
+fn register_declared_task_classes(
+    router: &mut Router,
+    cfg: &Config,
+    modelo_inicial: &str,
+    litellm_candidato: Option<&RouteTarget>,
+) {
+    for nome in TASK_CLASSES_AUXILIARES {
+        if !cfg.task_classes.contains_key(nome) {
+            let mut candidates = vec![RouteTarget::new(
+                repl::PROVIDER,
+                modelo_inicial,
+                agentry_core::config::privacy::EgressClass::LocalOnly,
+            )];
+            candidates.extend(litellm_candidato.cloned());
+            router.set_route(
+                nome,
+                RouteEntry {
+                    candidates,
+                    preset: CallPreset::default(),
+                },
+            );
+        }
+    }
+    for (nome, entry) in &cfg.task_classes {
+        router.set_route(nome.clone(), entry.clone());
+    }
+}
+
 #[tokio::main]
 async fn main() {
     let args = Args::parse();
@@ -537,9 +599,19 @@ async fn main() {
         &CallPreset::default(),
         litellm_candidato.as_ref(),
     );
+    register_declared_task_classes(
+        &mut router,
+        &cfg,
+        &modelo_inicial,
+        litellm_candidato.as_ref(),
+    );
 
+    let task_class = args
+        .task_class
+        .clone()
+        .unwrap_or_else(|| repl::TASK_CLASS.to_string());
     let rota = router
-        .resolve_with_override(repl::TASK_CLASS, &overrides)
+        .resolve_with_override(&task_class, &overrides)
         .unwrap_or_else(|erro| {
             eprintln!("erro ao resolver rota: {erro}");
             std::process::exit(1)
@@ -602,6 +674,7 @@ async fn main() {
             &mut session,
             &mut router,
             overrides,
+            task_class,
             &repl::ReplConfig {
                 workspace_root: &workspace_root,
                 preset_base: &CallPreset::default(),
@@ -1041,5 +1114,143 @@ mod tests {
             .expect("deve resolver o candidato litellm");
         assert_eq!(rota_litellm.provider.name(), LITELLM_PROVIDER_NAME);
         assert_eq!(rota_litellm.model, "modelo-30b");
+    }
+
+    // --- MT-56: CLI consome task-classes reais (ADR-0021) ---
+
+    fn cfg_com_task_classes(task_classes_json: &str) -> Config {
+        let json = format!(r#"{{ "taskClasses": {task_classes_json} }}"#);
+        let camada = agentry_core::config::Settings::from_json_str(&json)
+            .expect("JSON de teste deve ser válido");
+        Config::resolve(vec![camada])
+    }
+
+    #[test]
+    fn ausencia_de_arquivo_sintetiza_compact_e_guardrail_compliance_com_ollama_local_only() {
+        let cfg = cfg_com_flags(true, true, true); // task_classes vazio
+        let mut router = agentry_core::router::Router::new(cfg.egress_class);
+        router.register_provider(Arc::new(MockProvider::new("ollama")));
+        repl::set_chat_route(&mut router, "modelo-x", &CallPreset::default(), None);
+
+        register_declared_task_classes(&mut router, &cfg, "modelo-x", None);
+
+        for nome in ["chat", "compact", "guardrail-compliance"] {
+            let rota = router
+                .resolve_with_override(nome, &RuntimeOverride::default())
+                .unwrap_or_else(|erro| panic!("'{nome}' deveria resolver, mas: {erro}"));
+            assert_eq!(rota.provider.name(), "ollama");
+            assert_eq!(rota.model, "modelo-x", "task-class '{nome}'");
+        }
+    }
+
+    #[test]
+    fn task_class_customizada_declarada_no_arquivo_resolve_via_seus_proprios_candidatos() {
+        let cfg = cfg_com_task_classes(
+            r#"{ "revisao": {
+                "candidates": [
+                    { "provider": "litellm", "model": "modelo-revisao-30b", "egressClass": "local-only" }
+                ],
+                "preset": { "temperature": 0.1 }
+            } }"#,
+        );
+        let mut router = agentry_core::router::Router::new(cfg.egress_class);
+        router.register_provider(Arc::new(MockProvider::new("ollama")));
+        router.register_provider(Arc::new(MockProvider::new(LITELLM_PROVIDER_NAME)));
+        repl::set_chat_route(&mut router, "modelo-x", &CallPreset::default(), None);
+
+        register_declared_task_classes(&mut router, &cfg, "modelo-x", None);
+
+        let rota = router
+            .resolve_with_override("revisao", &RuntimeOverride::default())
+            .expect("'revisao' foi declarada — deve resolver");
+        assert_eq!(rota.provider.name(), LITELLM_PROVIDER_NAME);
+        assert_eq!(rota.model, "modelo-revisao-30b");
+        assert_eq!(rota.preset.temperature, Some(0.1));
+
+        // Chat continua com o default sintetizado — declarar 'revisao' não
+        // apaga a task-class 'chat'.
+        let rota_chat = router
+            .resolve_with_override(repl::TASK_CLASS, &RuntimeOverride::default())
+            .expect("'chat' deve continuar resolvendo");
+        assert_eq!(rota_chat.provider.name(), "ollama");
+    }
+
+    #[test]
+    fn task_class_declarada_com_mesmo_nome_de_default_sobrescreve_o_sintetizado() {
+        let cfg = cfg_com_task_classes(
+            r#"{ "compact": {
+                "candidates": [
+                    { "provider": "litellm", "model": "modelo-compact-proprio", "egressClass": "local-only" }
+                ]
+            } }"#,
+        );
+        let mut router = agentry_core::router::Router::new(cfg.egress_class);
+        router.register_provider(Arc::new(MockProvider::new("ollama")));
+        router.register_provider(Arc::new(MockProvider::new(LITELLM_PROVIDER_NAME)));
+        repl::set_chat_route(&mut router, "modelo-x", &CallPreset::default(), None);
+
+        register_declared_task_classes(&mut router, &cfg, "modelo-x", None);
+
+        let rota = router
+            .resolve_with_override("compact", &RuntimeOverride::default())
+            .expect("'compact' declarada deve resolver");
+        assert_eq!(
+            rota.provider.name(),
+            LITELLM_PROVIDER_NAME,
+            "task-class declarada pelo usuário deve vencer o default sintetizado"
+        );
+        assert_eq!(rota.model, "modelo-compact-proprio");
+    }
+
+    #[test]
+    fn task_class_com_provider_nao_registrado_e_erro_tratado_sem_panic() {
+        let cfg = cfg_com_task_classes(
+            r#"{ "revisao": {
+                "candidates": [
+                    { "provider": "anthropic", "model": "modelo-que-nao-existe-aqui", "egressClass": "local-only" }
+                ]
+            } }"#,
+        );
+        let mut router = agentry_core::router::Router::new(cfg.egress_class);
+        router.register_provider(Arc::new(MockProvider::new("ollama")));
+        repl::set_chat_route(&mut router, "modelo-x", &CallPreset::default(), None);
+
+        register_declared_task_classes(&mut router, &cfg, "modelo-x", None);
+
+        let erro = router
+            .resolve_with_override("revisao", &RuntimeOverride::default())
+            .expect_err("provider 'anthropic' não está registrado no router desta CLI");
+        assert!(matches!(
+            erro,
+            agentry_core::router::RouterError::NoAvailableRoute { .. }
+        ));
+    }
+
+    #[tokio::test]
+    async fn session_compact_resolve_apos_register_declared_task_classes_sem_config_real() {
+        // Critério de aceite do MT-56: "/compact num REPL com config real não
+        // falha mais por falta de rota" — antes deste ticket, `compact` nunca
+        // era registrada no router da CLI (só `chat`), então
+        // `Session::compact` sempre devolvia `RouterError::UnknownTaskClass`
+        // fora dos testes de `repl.rs` (que registravam a rota manualmente).
+        let cfg = cfg_com_flags(true, true, true); // task_classes ausente do arquivo
+        let mock = Arc::new(MockProvider::new("ollama"));
+        mock.enqueue_chat(Ok(agentry_core::provider::ChatResponse {
+            message: agentry_core::model::Message::assistant("resumo da conversa"),
+            usage: agentry_core::model::Usage::default(),
+        }));
+
+        let mut router = agentry_core::router::Router::new(cfg.egress_class);
+        router.register_provider(mock.clone());
+        repl::set_chat_route(&mut router, "modelo-x", &CallPreset::default(), None);
+        register_declared_task_classes(&mut router, &cfg, "modelo-x", None);
+
+        let mut session = sessao_de_teste(&cfg, mock);
+        session.push_user_message("mensagem original");
+
+        session
+            .compact(&router)
+            .await
+            .expect("MT-56: 'compact' deve ter rota registrada mesmo sem taskClasses no arquivo");
     }
 }

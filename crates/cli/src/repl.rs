@@ -22,25 +22,31 @@ use agentry_core::session::Session;
 use crate::streaming::stream_to_writer;
 
 /// Nome do provider único desta CLI na v0.1 (Ollama local) — outros
-/// providers chegam nos MT-15/16.
-const PROVIDER: &str = "ollama";
-/// `task-class` única usada por esta CLI na v0.1 — routing por tipo de
-/// tarefa fica para quando o `settings-schema` real existir.
+/// providers chegam nos MT-15/16. `pub(crate)` para que `main.rs` sintetize
+/// os defaults de `compact`/`guardrail-compliance` (MT-56, ADR-0021) sem
+/// repetir o literal `"ollama"` uma terceira vez.
+pub(crate) const PROVIDER: &str = "ollama";
+/// `task-class` **default** desta CLI, voltada ao usuário (interativo e
+/// one-shot) — ADR-0021. Outras task-classes declaradas em
+/// `taskClasses` (MT-55) ou internas (`compact`/`guardrail-compliance`)
+/// passam a ter rota real a partir do MT-56; a seleção por invocação é
+/// feita via `--task-class`/`/task-class`, nunca por esta constante.
 pub(crate) const TASK_CLASS: &str = "chat";
 
-/// Reconfigura a entrada de roteamento `chat` para ter `modelo` (Ollama,
-/// `local-only`) como candidato preferencial, seguido de `candidato_extra`
-/// se houver (ex.: o endpoint LiteLLM resolvido de `providers.litellm`,
-/// MT-49) — preserva o preset-base (ex.: `max_tokens` vindo da
-/// configuração). Chamado sempre que o usuário troca de modelo via
-/// `/model` — como [`Router::set_route`] substitui a entrada inteira (não
-/// existe "adicionar candidato"), **todo** candidato desejado precisa ser
-/// redeclarado aqui a cada chamada, não só o Ollama, senão um candidato
-/// extra já registrado desapareceria silenciosamente na primeira troca de
-/// modelo. O candidato precisa existir declarado antes de
-/// [`Router::resolve_with_override`] poder escolhê-lo (ADR-0014/MT-33: o
-/// override nunca introduz um alvo não vetado; aqui é a própria CLI, a
-/// pedido explícito do humano, quem declara os candidatos).
+/// Reconfigura a entrada de roteamento `chat` (sempre `chat`, nunca a
+/// task-class ativa escolhida via `/task-class` — ver a constante
+/// [`TASK_CLASS`]) para ter `modelo` (Ollama, `local-only`) como candidato
+/// preferencial, seguido de `candidato_extra` se houver (ex.: o endpoint
+/// LiteLLM resolvido de `providers.litellm`, MT-49) — preserva o
+/// preset-base (ex.: `max_tokens` vindo da configuração). Chamado sempre
+/// que o usuário troca de modelo via `/model` — como [`Router::set_route`]
+/// substitui a entrada inteira (não existe "adicionar candidato"), **todo**
+/// candidato desejado precisa ser redeclarado aqui a cada chamada, não só o
+/// Ollama, senão um candidato extra já registrado desapareceria
+/// silenciosamente na primeira troca de modelo. O candidato precisa existir
+/// declarado antes de [`Router::resolve_with_override`] poder escolhê-lo
+/// (ADR-0014/MT-33: o override nunca introduz um alvo não vetado; aqui é a
+/// própria CLI, a pedido explícito do humano, quem declara os candidatos).
 pub fn set_chat_route(
     router: &mut Router,
     modelo: &str,
@@ -169,7 +175,10 @@ pub struct ReplConfig<'a> {
 /// Roda o REPL até `/exit`, `/quit` ou EOF na entrada. `session_override` é
 /// o estado inicial (tipicamente vindo das flags de invocação); comandos de
 /// barra atualizam esse mesmo estado, que passa a valer para os turnos
-/// seguintes até ser trocado de novo (ADR-0014).
+/// seguintes até ser trocado de novo (ADR-0014). `task_class` é a
+/// task-class **ativa** desta sessão (tipicamente [`TASK_CLASS`] ou o valor
+/// de `--task-class`, MT-56/ADR-0021) — toda resolução de rota após um
+/// comando usa esse nome, até `/task-class <outro-nome>` trocá-lo.
 ///
 /// # Errors
 ///
@@ -181,6 +190,7 @@ pub async fn run_repl<R: BufRead, W: Write>(
     session: &mut Session,
     router: &mut Router,
     mut session_override: RuntimeOverride,
+    mut task_class: String,
     config: &ReplConfig<'_>,
 ) -> Result<(), String> {
     let ReplConfig {
@@ -208,6 +218,31 @@ pub async fn run_repl<R: BufRead, W: Write>(
             match session.compact(router).await {
                 Ok(()) => writeln!(output, "sessão compactada").map_err(|e| e.to_string())?,
                 Err(erro) => writeln!(output, "erro: {erro}").map_err(|e| e.to_string())?,
+            }
+            continue;
+        }
+        if linha == "/task-class" || linha.starts_with("/task-class ") {
+            let nome = linha.strip_prefix("/task-class").unwrap_or("").trim();
+            if nome.is_empty() {
+                writeln!(output, "uso: /task-class <nome>").map_err(|e| e.to_string())?;
+                continue;
+            }
+            // Mesmo padrão de override vetado do `--provider`/`--model`
+            // (ADR-0014): só troca de fato se a task-class pedida resolver
+            // de verdade — nome desconhecido ou candidato indisponível
+            // (`Router::resolve_with_override`) é erro reportado, sem
+            // deixar a sessão num estado inconsistente (task-class ativa
+            // só muda quando a resolução funciona).
+            match router.resolve_with_override(nome, &session_override) {
+                Ok(rota) => {
+                    task_class = nome.to_string();
+                    session.apply_route(rota);
+                    writeln!(output, "task-class alterada para: {nome}")
+                        .map_err(|e| e.to_string())?;
+                }
+                Err(erro) => {
+                    writeln!(output, "erro: {erro}").map_err(|e| e.to_string())?;
+                }
             }
             continue;
         }
@@ -244,7 +279,7 @@ pub async fn run_repl<R: BufRead, W: Write>(
                         }
                     }
                     let rota = router
-                        .resolve_with_override(TASK_CLASS, &session_override)
+                        .resolve_with_override(&task_class, &session_override)
                         .map_err(|e| e.to_string())?;
                     session.apply_route(rota);
                 }
@@ -323,6 +358,7 @@ mod tests {
             &mut session,
             &mut router,
             RuntimeOverride::default(),
+            TASK_CLASS.to_string(),
             &ReplConfig {
                 workspace_root: &std::env::temp_dir(),
                 preset_base: &CallPreset::default(),
@@ -356,6 +392,7 @@ mod tests {
             &mut session,
             &mut router,
             RuntimeOverride::default(),
+            TASK_CLASS.to_string(),
             &ReplConfig {
                 workspace_root: &std::env::temp_dir(),
                 preset_base: &CallPreset::default(),
@@ -401,6 +438,7 @@ mod tests {
             &mut session,
             &mut router,
             RuntimeOverride::default(),
+            TASK_CLASS.to_string(),
             &ReplConfig {
                 workspace_root: &std::env::temp_dir(),
                 preset_base: &CallPreset::default(),
@@ -443,6 +481,7 @@ mod tests {
             &mut session,
             &mut router,
             RuntimeOverride::default(),
+            TASK_CLASS.to_string(),
             &ReplConfig {
                 workspace_root: &std::env::temp_dir(),
                 preset_base: &CallPreset::default(),
@@ -474,6 +513,7 @@ mod tests {
             &mut session,
             &mut router,
             RuntimeOverride::default(),
+            TASK_CLASS.to_string(),
             &ReplConfig {
                 workspace_root: &std::env::temp_dir(),
                 preset_base: &CallPreset::default(),
@@ -509,6 +549,7 @@ mod tests {
             &mut session,
             &mut router,
             RuntimeOverride::default(),
+            TASK_CLASS.to_string(),
             &ReplConfig {
                 workspace_root: &std::env::temp_dir(),
                 preset_base: &CallPreset::default(),
@@ -557,6 +598,7 @@ mod tests {
             &mut session,
             &mut router,
             RuntimeOverride::default(),
+            TASK_CLASS.to_string(),
             &ReplConfig {
                 workspace_root: &std::env::temp_dir(),
                 preset_base: &CallPreset::default(),
@@ -593,6 +635,7 @@ mod tests {
             &mut session,
             &mut router,
             RuntimeOverride::default(),
+            TASK_CLASS.to_string(),
             &ReplConfig {
                 workspace_root: &std::env::temp_dir(),
                 preset_base: &CallPreset::default(),
@@ -627,6 +670,7 @@ mod tests {
             &mut session,
             &mut router,
             RuntimeOverride::default(),
+            TASK_CLASS.to_string(),
             &ReplConfig {
                 workspace_root: &std::env::temp_dir(),
                 preset_base: &CallPreset::default(),
@@ -690,6 +734,7 @@ mod tests {
             &mut session,
             &mut router,
             RuntimeOverride::default(),
+            TASK_CLASS.to_string(),
             &ReplConfig {
                 workspace_root: dir.path(),
                 preset_base: &CallPreset::default(),
@@ -712,5 +757,96 @@ mod tests {
             0,
             "/init não deve chamar o provider"
         );
+    }
+
+    // --- MT-56: comando `/task-class` (ADR-0021) ---
+
+    #[tokio::test]
+    async fn comando_task_class_troca_para_outra_rota_declarada_e_mensagens_seguintes_vao_para_ela()
+    {
+        let mock_chat = Arc::new(MockProvider::new(PROVIDER));
+        let mock_revisao = Arc::new(MockProvider::new("litellm"));
+        mock_revisao.enqueue_stream(roteiro_de_resposta("resposta da revisão"));
+
+        let mut router = router_com_ollama(mock_chat.clone(), "modelo-x");
+        router.register_provider(mock_revisao.clone());
+        router.set_route(
+            "revisao",
+            RouteEntry {
+                candidates: vec![RouteTarget::new(
+                    "litellm",
+                    "modelo-revisao",
+                    EgressClass::LocalOnly,
+                )],
+                preset: CallPreset::default(),
+            },
+        );
+        let rota = router.resolve(TASK_CLASS).expect("deve resolver");
+        let mut session = Session::new(rota, Arc::new(NoopExecutor), TokenBudget::new(100_000));
+
+        let entrada = "/task-class revisao\nmensagem\n/exit\n";
+        let mut saida = Vec::new();
+
+        run_repl(
+            Cursor::new(entrada.as_bytes()),
+            &mut saida,
+            &mut session,
+            &mut router,
+            RuntimeOverride::default(),
+            TASK_CLASS.to_string(),
+            &ReplConfig {
+                workspace_root: &std::env::temp_dir(),
+                preset_base: &CallPreset::default(),
+                candidato_extra: None,
+            },
+        )
+        .await
+        .expect("repl deve rodar sem erro");
+
+        assert_eq!(mock_revisao.chat_requests().len(), 1);
+        assert_eq!(
+            mock_chat.chat_requests().len(),
+            0,
+            "chat não deveria ser chamado depois do /task-class"
+        );
+        let saida_texto = String::from_utf8(saida).unwrap();
+        assert!(saida_texto.contains("task-class alterada para: revisao"));
+    }
+
+    #[tokio::test]
+    async fn comando_task_class_com_nome_desconhecido_propaga_erro_sem_derrubar_o_repl() {
+        let mock = Arc::new(MockProvider::new(PROVIDER));
+        mock.enqueue_stream(roteiro_de_resposta("ok"));
+
+        let mut router = router_com_ollama(mock.clone(), "modelo-x");
+        let rota = router.resolve(TASK_CLASS).expect("deve resolver");
+        let mut session = Session::new(rota, Arc::new(NoopExecutor), TokenBudget::new(100_000));
+
+        let entrada = "/task-class nao-existe\nmensagem\n/exit\n";
+        let mut saida = Vec::new();
+
+        run_repl(
+            Cursor::new(entrada.as_bytes()),
+            &mut saida,
+            &mut session,
+            &mut router,
+            RuntimeOverride::default(),
+            TASK_CLASS.to_string(),
+            &ReplConfig {
+                workspace_root: &std::env::temp_dir(),
+                preset_base: &CallPreset::default(),
+                candidato_extra: None,
+            },
+        )
+        .await
+        .expect("nome de task-class desconhecido não deve derrubar o repl, só reportar erro");
+
+        assert_eq!(
+            mock.chat_requests().len(),
+            1,
+            "task-class ativa continua 'chat' — a mensagem seguinte ainda deve rodar nela"
+        );
+        let saida_texto = String::from_utf8(saida).unwrap();
+        assert!(saida_texto.contains("erro:"));
     }
 }
