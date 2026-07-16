@@ -9,7 +9,7 @@
 
 - **Data:** 2026-07-16
 - **Branch:** `main`
-- **Commit:** `4cc49df`
+- **Commit:** `e41f72d`
 - **Fase:** Roadmap v0.1..v0.4 **fechados/imutáveis**; **Fase 10 concluída** (LiteLLM).
   **Execução autônoma em andamento** (`/loop /implementar-roadmap`, modelo Sonnet 5) — ver
   `docs/decisoes-autonomas.md` para decisões tomadas sozinho (**5 decisões registradas** até a
@@ -221,6 +221,21 @@
   passo é **preparar a Fase 18+** (`docs/roadmap-longo-prazo.md` §Fase 18+: memória entre
   sessões, subagentes/orquestração, multimodal, checkpoints/*undo* — nenhuma tem ADR nem
   detalhamento de tickets ainda; ordem entre elas ainda não decidida).
+
+  **Fase 18 preparada** — decisão de qual das quatro frentes restantes de "segunda onda"
+  preparar registrada em `docs/decisoes-autonomas.md` (2026-07-16): **checkpoints/*undo* de
+  mudanças de arquivo**, escolhida por ser a única, entre as quatro, sem nenhuma pergunta de
+  segurança/confidencialidade/egresso em aberto (multimodal e memória entre sessões levantam
+  pergunta de confidencialidade/retenção própria; subagentes tem a "decisão-chave" de egresso
+  já sinalizada — as três passam a viver na **Fase 19+**). ADR-0030 (`Proposed`,
+  `docs/adr/0030-checkpoints-e-undo-de-mudancas-de-arquivo.md`) decide: `CheckpointStore`
+  persiste uma pilha *LIFO* em `.agentry/checkpoints.json` (mesmo diretório de estado local da
+  ADR-0017); só `fs_write`/`fs_edit` geram checkpoint, nunca `shell_exec`/`shell_background`;
+  exposto em três pontos — flag `--undo` (*one-shot*), comando `/undo` (REPL), *keybinding*
+  `Ctrl+Z` (TUI) — todos chamando a mesma `CheckpointStore::undo()`; um nível de desfazer por
+  vez; teto fixo de checkpoints, sem configuração nova. `docs/roadmap-v0.12.md` detalha os 4
+  tickets (MT-86..89). `docs/adr/README.md`/`mkdocs.yml` atualizados. `mkdocs build --strict`
+  limpo. Nenhuma mudança de código — esta iteração só prepara a fase.
 
   **MT-70 concluído** — primeiro ticket de implementação da Fase 15: `ratatui` (feature
   `crossterm`, `default-features = false` para árvore de dependências mínima) adicionada a
@@ -1442,23 +1457,29 @@
   `Accepted`**; `docs/adr/README.md`/`docs/roadmap-longo-prazo.md` atualizados — Fase 17
   marcada concluída. `mkdocs build --strict` limpo. Nenhuma mudança de código.
 
-**Em andamento:** nada pendente — árvore de trabalho limpa, tudo commitado. **Fase 17
-concluída inteira (MT-82..85)** — última fase que já tinha tickets detalhados no roadmap de
-longo prazo.
+- [x] **Preparação da Fase 18** — decisão de qual das quatro frentes restantes de "segunda
+  onda" preparar registrada em `docs/decisoes-autonomas.md` (2026-07-16): **checkpoints/
+  *undo* de mudanças de arquivo** (as outras três — memória entre sessões,
+  subagentes/orquestração, multimodal — passam a viver na Fase 19+, sem ordem decidida entre
+  elas ainda). **ADR-0030** (`Proposed`, `docs/adr/0030-checkpoints-e-undo-de-mudancas-de-arquivo.md`):
+  `CheckpointStore` persiste uma pilha *LIFO* em `.agentry/checkpoints.json`; só
+  `fs_write`/`fs_edit` geram checkpoint; exposto via `--undo`/`/undo`/`Ctrl+Z`; um nível de
+  desfazer; teto fixo sem configuração. `docs/roadmap-v0.12.md` detalha MT-86..89.
+  `docs/adr/README.md`/`mkdocs.yml` atualizados. `mkdocs build --strict` limpo. Nenhuma
+  mudança de código — esta iteração só prepara a fase.
 
-**Próximo passo:** **preparar a Fase 18+** (`docs/roadmap-longo-prazo.md` §Fase 18+) —
-nenhuma das quatro frentes restantes (memória entre sessões, subagentes/orquestração,
-multimodal, checkpoints/*undo*) tem ADR nem detalhamento de tickets ainda; ordem entre elas
-não decidida. Seguindo a disciplina do comando `/loop /implementar-roadmap` §1 ("fase sem
-tickets detalhados"): a próxima unidade de trabalho é **preparar** a próxima frente escolhida
-(ADR `Proposed` + quebra em micro-tickets num novo `docs/roadmap-vX.Y.md`), não implementar
-código ainda. **Subagentes**, em particular, provavelmente merece escalar ao mantenedor
-quando chegar a vez — o próprio roadmap já assinala uma "decisão-chave" com implicação direta
-na ADR-0002 (egresso), mais alinhada a uma escalada que a uma decisão autônoma (ver
-`docs/decisoes-autonomas.md`, entrada de 2026-07-16). Outros itens em aberto, sem ticket:
-deploy do site MkDocs (GitHub Pages) — decisão explícita do usuário de não fazer ainda; CI
-multi-SO ainda não observado verde (falta um push que dispare a matriz); backlog independente
-do `ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de reanálise de maturidade,
+**Em andamento:** nada pendente — árvore de trabalho limpa, tudo commitado. **Fase 17
+concluída inteira (MT-82..85)**; **Fase 18 preparada** (ADR-0030 `Proposed`,
+`docs/roadmap-v0.12.md`, MT-86..89).
+
+**Próximo passo:** **MT-86** (`docs/roadmap-v0.12.md`, `crates/core/src/checkpoint/mod.rs`) —
+`CheckpointStore` (novo): `record`/`undo` sobre uma pilha *LIFO* persistida em
+`.agentry/checkpoints.json` (`state_dir::ensure_state_dir`, ADR-0017); teto fixo descarta o
+checkpoint mais antigo quando excedido. Primeiro ticket de implementação da Fase 18. Outros
+itens em aberto, sem ticket: deploy do site MkDocs (GitHub Pages) — decisão explícita do
+usuário de não fazer ainda; CI multi-SO ainda não observado verde (falta um push que dispare
+a matriz); backlog independente do `ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF
+pendentes de reanálise de maturidade,
 perfis base+overlay/skills executáveis/config de serviços pendentes de validação de
 implementação).
 
