@@ -7,9 +7,9 @@
 
 ## Último turno
 
-- **Data:** 2026-07-15
+- **Data:** 2026-07-16
 - **Branch:** `main`
-- **Commit:** `6f3b9b5`
+- **Commit:** `6caadae`
 - **Fase:** Roadmap v0.1..v0.4 **fechados/imutáveis**; **Fase 10 concluída** (LiteLLM).
   **Execução autônoma em andamento** (`/loop /implementar-roadmap`, modelo Sonnet 5) — ver
   `docs/decisoes-autonomas.md` para decisões tomadas sozinho (**5 decisões registradas** até a
@@ -122,6 +122,38 @@
   `cargo build --release` limpo. Nenhuma mudança de comportamento observável da CLI (o
   `Settings::from_json_str` já bloqueava esse caso antes de chegar aqui) — sem smoke-test
   manual adicional além do já feito no MT-79.
+
+  **MT-81 concluído — fecha a Fase 16 inteira (MT-77..81).** `docs/usuario/configuracao.md`
+  ganha a seção `mcpServers` (schema, exemplo real com `npx`/
+  `@modelcontextprotocol/server-filesystem`, nome de tool sempre prefixado pelo servidor,
+  nota de que um servidor fora do ar não trava a CLI). `docs/usuario/uso.md` ganha uma nota
+  curta em "Ferramentas do agente". `docs/governanca/privacidade-e-egresso.md` ganha a seção
+  "MCP e egresso" para o público de *compliance*: por que só servidores locais são suportados
+  agora, a checagem em dois pontos independentes (*parsing* MT-77 + `start_from_settings`
+  MT-80), por que servidores remotos ficam fora até uma fase dedicada, e que o que um
+  subprocesso de servidor faz por conta própria não é controlado pelo `agentry` (mesmo nível
+  de confiança de `shell_exec`). **ADR-0028 promovida de `Proposed` para `Accepted`**
+  (`docs/adr/README.md` atualizado); `docs/roadmap-longo-prazo.md` marca a Fase 16
+  `✅ concluída`, mesmo padrão usado para fechar a Fase 15. `mkdocs build --strict` limpo,
+  *anchors* novos (`mcpServers`, `mcp-e-egresso`) conferidos no HTML gerado. Nenhuma mudança
+  de código — fmt/clippy rodados como checagem de sanidade.
+
+  **Fase 16 concluída inteira em 2026-07-16** (ADR-0028 `Accepted`, `docs/roadmap-v0.10.md`,
+  MT-77..81) — cliente MCP (`McpClient`, `crates/core/src/mcp/`) spawna servidores locais via
+  `rmcp`, completa o *handshake* e lista tools; tools MCP entram no `ToolRegistry`
+  (`crates/core/src/tools/mcp.rs`) sob o mesmo `PermissionGate` de sempre, nome prefixado pelo
+  servidor; classe de egresso checada em dois pontos independentes (*parsing* + conexão),
+  nunca inferida; documentação de usuário e governança completa. Um achado técnico (*feature*
+  `server` do `rmcp` não disponível em alvos `[[bin]]` com dependências de teste) e um bug de
+  *hang* (método MCP sem resposta trava um cliente sem *timeout* próprio) corrigidos durante a
+  implementação, ambos registrados/documentados nos commits dos respectivos tickets (MT-78 em
+  `docs/decisoes-autonomas.md`; o *hang* do MT-79 foi correção de *bug*, não decisão de
+  projeto).
+
+  **Fase 16 fecha a última fase detalhada do roadmap de longo prazo** — próximo passo é
+  **preparar a Fase 17+** (`docs/roadmap-longo-prazo.md` §Fase 17+: memória entre sessões,
+  subagentes/orquestração, multimodal, checkpoints/*undo*, custo/uso visível — nenhuma tem ADR
+  nem detalhamento de tickets ainda).
 
   **MT-70 concluído** — primeiro ticket de implementação da Fase 15: `ratatui` (feature
   `crossterm`, `default-features = false` para árvore de dependências mínima) adicionada a
@@ -1293,17 +1325,33 @@
   comportamento observável — o `Settings::from_json_str` já bloqueava esse caso antes de
   chegar aqui.
 
-**Em andamento:** nada pendente — árvore de trabalho limpa, tudo commitado.
+- [x] **MT-81** — documentação (usuário + governança), **fecha a Fase 16 inteira**.
+  `docs/usuario/configuracao.md` ganha a seção `mcpServers` (schema, exemplo real com
+  `npx`/`@modelcontextprotocol/server-filesystem`, nome de tool sempre prefixado pelo
+  servidor, servidor fora do ar não trava a CLI). `docs/usuario/uso.md` ganha uma nota curta
+  em "Ferramentas do agente". `docs/governanca/privacidade-e-egresso.md` ganha a seção "MCP e
+  egresso" para o público de *compliance*. **ADR-0028 promovida de `Proposed` para
+  `Accepted`** (`docs/adr/README.md` atualizado); `docs/roadmap-longo-prazo.md` marca a
+  Fase 16 `✅ concluída`. `mkdocs build --strict` limpo, *anchors* conferidos no HTML gerado.
+  Nenhuma mudança de código.
 
-**Próximo passo:** **MT-81** (`docs/roadmap-v0.10.md`, `docs/usuario/configuracao.md`,
-`docs/usuario/uso.md`, `docs/governanca/privacidade-e-egresso.md`,
-`docs/adr/0028-mcp-client-via-rmcp.md`, `docs/adr/README.md`) — documentação de usuário e
-governança da Fase 16 (schema `mcpServers`, tools MCP aparecendo dinamicamente, seção "MCP e
-egresso" para o público de *compliance*); promove ADR-0028 de `Proposed` para `Accepted`
-(MT-77..80 concluídos) — **fecha a Fase 16 inteira**. Outros itens em aberto, sem ticket:
-deploy do site MkDocs (GitHub Pages) — decisão explícita do usuário de não fazer ainda; CI
-multi-SO ainda não observado verde (falta um push que dispare a matriz); backlog independente
-do `ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de reanálise de maturidade,
+**Em andamento:** nada pendente — árvore de trabalho limpa, tudo commitado. **Fase 16
+concluída inteira (MT-77..81)** — última fase que já tinha tickets detalhados no roadmap de
+longo prazo.
+
+**Próximo passo:** **preparar a Fase 17+** (`docs/roadmap-longo-prazo.md` §Fase 17+) — nenhuma
+das cinco frentes enumeradas ali (memória entre sessões, subagentes/orquestração, multimodal,
+checkpoints/*undo*, custo/uso visível) tem ADR nem detalhamento de tickets ainda. Seguindo a
+disciplina do comando `/loop /implementar-roadmap` §1 ("fase sem tickets detalhados"): a
+próxima unidade de trabalho é **preparar** a próxima frente escolhida (ADR `Proposed` +
+quebra em micro-tickets num novo `docs/roadmap-vX.Y.md`), não implementar código ainda. A
+escolha de qual das cinco frentes vem primeiro, e sua ordem relativa, ainda não foi decidida
+— decisão a tomar na próxima iteração (candidata natural: registrar como decisão-sob-dúvida
+em `docs/decisoes-autonomas.md`, já que o roadmap não define uma ordem explícita para a
+"segunda onda", só a enumera). Outros itens em aberto, sem ticket: deploy do site MkDocs
+(GitHub Pages) — decisão explícita do usuário de não fazer ainda; CI multi-SO ainda não
+observado verde (falta um push que dispare a matriz); backlog independente do
+`ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de reanálise de maturidade,
 perfis base+overlay/skills executáveis/config de serviços pendentes de validação de
 implementação).
 

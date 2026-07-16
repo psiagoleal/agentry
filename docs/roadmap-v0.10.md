@@ -102,7 +102,7 @@ retoma a partir dele, sem deixar o número como lacuna permanente.
 - **Fora de escopo:** qualquer implementação de transporte remoto.
 - **Depende de:** MT-77.
 
-### MT-81: Documentação (usuário + governança)
+### MT-81: Documentação (usuário + governança) ✅ concluído (6caadae) — fecha a Fase 16
 - **Objetivo:** `docs/usuario/configuracao.md` ganha a seção `mcpServers` (schema, exemplo,
   nota de que só `local-only` é aceito nesta versão e por quê). `docs/usuario/uso.md` ganha
   uma nota curta sobre tools MCP aparecerem dinamicamente (nome prefixado pelo servidor,
