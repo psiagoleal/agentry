@@ -380,7 +380,7 @@ impl GuardrailAuditSink for NoopAuditSink {
 /// depois.
 async fn register_mcp_tools(registry: &mut ToolRegistry, cfg: &Config) {
     for (nome_servidor, servidor) in &cfg.mcp_servers {
-        let cliente = match McpClient::start(&servidor.command, &servidor.args).await {
+        let cliente = match McpClient::start_from_settings(servidor).await {
             Ok(cliente) => Arc::new(cliente),
             Err(erro) => {
                 eprintln!("erro ao conectar ao servidor MCP '{nome_servidor}': {erro}");

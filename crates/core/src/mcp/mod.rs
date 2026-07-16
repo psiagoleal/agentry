@@ -19,6 +19,9 @@ use rmcp::transport::TokioChildProcess;
 use rmcp::ServiceExt;
 use tokio::process::Command;
 
+use crate::config::privacy::EgressClass;
+use crate::config::McpServerSettings;
+
 /// Erros do ciclo de vida do cliente MCP.
 ///
 /// Mesma forma de [`crate::context::lsp::client::LspError`] — ausência do
@@ -30,6 +33,14 @@ pub enum McpError {
     /// Falha no *handshake*/protocolo MCP (inclui o servidor encerrar
     /// antes de responder).
     Protocol(String),
+    /// `egressClass` declarada é diferente de `local-only` (ADR-0028) —
+    /// devolvido **antes** de qualquer subprocesso ser spawnado. Defesa em
+    /// profundidade (MT-80): `Settings::from_json_str` (MT-77) já rejeita
+    /// esse caso no *parsing* do arquivo, mas este erro garante que nenhum
+    /// caminho de código — inclusive um `McpServerSettings` montado direto
+    /// em Rust, sem passar pelo parser — chega a conectar um servidor
+    /// remoto.
+    EgressNotSupported(EgressClass),
 }
 
 impl core::fmt::Display for McpError {
@@ -37,6 +48,12 @@ impl core::fmt::Display for McpError {
         match self {
             Self::Spawn(msg) => write!(f, "falha ao iniciar o servidor MCP: {msg}"),
             Self::Protocol(msg) => write!(f, "servidor MCP respondeu com erro: {msg}"),
+            Self::EgressNotSupported(classe) => write!(
+                f,
+                "servidor MCP declara egressClass '{classe:?}', mas esta versão só suporta \
+                 servidores MCP locais (egressClass 'local-only'); servidores remotos ainda \
+                 não são suportados (ADR-0028)"
+            ),
         }
     }
 }
@@ -74,6 +91,27 @@ impl McpClient {
         let pid = transporte.id();
         let servico = ().serve(transporte).await.map_err(|e| McpError::Protocol(e.to_string()))?;
         Ok(Self { servico, pid })
+    }
+
+    /// Igual a [`Self::start`], mas a partir de um [`McpServerSettings`]
+    /// completo — checa `egress_class` **antes** de tocar em
+    /// [`Command`]/[`TokioChildProcess`] (MT-80, defesa em profundidade
+    /// além do que `Settings::from_json_str`, MT-77, já rejeita no
+    /// *parsing*). É o ponto de entrada usado pela wiring de produção
+    /// (`register_mcp_tools`, `crates/cli/src/main.rs`) — `Self::start`
+    /// continua existindo à parte só porque a suíte de testes/*fixtures*
+    /// (`fake_mcp_server`) não passa por `McpServerSettings`.
+    ///
+    /// # Errors
+    ///
+    /// Devolve [`McpError::EgressNotSupported`] se `settings.egress_class`
+    /// não for [`EgressClass::LocalOnly`] — nenhum subprocesso é spawnado
+    /// nesse caso. Do contrário, os mesmos erros de [`Self::start`].
+    pub async fn start_from_settings(settings: &McpServerSettings) -> Result<Self, McpError> {
+        if settings.egress_class != EgressClass::LocalOnly {
+            return Err(McpError::EgressNotSupported(settings.egress_class));
+        }
+        Self::start(&settings.command, &settings.args).await
     }
 
     /// PID do subprocesso, se disponível — útil para diagnóstico/log; a
@@ -144,6 +182,39 @@ mod tests {
         let erro = McpClient::start("este-comando-nao-existe-agentry-teste", &[])
             .await
             .expect_err("comando inexistente deve falhar ao spawnar, não travar");
+        assert!(matches!(erro, McpError::Spawn(_)));
+    }
+
+    #[tokio::test]
+    async fn start_from_settings_com_egress_class_remoto_e_erro_tratado_sem_spawnar() {
+        let settings = McpServerSettings {
+            command: "este-comando-nunca-deve-ser-executado".to_string(),
+            args: vec![],
+            egress_class: EgressClass::CloudOk,
+        };
+
+        let erro = McpClient::start_from_settings(&settings)
+            .await
+            .expect_err("egressClass diferente de local-only deve ser rejeitada antes de spawnar");
+
+        assert!(matches!(
+            erro,
+            McpError::EgressNotSupported(EgressClass::CloudOk)
+        ));
+    }
+
+    #[tokio::test]
+    async fn start_from_settings_com_local_only_e_comando_inexistente_ainda_falha_ao_spawnar() {
+        let settings = McpServerSettings {
+            command: "este-comando-nao-existe-agentry-teste".to_string(),
+            args: vec![],
+            egress_class: EgressClass::LocalOnly,
+        };
+
+        let erro = McpClient::start_from_settings(&settings)
+            .await
+            .expect_err("comando inexistente deve falhar ao spawnar, não travar");
+
         assert!(matches!(erro, McpError::Spawn(_)));
     }
 }
