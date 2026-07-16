@@ -14,9 +14,9 @@ cada fase são escritos quando a fase começa**, promovidos para um `roadmap-vX.
 versionado. **Fases 12, 13, 14 e 15** estão concluídas (`docs/roadmap-v0.6.md`,
 `docs/roadmap-v0.7.md`, `docs/roadmap-v0.8.md`, `docs/roadmap-v0.9.md` — `ratatui` autorizado
 pelo mantenedor em 2026-07-15, após a parada dura do comando de loop por dependência nova;
-ADR-0027 `Accepted`). **Fase 16** ainda exige a mesma decisão para `rmcp` — já pré-autorizada
-pelo mantenedor junto da Fase 15, falta só a preparação (ADR-0028 + micro-tickets), próximo
-passo agora que a Fase 15 terminou.
+ADR-0027 `Accepted`). **Fase 16** já está detalhada — ver `docs/roadmap-v0.10.md` (`rmcp`
+pré-autorizado pelo mantenedor junto de `ratatui`; ADR-0028 escrita, `Proposed`, escopo v1
+restrito a servidores MCP locais). Pronta para começar a implementação a partir do MT-77.
 
 > Convenções de DoD, granularidade e "dependência nova exige ADR (ADR-0004)": iguais às dos
 > roadmaps versionados (`docs/roadmap-v0.1.md` §Convenções).
@@ -127,19 +127,28 @@ lista de tarefas deliberadamente fora de escopo, YAGNI: `agentry` não tem esse 
 `core` hoje). Scaffold `ratatui`/*keybindings*/*streaming* real/seletor de modelo/widgets de
 permissão e pergunta/diff modal, todos entregues; documentação de usuário fechando a fase.
 
-## Fase 16 — MCP client (ADR-0028)
+## Fase 16 — Cliente MCP via `rmcp` (ADR-0028)
 
-**Objetivo:** interoperar com o ecossistema MCP — qualquer servidor MCP existente passa a
-funcionar no `agentry` (o maior efeito de rede possível). Via `rmcp` (SDK oficial Rust).
+**Objetivo:** interoperar com o ecossistema MCP — qualquer servidor MCP **local** (subprocesso,
+`stdio`) existente passa a funcionar no `agentry` como um conjunto de tools comuns, sob o
+mesmo `ToolRegistry`/`PermissionGate` de sempre. Via `rmcp` (SDK oficial Rust, mantido pela
+própria organização do protocolo).
 
-**ADR necessária:** ADR-0028 (MCP client via `rmcp` — dependência sob ADR-0004; servidores
-configuráveis; tools MCP sob o mesmo gate de permissão + classe de egresso; progressive
-disclosure de tools) — *stub reservado*.
+**ADR:** ADR-0028 (adoção de `rmcp` — só as *features* `client`+`transport-child-process` em
+produção, maturidade verificada: Apache-2.0, 15,9M downloads, repositório oficial
+`modelcontextprotocol/rust-sdk`, ativo) — **escrita**, `Proposed`. Decisão central: **v1 só
+suporta servidores MCP locais** — servidores remotos (HTTP/SSE) exigiriam o cliente HTTP
+embutido do `rmcp`, que faria chamadas de rede **fora** do `Transport` único do projeto
+(ADR-0001), sem `Allowlist`/`EgressClass`/auditoria — ficam explicitamente fora de escopo até
+uma fase dedicada resolver essa integração, nunca implementados via atalho. Servidor local é o
+mesmo modelo de confiança já aceito para `LspClient` (subprocesso, IPC via `pipe`, não é uma
+chamada de rede mediada pelo `agentry`). Tools MCP entram no `ToolRegistry` com nome prefixado
+pelo servidor de origem (`"<servidor>__<tool>"`), sob o mesmo gate de permissão de qualquer
+outra tool — nenhum mecanismo paralelo.
 
-- **MT-78:** adoção `rmcp` + config de servidores MCP.
-- **MT-79:** tools MCP no `ToolRegistry` sob o gate de permissão.
-- **MT-80:** classificação de egresso por servidor MCP (ADR-0002).
-- **MT-81:** documentação.
+**Detalhamento completo:** `docs/roadmap-v0.10.md` (MT-77..81 — a numeração retoma do MT-77,
+que ficou livre quando o *widget* de lista de tarefas foi descartado ainda na preparação da
+Fase 15, YAGNI/ADR-0027).
 
 ## Fase 17+ — Segunda onda (ADRs 0029+ quando alcançadas)
 

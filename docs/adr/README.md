@@ -34,6 +34,4 @@ Registros de decisões estruturais (ver skill `adr-writer`). Use
 | [0025](0025-web-tools-webfetch-websearch-searxng.md) | Web tools — `WebFetch` e `WebSearch` via SearXNG configurável | Accepted |
 | [0026](0026-tool-glob-e-shell-em-background.md) | Tool `Glob` (busca por padrão de arquivo) e shell em background/streaming | Accepted |
 | [0027](0027-tui-via-ratatui.md) | TUI via `ratatui` — modo interativo opt-in, sem substituir o REPL | Accepted |
-
-> **Faixa reservada (roadmap de longo prazo, `docs/roadmap-longo-prazo.md`):** ADR-0028 (MCP
-> client / `rmcp`, Fase 16). O arquivo é escrito ao iniciar a fase (ADR com contexto fresco).
+| [0028](0028-mcp-client-via-rmcp.md) | Cliente MCP via `rmcp` — só servidores locais (`stdio`) na v1 | Proposed |
