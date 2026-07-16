@@ -61,7 +61,7 @@ expor.
 - **Fora de escopo:** qualquer widget/modal dedicado a uso (YAGNI — cabe no rodapé).
 - **Depende de:** MT-82.
 
-### MT-85: Documentação
+### MT-85: Documentação ✅ concluído (4cc49df) — fecha a Fase 17
 - **Objetivo:** `docs/usuario/uso.md` ganha uma nota sobre o comando `/usage`, o resumo do
   modo *one-shot* e o rodapé da TUI — todos apontando para a mesma fonte de dado (`Usage`
   acumulado da sessão). ADR-0029 promovida de `Proposed` para `Accepted` (MT-82..84

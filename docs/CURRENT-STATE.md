@@ -9,7 +9,7 @@
 
 - **Data:** 2026-07-16
 - **Branch:** `main`
-- **Commit:** `4cd7f5e`
+- **Commit:** `4cc49df`
 - **Fase:** Roadmap v0.1..v0.4 **fechados/imutáveis**; **Fase 10 concluída** (LiteLLM).
   **Execução autônoma em andamento** (`/loop /implementar-roadmap`, modelo Sonnet 5) — ver
   `docs/decisoes-autonomas.md` para decisões tomadas sozinho (**5 decisões registradas** até a
@@ -208,6 +208,19 @@
   `cargo build --release` limpo. Smoke-test manual via `tmux` (`--tui` num terminal real):
   rodapé mostra `"0 tokens de entrada, 0 de saída (total: 0)"` no início; após uma mensagem
   real completar, atualiza para o total correto, chat renderiza normalmente.
+
+  **MT-85 concluído — fecha a Fase 17 inteira (MT-82..85).** `docs/usuario/uso.md` ganha: nota
+  sobre o resumo `"[uso] ..."` em `stderr` no modo *one-shot* (nunca em `stdout`); linha
+  `/usage` na tabela de comandos de barra do REPL + nota de que não zera com `/compact`; nota
+  sobre o rodapé da TUI mostrar o mesmo total. **ADR-0029 promovida de `Proposed` para
+  `Accepted`** (`docs/adr/README.md` atualizado); `docs/roadmap-longo-prazo.md` marca a
+  Fase 17 `✅ concluída`, mesmo padrão usado para fechar as Fases 15/16. `mkdocs build
+  --strict` limpo. Nenhuma mudança de código — fmt rodado como checagem de sanidade.
+
+  **Fase 17 fecha a última fase detalhada do roadmap de longo prazo (de novo)** — próximo
+  passo é **preparar a Fase 18+** (`docs/roadmap-longo-prazo.md` §Fase 18+: memória entre
+  sessões, subagentes/orquestração, multimodal, checkpoints/*undo* — nenhuma tem ADR nem
+  detalhamento de tickets ainda; ordem entre elas ainda não decidida).
 
   **MT-70 concluído** — primeiro ticket de implementação da Fase 15: `ratatui` (feature
   `crossterm`, `default-features = false` para árvore de dependências mínima) adicionada a
@@ -1424,21 +1437,28 @@
   build --release` limpo. Smoke-test manual via `tmux`: rodapé mostra uso zerado no início e
   atualiza corretamente após uma mensagem real completar.
 
-**Em andamento:** nada pendente — árvore de trabalho limpa, tudo commitado. **Fase 16
-concluída inteira (MT-77..81)**; **Fase 17 preparada** (ADR-0029 `Proposed`,
-`docs/roadmap-v0.11.md`, MT-82..85); **MT-82/83/84 concluídos** — falta só o MT-85
-(documentação) para fechar a Fase 17 inteira.
+- [x] **MT-85** — documentação (`docs/usuario/uso.md`: nota sobre `/usage`, resumo *one-shot*,
+  rodapé da TUI), **fecha a Fase 17 inteira**. **ADR-0029 promovida de `Proposed` para
+  `Accepted`**; `docs/adr/README.md`/`docs/roadmap-longo-prazo.md` atualizados — Fase 17
+  marcada concluída. `mkdocs build --strict` limpo. Nenhuma mudança de código.
 
-**Próximo passo:** **MT-85** (`docs/roadmap-v0.11.md`, `docs/usuario/uso.md`,
-`docs/adr/0029-uso-de-tokens-visivel-na-sessao.md`, `docs/adr/README.md`,
-`docs/roadmap-longo-prazo.md`) — documentação: `docs/usuario/uso.md` ganha uma nota sobre o
-comando `/usage`, o resumo do modo *one-shot* e o rodapé da TUI; ADR-0029 promovida de
-`Proposed` para `Accepted`; `docs/adr/README.md`/`docs/roadmap-longo-prazo.md` atualizados —
-Fase 17 marcada concluída. Último ticket da Fase 17 — fecha a fase inteira. Outros itens em
-aberto, sem ticket: deploy do site MkDocs (GitHub Pages) — decisão explícita do usuário de não
-fazer ainda; CI multi-SO ainda não observado verde (falta um push que dispare a matriz);
-backlog independente do `ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de
-reanálise de maturidade,
+**Em andamento:** nada pendente — árvore de trabalho limpa, tudo commitado. **Fase 17
+concluída inteira (MT-82..85)** — última fase que já tinha tickets detalhados no roadmap de
+longo prazo.
+
+**Próximo passo:** **preparar a Fase 18+** (`docs/roadmap-longo-prazo.md` §Fase 18+) —
+nenhuma das quatro frentes restantes (memória entre sessões, subagentes/orquestração,
+multimodal, checkpoints/*undo*) tem ADR nem detalhamento de tickets ainda; ordem entre elas
+não decidida. Seguindo a disciplina do comando `/loop /implementar-roadmap` §1 ("fase sem
+tickets detalhados"): a próxima unidade de trabalho é **preparar** a próxima frente escolhida
+(ADR `Proposed` + quebra em micro-tickets num novo `docs/roadmap-vX.Y.md`), não implementar
+código ainda. **Subagentes**, em particular, provavelmente merece escalar ao mantenedor
+quando chegar a vez — o próprio roadmap já assinala uma "decisão-chave" com implicação direta
+na ADR-0002 (egresso), mais alinhada a uma escalada que a uma decisão autônoma (ver
+`docs/decisoes-autonomas.md`, entrada de 2026-07-16). Outros itens em aberto, sem ticket:
+deploy do site MkDocs (GitHub Pages) — decisão explícita do usuário de não fazer ainda; CI
+multi-SO ainda não observado verde (falta um push que dispare a matriz); backlog independente
+do `ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de reanálise de maturidade,
 perfis base+overlay/skills executáveis/config de serviços pendentes de validação de
 implementação).
 
