@@ -22,6 +22,7 @@ pub mod permission;
 pub mod repo_map;
 pub mod shell;
 pub mod skill;
+pub mod subagent;
 pub mod web_fetch;
 pub mod web_search;
 
