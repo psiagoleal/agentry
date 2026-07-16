@@ -57,7 +57,7 @@ Mesmas dos roadmaps anteriores (`docs/roadmap-v0.1.md` §Convenções): **DoD** 
 - **Fora de escopo:** qualquer mudança de comportamento das tools já existentes.
 - **Depende de:** MT-90.
 
-### MT-92: Documentação
+### MT-92: Documentação ✅ concluído (66747d4) — fecha a Fase 19
 - **Objetivo:** `docs/usuario/uso.md` ganha uma nota sobre a tool `subagent` — o que ela faz,
   que a resposta só aparece de uma vez (sem *streaming*), que um subagente nunca cria outro.
   `docs/governanca/privacidade-e-egresso.md` ganha uma seção "Subagentes e egresso"

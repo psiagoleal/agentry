@@ -9,7 +9,7 @@
 
 - **Data:** 2026-07-16
 - **Branch:** `main`
-- **Commit:** `0d2c4cf`
+- **Commit:** `66747d4`
 - **Fase:** Roadmap v0.1..v0.4 **fechados/imutáveis**; **Fase 10 concluída** (LiteLLM).
   **Execução autônoma em andamento** (`/loop /implementar-roadmap`, modelo Sonnet 5) — ver
   `docs/decisoes-autonomas.md` para decisões tomadas sozinho (**5 decisões registradas** até a
@@ -362,6 +362,24 @@
   em `agentry-core`, 121 em `agentry` (+3), `cargo build --release` limpo. Smoke-test manual
   do binário `--release`: modo *one-shot* e REPL (com `/model` mutando o router principal em
   tempo real) continuam funcionando normalmente depois do *refactor*.
+
+  **MT-92 concluído — fecha a Fase 19 inteira (MT-90..92).** `docs/usuario/uso.md` ganha a
+  tool `subagent` na lista de "Ferramentas do agente". `docs/governanca/privacidade-e-egresso.md`
+  ganha a seção "Subagentes e egresso" para o público de *compliance*: por que o subagente
+  nunca resolve um candidato mais permissivo (garantia estrutural), por que a recursão é
+  impossível, e a limitação documentada de não refletir `/model`/`/task-class` trocados
+  depois que a CLI já inicializou (achado do MT-91). **ADR-0031 promovida de `Proposed` para
+  `Accepted`** — ganha também uma "Nota de implementação" corrigindo o texto original ("mesmo
+  `Arc<Router>`") para o que foi de fato implementado, deixando claro que a garantia de
+  egresso continua intacta. `docs/adr/README.md`/`docs/roadmap-longo-prazo.md` atualizados —
+  Fase 19 marcada concluída, mesmo padrão usado para fechar as Fases 15/16/17/18. `mkdocs
+  build --strict` limpo. Nenhuma mudança de código.
+
+  **Fase 19 fecha a última fase detalhada do roadmap de longo prazo (mais uma vez)** —
+  próximo passo é **preparar a Fase 20+** (`docs/roadmap-longo-prazo.md` §Fase 20+: memória
+  entre sessões, multimodal — as duas já têm a pergunta de design respondida pelo mantenedor
+  (2026-07-16, `docs/decisoes-autonomas.md`), mas ainda sem ADR/tickets; ordem entre elas não
+  decidida).
 
   **MT-70 concluído** — primeiro ticket de implementação da Fase 15: `ratatui` (feature
   `crossterm`, `default-features = false` para árvore de dependências mínima) adicionada a
@@ -1647,23 +1665,28 @@
   --release` limpo. Smoke-test manual: *one-shot* e REPL (com `/model` em tempo real)
   continuam funcionando normalmente.
 
-**Em andamento:** nada pendente — árvore de trabalho limpa, tudo commitado. **Fase 18
-concluída inteira (MT-86..89)**; **Fase 19 preparada** (ADR-0031 `Proposed`,
-`docs/roadmap-v0.13.md`, MT-90..92); **MT-90/91 concluídos**.
+- [x] **MT-92** — documentação (`docs/usuario/uso.md`: tool `subagent`;
+  `docs/governanca/privacidade-e-egresso.md`: seção "Subagentes e egresso"), **fecha a
+  Fase 19 inteira**. **ADR-0031 promovida de `Proposed` para `Accepted`** (+ nota de
+  implementação sobre `Router` não ser `Clone`); `docs/adr/README.md`/
+  `docs/roadmap-longo-prazo.md` atualizados — Fase 19 marcada concluída. `mkdocs build
+  --strict` limpo. Nenhuma mudança de código.
 
-**Próximo passo:** **MT-92** (`docs/roadmap-v0.13.md`, `docs/usuario/uso.md`,
-`docs/governanca/privacidade-e-egresso.md`, `docs/adr/0031-subagentes-com-egresso-restrito.md`,
-`docs/adr/README.md`, `docs/roadmap-longo-prazo.md`) — documentação: nota sobre a tool
-`subagent` em `docs/usuario/uso.md`; seção "Subagentes e egresso" em
-`docs/governanca/privacidade-e-egresso.md`; ADR-0031 promovida de `Proposed` para `Accepted`;
-`docs/adr/README.md`/`docs/roadmap-longo-prazo.md` atualizados — Fase 19 marcada concluída.
-Último ticket da Fase 19 — fecha a fase inteira. Outros itens em aberto, sem ticket:
-**memória entre sessões** e **multimodal** (Fase 20+) já têm a pergunta de design respondida
-pelo mantenedor (ver `docs/roadmap-longo-prazo.md` §Fase 20+), mas ainda sem ADR/tickets —
-preparar quando a Fase 19 concluir; deploy do site MkDocs (GitHub Pages) — decisão explícita
-do usuário de não fazer ainda; CI multi-SO ainda não observado verde (falta um push que
-dispare a matriz); backlog independente do `ai-coding-agent-profiles` (ADRs 0001-0005 —
-RTK/OKF pendentes de reanálise de maturidade,
+**Em andamento:** nada pendente — árvore de trabalho limpa, tudo commitado. **Fase 19
+concluída inteira (MT-90..92)** — última fase que já tinha tickets detalhados no roadmap de
+longo prazo.
+
+**Próximo passo:** **preparar a Fase 20** (`docs/roadmap-longo-prazo.md` §Fase 20+: memória
+entre sessões) — diferente da preparação da Fase 19, **não** é preciso escalar de novo: o
+mantenedor já respondeu à pergunta de design (2026-07-16, `docs/decisoes-autonomas.md`) — só
+memória **explícita** via comando tipo `/remember`, nunca persistência automática de
+conversa. **Multimodal continua fora de cogitação por enquanto** — a própria resposta do
+mantenedor a adia até existir um *guardrail* de imagem (OCR), um pré-requisito ainda não
+construído; não há "escolha de ordem" real entre as duas, memória entre sessões é a única
+frente pronta para virar ADR agora. Outros itens em aberto, sem ticket: deploy do site
+MkDocs (GitHub Pages) — decisão explícita do usuário de não fazer ainda; CI multi-SO ainda
+não observado verde (falta um push que dispare a matriz); backlog independente do
+`ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de reanálise de maturidade,
 perfis base+overlay/skills executáveis/config de serviços pendentes de validação de
 implementação).
 
