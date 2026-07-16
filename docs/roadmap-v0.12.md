@@ -54,7 +54,7 @@ persistência via `serde_json` + `std::fs` (já dependências existentes), mesmo
 - **Fora de escopo:** *keybinding* na TUI (MT-88).
 - **Depende de:** MT-86.
 
-### MT-88: *Keybinding* de *undo* na TUI
+### MT-88: *Keybinding* de *undo* na TUI ✅ concluído (958776b)
 - **Objetivo:** `crates/cli/src/tui/keybind.rs` ganha `Ctrl+Z` → `Action::Undo` (único
   modificador livre na tabela); laço de eventos (`crates/cli/src/tui/mod.rs`) chama a mesma
   `CheckpointStore::undo()` do MT-87 e mostra o resultado como uma mensagem do sistema no

@@ -9,7 +9,7 @@
 
 - **Data:** 2026-07-16
 - **Branch:** `main`
-- **Commit:** `84e86bd`
+- **Commit:** `958776b`
 - **Fase:** Roadmap v0.1..v0.4 **fechados/imutáveis**; **Fase 10 concluída** (LiteLLM).
   **Execução autônoma em andamento** (`/loop /implementar-roadmap`, modelo Sonnet 5) — ver
   `docs/decisoes-autonomas.md` para decisões tomadas sozinho (**5 decisões registradas** até a
@@ -264,6 +264,20 @@
   de ponta a ponta — mesmo achado de confiabilidade de *tool-calling* local já documentado
   desde o MT-61, não um defeito deste código; o mecanismo em si tem cobertura automatizada
   completa contra uma tool determinística equivalente.
+
+  **MT-88 concluído — fecha os tickets de implementação da Fase 18 (MT-86..88); falta só o
+  MT-89 (documentação).** `crates/cli/src/tui/keybind.rs` ganha `Action::Undo` → `Ctrl+Z`
+  (única tecla ainda livre na tabela). `loop_eventos`/`run` (`tui/mod.rs`) ganham o parâmetro
+  `workspace_root` para construir um `CheckpointStore` próprio da TUI; `Ctrl+Z` no modo
+  normal chama `checkpoint_store.undo()` e mostra o resultado no histórico via
+  `mensagem_de_undo()` (função pura, reaproveita `formatar_undo` do MT-87) + novo
+  `ChatState::registrar_mensagem_sistema` — diferente de `marcar_erro`, sempre cria uma
+  mensagem independente (`Ctrl+Z` pode ser pressionado a qualquer momento, não só ao final de
+  um turno). `#[allow(clippy::too_many_arguments)]` em `loop_eventos` (8 parâmetros, cada um
+  já uma peça distinta). 5 testes novos, 118 testes em `agentry` (+5), 382 em `agentry-core`,
+  `cargo build --release` limpo. Smoke-test manual via `tmux` (checkpoint semeado
+  manualmente): rodapé mostra a legenda de `Ctrl+Z`, pressionar restaura o arquivo de fato e a
+  mensagem de resultado aparece no histórico de chat.
 
   **MT-70 concluído** — primeiro ticket de implementação da Fase 15: `ratatui` (feature
   `crossterm`, `default-features = false` para árvore de dependências mínima) adicionada a
@@ -1509,18 +1523,28 @@
   --release` limpo. Smoke-test manual: `--undo` restaura/erra corretamente com um checkpoint
   semeado no formato real; confirmação via LLM real não demonstrável (mesmo achado do MT-61).
 
+- [x] **MT-88** — `Action::Undo` → `Ctrl+Z` na TUI (`keybind.rs`); `Ctrl+Z` chama
+  `CheckpointStore::undo()` (`workspace_root` agora *threaded* por `loop_eventos`/`run`) e
+  mostra o resultado no histórico via `mensagem_de_undo()` + novo
+  `ChatState::registrar_mensagem_sistema`. 5 testes novos. 118 testes em `agentry` (+5), 382
+  em `agentry-core`, `cargo build --release` limpo. Smoke-test manual via `tmux` confirma
+  `Ctrl+Z` restaurando um arquivo de verdade e a mensagem aparecendo no chat.
+
 **Em andamento:** nada pendente — árvore de trabalho limpa, tudo commitado. **Fase 17
 concluída inteira (MT-82..85)**; **Fase 18 preparada** (ADR-0030 `Proposed`,
-`docs/roadmap-v0.12.md`, MT-86..89); **MT-86/87 concluídos**.
+`docs/roadmap-v0.12.md`, MT-86..89); **MT-86/87/88 concluídos** — falta só o MT-89
+(documentação) para fechar a Fase 18 inteira.
 
-**Próximo passo:** **MT-88** (`docs/roadmap-v0.12.md`, `crates/cli/src/tui/keybind.rs`,
-`crates/cli/src/tui/mod.rs`) — *keybinding* `Ctrl+Z` → `Action::Undo` na TUI, chamando a
-mesma `CheckpointStore::undo()` do MT-87 e mostrando o resultado como mensagem do sistema no
-histórico de chat. Terceiro ticket de implementação da Fase 18. Outros itens em aberto, sem
-ticket: deploy do site MkDocs (GitHub Pages) — decisão explícita do usuário de não fazer
-ainda; CI multi-SO ainda não observado verde (falta um push que dispare a matriz); backlog
-independente do `ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de reanálise
-de maturidade,
+**Próximo passo:** **MT-89** (`docs/roadmap-v0.12.md`, `docs/usuario/uso.md`,
+`docs/adr/0030-checkpoints-e-undo-de-mudancas-de-arquivo.md`, `docs/adr/README.md`,
+`docs/roadmap-longo-prazo.md`) — documentação: `docs/usuario/uso.md` ganha uma nota sobre
+`--undo`/`/undo`/`Ctrl+Z`, deixando explícito que só `fs_write`/`fs_edit` geram checkpoint
+(nunca `shell_exec`/`shell_background`); ADR-0030 promovida de `Proposed` para `Accepted`;
+`docs/adr/README.md`/`docs/roadmap-longo-prazo.md` atualizados — Fase 18 marcada concluída.
+Último ticket da Fase 18 — fecha a fase inteira. Outros itens em aberto, sem ticket: deploy
+do site MkDocs (GitHub Pages) — decisão explícita do usuário de não fazer ainda; CI multi-SO
+ainda não observado verde (falta um push que dispare a matriz); backlog independente do
+`ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de reanálise de maturidade,
 perfis base+overlay/skills executáveis/config de serviços pendentes de validação de
 implementação).
 
