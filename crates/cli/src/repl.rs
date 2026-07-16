@@ -7,6 +7,9 @@
 //! outra linha como mensagem de usuário. `/init` (MT-41, ADR-0019) materializa
 //! `.agentry/agentry.settings.json` via [`crate::run_init_local`] — mesma
 //! função usada pela flag `--init` do modo one-shot, sem duplicar a lógica.
+//! `/usage` (MT-83, ADR-0029) imprime o uso de tokens acumulado da sessão
+//! até aquele ponto, via [`crate::formatar_uso`] — mesma formatação do
+//! resumo do modo *one-shot*, sem *side-effect* na conversa.
 //!
 //! Genérico sobre `Read`/`Write` (não amarrado a `stdin`/`stdout` reais) para
 //! ser testável com buffers em memória.
@@ -219,6 +222,15 @@ pub async fn run_repl<R: BufRead, W: Write>(
                 Ok(()) => writeln!(output, "sessão compactada").map_err(|e| e.to_string())?,
                 Err(erro) => writeln!(output, "erro: {erro}").map_err(|e| e.to_string())?,
             }
+            continue;
+        }
+        if linha == "/usage" {
+            writeln!(
+                output,
+                "uso desta sessão: {}",
+                crate::formatar_uso(session.usage_total())
+            )
+            .map_err(|e| e.to_string())?;
             continue;
         }
         if linha == "/task-class" || linha.starts_with("/task-class ") {
@@ -682,6 +694,67 @@ mod tests {
 
         assert!(session.messages().is_empty());
         assert_eq!(mock.chat_requests().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn comando_usage_imprime_o_total_acumulado_sem_alterar_historico_nem_preset() {
+        let mock = Arc::new(MockProvider::new(PROVIDER));
+        mock.enqueue_stream(vec![
+            StreamEvent::MessageStart,
+            StreamEvent::TextDelta {
+                text: "resposta".to_string(),
+            },
+            StreamEvent::MessageEnd {
+                usage: Usage {
+                    input_tokens: 10,
+                    output_tokens: 5,
+                },
+            },
+        ]);
+
+        let mut router = router_com_ollama(mock.clone(), "modelo-x");
+        let rota = router.resolve(TASK_CLASS).expect("deve resolver");
+        let mut session = Session::new(rota, Arc::new(NoopExecutor), TokenBudget::new(100_000));
+
+        let entrada = "mensagem original\n/usage\n/temperature 0.5\n/usage\n/exit\n";
+        let mut saida = Vec::new();
+
+        run_repl(
+            Cursor::new(entrada.as_bytes()),
+            &mut saida,
+            &mut session,
+            &mut router,
+            RuntimeOverride::default(),
+            TASK_CLASS.to_string(),
+            &ReplConfig {
+                workspace_root: &std::env::temp_dir(),
+                preset_base: &CallPreset::default(),
+                candidato_extra: None,
+            },
+        )
+        .await
+        .expect("repl deve rodar sem erro");
+
+        assert_eq!(
+            session.usage_total(),
+            Usage {
+                input_tokens: 10,
+                output_tokens: 5
+            }
+        );
+        let historico_antes_do_usage = session.messages().len();
+        assert_eq!(
+            historico_antes_do_usage, 2,
+            "user + assistant, /usage não deve ter side-effect no histórico"
+        );
+
+        let saida_texto = String::from_utf8(saida).unwrap();
+        let ocorrencias = saida_texto.matches("uso desta sessão:").count();
+        assert_eq!(
+            ocorrencias, 2,
+            "as duas chamadas de /usage devem imprimir o resumo"
+        );
+        assert!(saida_texto.contains("10 tokens de entrada, 5 de saída (total: 15)"));
     }
 
     /// Diretório temporário de teste, removido automaticamente ao sair de

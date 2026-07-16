@@ -94,4 +94,60 @@ mod tests {
         );
         assert_eq!(String::from_utf8(saida).unwrap(), "olá!\n");
     }
+
+    #[tokio::test]
+    async fn resumo_de_uso_nunca_aparece_no_stdout_do_streaming() {
+        // MT-83/ADR-0029: o resumo de uso do modo one-shot é impresso pelo
+        // chamador (`main.rs`, via `eprintln!`/`formatar_uso`) **depois** de
+        // `stream_to_writer` retornar, nunca dentro dele — este teste prova
+        // que o buffer que representa `stdout` aqui nunca carrega esse texto,
+        // só a resposta em si (separação stdout/stderr).
+        let mock = Arc::new(MockProvider::new("mock"));
+        mock.enqueue_stream(vec![
+            StreamEvent::MessageStart,
+            StreamEvent::TextDelta {
+                text: "resposta".into(),
+            },
+            StreamEvent::MessageEnd {
+                usage: Usage {
+                    input_tokens: 10,
+                    output_tokens: 5,
+                },
+            },
+        ]);
+        let mut session = Session::new(
+            ResolvedRoute::new(mock, "modelo-x", CallPreset::default()),
+            Arc::new(NoopExecutor),
+            TokenBudget::new(10_000),
+        );
+        session.push_user_message("oi");
+
+        let mut stdout_simulado = Vec::new();
+        let router = Router::new(EgressClass::LocalOnly);
+        stream_to_writer(&mut session, &mut stdout_simulado, &router)
+            .await
+            .expect("deve completar");
+
+        let stdout_texto = String::from_utf8(stdout_simulado).unwrap();
+        assert_eq!(stdout_texto, "resposta\n");
+        assert!(
+            !stdout_texto.contains("tokens"),
+            "resumo de uso não deve vazar para o stdout do streaming"
+        );
+
+        // O dado de uso já está disponível na sessão para o chamador
+        // formatar e emitir em stderr (main.rs) — verificado aqui, não
+        // dentro de `stream_to_writer`.
+        assert_eq!(
+            session.usage_total(),
+            Usage {
+                input_tokens: 10,
+                output_tokens: 5
+            }
+        );
+        assert_eq!(
+            crate::formatar_uso(session.usage_total()),
+            "10 tokens de entrada, 5 de saída (total: 15)"
+        );
+    }
 }

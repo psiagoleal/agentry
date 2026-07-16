@@ -321,6 +321,20 @@ fn escrever_resultado_init(outcome: &InitOutcome, output: &mut impl io::Write) -
     writeln!(output, "{MANUAL_SETUP_HINT}")
 }
 
+/// Formata um [`agentry_core::model::Usage`] acumulado como texto legível
+/// (MT-83, ADR-0029) — única fonte da string, usada pelo resumo do modo
+/// *one-shot* (`[uso] ...` em `stderr`) e pelo comando `/usage` do REPL
+/// (`crates/cli/src/repl.rs`), para nunca haver duas formatações
+/// divergentes do mesmo dado.
+pub(crate) fn formatar_uso(usage: agentry_core::model::Usage) -> String {
+    format!(
+        "{} tokens de entrada, {} de saída (total: {})",
+        usage.input_tokens,
+        usage.output_tokens,
+        usage.total()
+    )
+}
+
 /// Emite cada [`AuditEntry`] de egresso em stderr — suficiente para a v0.1;
 /// persistência estruturada (arquivo/serviço) fica para quando houver
 /// demanda concreta. Usa o `Display` de `AuditEntry` (uma linha compacta),
@@ -925,6 +939,7 @@ async fn main() {
                 eprintln!("erro: {erro}");
                 std::process::exit(1)
             });
+        eprintln!("[uso] {}", formatar_uso(session.usage_total()));
     } else {
         let stdin = io::stdin();
         repl::run_repl(
