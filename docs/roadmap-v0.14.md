@@ -41,7 +41,7 @@ persistência via `serde_json` + `std::fs` (já dependências existentes), mesmo
   ADR-0032 inteira, YAGNI).
 - **Depende de:** ADR-0032.
 
-### MT-94: Comando `/remember`, flag `--remember`, `Session::with_memoria`
+### MT-94: Comando `/remember`, flag `--remember`, `Session::with_memoria` ✅ concluído (b6c4e22)
 - **Objetivo:** `Session` (`crates/core/src/session/mod.rs`) ganha `with_memoria(texto)`
   (mesmo padrão *builder* de `with_project_instructions`/`with_skills_list`);
   `ensure_system_prompt` concatena instruções de projeto, memória, preset da *task-class*,

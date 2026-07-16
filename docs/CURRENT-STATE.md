@@ -9,7 +9,7 @@
 
 - **Data:** 2026-07-16
 - **Branch:** `main`
-- **Commit:** `0c47121`
+- **Commit:** `b6c4e22`
 - **Fase:** Roadmap v0.1..v0.4 **fechados/imutáveis**; **Fase 10 concluída** (LiteLLM).
   **Execução autônoma em andamento** (`/loop /implementar-roadmap`, modelo Sonnet 5) — ver
   `docs/decisoes-autonomas.md` para decisões tomadas sozinho (**5 decisões registradas** até a
@@ -405,6 +405,19 @@
   alcançado por `/remember`/`--remember` (MT-94). 6 testes novos, 392 testes em
   `agentry-core` (+6), 121 em `agentry`, `cargo build --release` limpo. Nenhuma mudança de
   comportamento observável da CLI ainda.
+
+  **MT-94 concluído** — `Session::with_memoria` (novo, mesmo padrão *builder* de
+  `with_project_instructions`/`with_skills_list`); `ensure_system_prompt` concatena
+  instruções de projeto, memória, preset da *task-class*, lista de skills, nessa ordem. Nova
+  flag `--remember <fato>` (*one-shot*, mutuamente exclusiva com `--init`/tarefa/`--tui`) e
+  comando `/remember <fato>` (REPL), ambos via `MemoryStore::remember`; a sessão real carrega
+  `.agentry/memory.json` no arranque (sem *opt-out* próprio, mesma disciplina de
+  `agentsFile`, ADR-0023) e injeta no *system prompt*. 8 testes novos. 394 testes em
+  `agentry-core` (+2), 127 em `agentry` (+6), `cargo build --release` limpo. Smoke-test
+  manual do binário `--release`: `--remember` grava e confirma; uma tarefa *one-shot*
+  **separada** (processo novo) responde corretamente uma pergunta sobre o fato gravado,
+  confirmando que a memória atravessa invocações de verdade; `/remember` no REPL acumula sem
+  sobrescrever fatos anteriores.
 
   **MT-70 concluído** — primeiro ticket de implementação da Fase 15: `ratatui` (feature
   `crossterm`, `default-features = false` para árvore de dependências mínima) adicionada a
@@ -1713,20 +1726,29 @@
   `render_skills_list`). 6 testes novos. 392 testes em `agentry-core` (+6), 121 em `agentry`,
   `cargo build --release` limpo. Nenhuma mudança de comportamento observável da CLI ainda.
 
+- [x] **MT-94** — `Session::with_memoria`; flag `--remember` (*one-shot*) e comando
+  `/remember` (REPL), ambos via `MemoryStore::remember`; sessão real carrega
+  `.agentry/memory.json` no arranque e injeta no *system prompt*. 8 testes novos. 394 testes
+  em `agentry-core` (+2), 127 em `agentry` (+6), `cargo build --release` limpo. Smoke-test
+  manual: `--remember` grava; uma tarefa *one-shot* **separada** (processo novo) responde
+  corretamente sobre o fato gravado; `/remember` no REPL acumula sem sobrescrever.
+
 **Em andamento:** nada pendente — árvore de trabalho limpa, tudo commitado. **Fase 19
 concluída inteira (MT-90..92)**; **Fase 20 preparada** (ADR-0032 `Proposed`,
-`docs/roadmap-v0.14.md`, MT-93..95); **MT-93 concluído**.
+`docs/roadmap-v0.14.md`, MT-93..95); **MT-93/94 concluídos**.
 
-**Próximo passo:** **MT-94** (`docs/roadmap-v0.14.md`, `crates/core/src/session/mod.rs`,
-`crates/cli/src/main.rs`, `crates/cli/src/repl.rs`) — `Session::with_memoria` (novo, mesmo
-padrão *builder* de `with_project_instructions`/`with_skills_list`); nova flag `--remember`
-(*one-shot*) e comando `/remember` (REPL), ambos gravando via `MemoryStore::remember`; a
-sessão real carrega `.agentry/memory.json` no arranque e injeta no *system prompt*. Segundo
-ticket de implementação da Fase 20. Outros itens em aberto, sem ticket: **multimodal**
-(Fase 21+) continua bloqueada por um *guardrail* de imagem ainda não construído; deploy do
-site MkDocs (GitHub Pages) — decisão explícita do usuário de não fazer ainda; CI multi-SO
-ainda não observado verde (falta um push que dispare a matriz); backlog independente do
-`ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de reanálise de maturidade,
+**Próximo passo:** **MT-95** (`docs/roadmap-v0.14.md`, `docs/usuario/uso.md`,
+`docs/governanca/privacidade-e-egresso.md`, `docs/adr/0032-memoria-de-projeto-explicita.md`,
+`docs/adr/README.md`, `docs/roadmap-longo-prazo.md`) — documentação: seção sobre
+`/remember`/`--remember` em `docs/usuario/uso.md`; nota sobre memória de projeto ser sempre
+um ato explícito do usuário em `docs/governanca/privacidade-e-egresso.md`; ADR-0032
+promovida de `Proposed` para `Accepted`; `docs/adr/README.md`/`docs/roadmap-longo-prazo.md`
+atualizados — Fase 20 marcada concluída. Último ticket da Fase 20 — fecha a fase inteira.
+Outros itens em aberto, sem ticket: **multimodal** (Fase 21+) continua bloqueada por um
+*guardrail* de imagem ainda não construído; deploy do site MkDocs (GitHub Pages) — decisão
+explícita do usuário de não fazer ainda; CI multi-SO ainda não observado verde (falta um
+push que dispare a matriz); backlog independente do `ai-coding-agent-profiles` (ADRs
+0001-0005 — RTK/OKF pendentes de reanálise de maturidade,
 perfis base+overlay/skills executáveis/config de serviços pendentes de validação de
 implementação).
 
