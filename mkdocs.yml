@@ -112,6 +112,7 @@ nav:
           - "0026 — Tool Glob e shell em background": adr/0026-tool-glob-e-shell-em-background.md
           - "0027 — TUI via ratatui": adr/0027-tui-via-ratatui.md
           - "0028 — Cliente MCP via rmcp": adr/0028-mcp-client-via-rmcp.md
+          - "0029 — Uso de tokens visível na sessão": adr/0029-uso-de-tokens-visivel-na-sessao.md
       - Roadmap:
           - Mapa de longo prazo: roadmap-longo-prazo.md
           - v0.1: roadmap-v0.1.md
@@ -124,6 +125,7 @@ nav:
           - v0.8: roadmap-v0.8.md
           - v0.9: roadmap-v0.9.md
           - v0.10: roadmap-v0.10.md
+          - v0.11: roadmap-v0.11.md
       - Interoperabilidade com ai-coding-agent-profiles:
           - Visão geral: interop/README.md
           - Exchange log: interop/exchange-log.md

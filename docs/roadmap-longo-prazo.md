@@ -15,8 +15,12 @@ versionado. **Fases 12, 13, 14, 15 e 16** estão concluídas (`docs/roadmap-v0.6
 `docs/roadmap-v0.7.md`, `docs/roadmap-v0.8.md`, `docs/roadmap-v0.9.md` — `ratatui` autorizado
 pelo mantenedor em 2026-07-15, após a parada dura do comando de loop por dependência nova;
 ADR-0027 `Accepted` — e `docs/roadmap-v0.10.md`, `rmcp` pré-autorizado pelo mantenedor junto
-de `ratatui`; ADR-0028 `Accepted`, escopo v1 restrito a servidores MCP locais). Próxima fase
-sem tickets detalhados ainda: Fase 17+ (ver seção própria abaixo).
+de `ratatui`; ADR-0028 `Accepted`, escopo v1 restrito a servidores MCP locais). **Fase 17**
+já está detalhada — ver `docs/roadmap-v0.11.md` (ADR-0029, `Proposed`: uso de tokens visível
+durante a sessão — primeira das cinco frentes de "segunda onda", ordem escolhida e registrada
+em `docs/decisoes-autonomas.md`, 2026-07-16). Pronta para começar a implementação a partir do
+MT-82. As outras quatro frentes de "segunda onda" seguem sem tickets detalhados (ver seção
+própria abaixo).
 
 > Convenções de DoD, granularidade e "dependência nova exige ADR (ADR-0004)": iguais às dos
 > roadmaps versionados (`docs/roadmap-v0.1.md` §Convenções).
@@ -34,8 +38,8 @@ micro-tickets) antes de implementadas.
 ## Sequência das fases
 
 ```
-Fase 11 → Fase 12 → Fase 13 → Fase 14 → Fase 15 → Fase 16 → Fase 17+
-(ignore)  (config)   (memória)  (tools)   (TUI)     (MCP)     (2ª onda)
+Fase 11 → Fase 12 → Fase 13 → Fase 14 → Fase 15 → Fase 16 → Fase 17  → Fase 18+
+(ignore)  (config)   (memória)  (tools)   (TUI)     (MCP)     (uso)     (2ª onda, restante)
 ```
 
 Prioridade escolhida: **fundamentos antes das vitrines** — configuração e memória de projeto
@@ -153,7 +157,26 @@ tools MCP no `ToolRegistry` (`crates/core/src/tools/mcp.rs`) com defesa em profu
 egresso (`McpClient::start_from_settings`), documentação de usuário e governança fechando a
 fase.
 
-## Fase 17+ — Segunda onda (ADRs 0029+ quando alcançadas)
+## Fase 17 — Uso de tokens visível durante a sessão (ADR-0029)
+
+**Objetivo:** expor ao usuário quantos tokens uma sessão consumiu — `Usage`
+(`crates/core/src/model/mod.rs`) já é calculado por turno, só não é acumulado nem exibido.
+Primeira das cinco frentes de "segunda onda" a ser preparada (ordem escolhida e registrada em
+`docs/decisoes-autonomas.md`, 2026-07-16, por ser a única sem pergunta de segurança/
+confidencialidade/egresso em aberto).
+
+**ADR:** ADR-0029 — **escrita**, `Proposed`. Decisão central: `Session` acumula `Usage` ao
+longo da sessão (nenhum tipo novo, só soma o que já existe por turno); exposto em três
+pontos — resumo em `stderr` no modo *one-shot*, comando `/usage` no REPL, rodapé da TUI.
+Contador **não persiste entre sessões** (fora de escopo — pertence à frente "memória entre
+sessões" abaixo, se/quando essa decidir como persistência funciona). Custo em dinheiro fica
+deliberadamente fora de escopo (exigiria tabela de preço configurável, não é dado intrínseco
+ao provider como tokens são).
+
+**Detalhamento completo:** `docs/roadmap-v0.11.md` (MT-82..85). Pronta para começar a
+implementação a partir do MT-82.
+
+## Fase 18+ — Segunda onda, restante (ADRs 0030+ quando alcançadas)
 
 Enumeradas; *stubs de ADR adiados* — cada uma ganha ADR e detalhamento quando chegar a vez:
 
@@ -161,17 +184,20 @@ Enumeradas; *stubs de ADR adiados* — cada uma ganha ADR e detalhamento quando 
   *dentro* de uma sessão (ADR-0016); nada persiste conhecimento entre sessões/dias.
 - **Subagentes / orquestração** dentro do `agentry` (equivalente ao `Task` do Claude Code /
   árvore de sessão do OpenCode). **Decisão-chave da futura ADR:** um subagente herda a classe
-  de egresso da sessão-mãe ou pode ter a própria? (implicação direta em ADR-0002).
+  de egresso da sessão-mãe ou pode ter a própria? (implicação direta em ADR-0002 — decisão que
+  provavelmente exige escalar ao mantenedor em vez de decidir autonomamente, quando chegar a
+  vez).
 - **Multimodal** — `ContentBlock::Image` (`crates/core/src/model/mod.rs` só tem
   Text/ToolCall/ToolResult hoje); aceitar screenshot/imagem como entrada.
 - **Checkpoints / undo** de mudanças de arquivo feitas pelo agente (equivalente ao "rewind").
-- **Custo / uso visível** durante a sessão — `Usage` já é rastreado internamente
-  (`crates/core/src/model/mod.rs`), falta expor consumo/custo ao usuário.
+
+Ordem entre essas três ainda não decidida — fica para quando a Fase 17 concluir.
 
 ---
 
 ## Faixa de ADRs reservada
 
 ADR-0021 e ADR-0022 **escritas** (Fase 12). ADR-0023..0028 **reservadas** (números fixados
-aqui; arquivo de cada uma escrito ao iniciar sua fase, com contexto fresco). ADR-0029+
-para a segunda onda (Fase 17+), sem número fixado ainda.
+aqui; arquivo de cada uma escrito ao iniciar sua fase, com contexto fresco). ADR-0029
+**escrita** (Fase 17, `Proposed`). ADR-0030+ para o restante da segunda onda (Fase 18+), sem
+número fixado ainda.

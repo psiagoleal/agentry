@@ -27,6 +27,47 @@ escolha feita sozinho.
 
 ## Entradas (mais recente no topo)
 
+### 2026-07-16 — Preparação da Fase 17 — qual frente da "segunda onda" preparar primeiro
+- **Contexto:** a Fase 16 (MCP) fechou inteira (MT-77..81). `docs/roadmap-longo-prazo.md`
+  §Fase 17+ (nome do bloco antes desta decisão — hoje dividido em Fase 17, esta escolha, e
+  Fase 18+, as quatro restantes) enumerava cinco frentes da "segunda onda" **sem ordem
+  declarada entre elas**:
+  memória entre sessões, subagentes/orquestração, multimodal, checkpoints/*undo*, custo/uso
+  visível. O comando `/loop /implementar-roadmap` §1 exige que, numa fase sem tickets
+  detalhados, a unidade de trabalho da iteração seja **preparar** a próxima fase (ADR +
+  quebra em micro-tickets) — o que exige escolher qual das cinco vem primeiro.
+- **Opções consideradas:** (a) **custo/uso visível** — `Usage` (tokens de entrada/saída) já é
+  rastreado por chamada em `crates/core/src/model/mod.rs`/`session/mod.rs`, só não é
+  acumulado por sessão nem exposto ao usuário; escopo pequeno, nenhuma dependência nova,
+  nenhuma superfície de rede/egresso nova, nenhuma pergunta de segurança em aberto — é
+  essencialmente uma camada de observabilidade sobre dado que já existe; (b) **checkpoints/
+  undo** — escopo moderado (precisa decidir onde/como versionar snapshots de arquivo), sem
+  implicação de egresso, mas maior superfície de design (formato de snapshot, política de
+  retenção em disco); (c) **multimodal** (`ContentBlock::Image`) — exige decidir como uma
+  imagem entra no *pipeline* de mensagens e se algum provider já suportado (Ollama/LiteLLM)
+  aceita entrada multimodal de verdade, além de uma pergunta de confidencialidade nova
+  (imagem pode conter informação sensível que os *guardrails* de texto atuais não enxergam);
+  (d) **memória entre sessões** (LLM-Wiki/OKF) — maior escopo entre as cinco, e persistir
+  conteúdo de conversa **entre** sessões levanta uma pergunta de retenção/confidencialidade
+  que hoje não existe (a compactação da ADR-0016 já é *dentro* de uma sessão, nunca grava em
+  disco entre sessões) — merece uma ADR com mais contexto de design antes de começar; (e)
+  **subagentes/orquestração** — o próprio roadmap já sinaliza uma "decisão-chave" com
+  implicação direta na ADR-0002 (um subagente herda a classe de egresso da sessão-mãe ou tem
+  a própria?) — questão de modelo de privacidade, não só de implementação, mais alinhada ao
+  tipo de decisão que o comando pede para **escalar**, não decidir sozinho.
+- **Escolha (recomendada):** (a) **custo/uso visível**.
+- **Justificativa:** é a única das cinco sem nenhuma pergunta de segurança/confidencialidade/
+  egresso em aberto — só expõe, de forma legível, um dado que o `core` já calcula e descarta
+  hoje. Menor escopo (design mínimo, sem over-engineering: nenhuma dependência nova, nenhum
+  novo caminho de rede, nenhuma mudança de schema de configuração provavelmente necessária) e
+  maior valor imediato de transparência para o usuário (saber quantos tokens uma sessão
+  consumiu). As outras quatro ficam no roadmap para as próximas preparações de fase, na ordem
+  que a próxima iteração escolher; **subagentes**, em particular, provavelmente merece
+  escalar ao mantenedor quando chegar a vez, dado que o próprio roadmap já assinala uma
+  decisão de modelo de privacidade em aberto.
+- **Commit:** preparação da Fase 17 nesta mesma iteração (ver `docs/adr/0029-*.md` e
+  `docs/roadmap-v0.11.md`).
+
 ### 2026-07-15 — MT-78 (Fase 16, MCP) — `fake_mcp_server` implementa o protocolo MCP na mão, sem a *feature* `server` do `rmcp`
 - **Contexto:** o MT-78 (`docs/roadmap-v0.10.md`) previa, como uma das opções, reaproveitar a
   *feature* `server` do `rmcp` (só em `[dev-dependencies]`) para montar o `fake_mcp_server` —
