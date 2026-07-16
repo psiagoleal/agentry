@@ -48,6 +48,7 @@ use agentry_core::router::{CallPreset, RouteEntry, RouteTarget, Router, RuntimeO
 use agentry_core::session::{Session, TokenBudget, ToolExecutor};
 use agentry_core::state_dir;
 use agentry_core::tools::ask_user::{AskUserTool, Prompter};
+use agentry_core::tools::checkpoint::CheckpointingTool;
 use agentry_core::tools::code_search::{register_code_search_tool, CodeSearchSession};
 use agentry_core::tools::fs::{FsEditTool, FsReadTool, FsSearchTool, FsWriteTool};
 use agentry_core::tools::glob::GlobTool;
@@ -258,6 +259,13 @@ struct Args {
     /// inalterado.
     #[arg(long, conflicts_with_all = ["init", "tarefa"])]
     tui: bool,
+
+    /// Desfaz o checkpoint mais recente de `fs_write`/`fs_edit` (MT-87,
+    /// ADR-0030) e sai, sem rodar nenhuma tarefa — os checkpoints persistem
+    /// em `.agentry/checkpoints.json`, então desfaz o mais recente de
+    /// **qualquer** invocação anterior, não só desta sessão.
+    #[arg(long, conflicts_with_all = ["init", "tarefa", "tui"])]
+    undo: bool,
 }
 
 /// Resultado de [`run_init_local`] — usado tanto por `--init` quanto por
@@ -333,6 +341,23 @@ pub(crate) fn formatar_uso(usage: agentry_core::model::Usage) -> String {
         usage.output_tokens,
         usage.total()
     )
+}
+
+/// Formata um [`agentry_core::checkpoint::UndoOutcome`] como texto legível
+/// (MT-87, ADR-0030) — única fonte da string, usada pela flag `--undo`
+/// (*one-shot*) e pelo comando `/undo` do REPL (`crates/cli/src/repl.rs`).
+pub(crate) fn formatar_undo(outcome: &agentry_core::checkpoint::UndoOutcome) -> String {
+    match outcome.acao {
+        agentry_core::checkpoint::UndoAcao::Restaurado => {
+            format!("'{}' restaurado ao conteúdo anterior", outcome.path)
+        }
+        agentry_core::checkpoint::UndoAcao::Removido => {
+            format!(
+                "'{}' removido (não existia antes da mudança desfeita)",
+                outcome.path
+            )
+        }
+    }
 }
 
 /// Emite cada [`AuditEntry`] de egresso em stderr — suficiente para a v0.1;
@@ -714,6 +739,22 @@ async fn main() {
         return;
     }
 
+    if args.undo {
+        let workspace_root = std::env::current_dir().unwrap_or_else(|erro| {
+            eprintln!("erro ao ler diretório de trabalho: {erro}");
+            std::process::exit(1)
+        });
+        let store = agentry_core::checkpoint::CheckpointStore::new(&workspace_root);
+        match store.undo() {
+            Ok(outcome) => println!("{}", formatar_undo(&outcome)),
+            Err(erro) => {
+                eprintln!("erro: {erro}");
+                std::process::exit(1)
+            }
+        }
+        return;
+    }
+
     let overrides = overrides_from_args(&args).unwrap_or_else(|erro| {
         eprintln!("erro: {erro}");
         std::process::exit(2)
@@ -853,13 +894,24 @@ async fn main() {
         workspace_root.clone(),
         cfg.respect_gitignore,
     )));
-    registry.register(Arc::new(FsWriteTool::new(
+    let checkpoint_store = Arc::new(agentry_core::checkpoint::CheckpointStore::new(
         workspace_root.clone(),
-        cfg.respect_gitignore,
+    ));
+    registry.register(Arc::new(CheckpointingTool::new(
+        Arc::new(FsWriteTool::new(
+            workspace_root.clone(),
+            cfg.respect_gitignore,
+        )),
+        workspace_root.clone(),
+        Arc::clone(&checkpoint_store),
     )));
-    registry.register(Arc::new(FsEditTool::new(
+    registry.register(Arc::new(CheckpointingTool::new(
+        Arc::new(FsEditTool::new(
+            workspace_root.clone(),
+            cfg.respect_gitignore,
+        )),
         workspace_root.clone(),
-        cfg.respect_gitignore,
+        Arc::clone(&checkpoint_store),
     )));
     registry.register(Arc::new(FsSearchTool::new(
         workspace_root.clone(),
@@ -1344,6 +1396,48 @@ mod tests {
         let args = Args::parse_from(["agentry", "tarefa"]);
         let overrides = overrides_from_args(&args).expect("flags válidas não devem falhar");
         assert_eq!(overrides.provider, None);
+    }
+
+    // --- MT-87: flag --undo, formatar_undo ---
+
+    #[test]
+    fn flag_undo_e_reconhecida_sozinha() {
+        let args = Args::parse_from(["agentry", "--undo"]);
+        assert!(args.undo);
+        assert!(args.tarefa.is_none());
+    }
+
+    #[test]
+    fn flag_undo_conflita_com_tarefa() {
+        let resultado = Args::try_parse_from(["agentry", "--undo", "tarefa"]);
+        assert!(
+            resultado.is_err(),
+            "--undo e uma tarefa one-shot juntos devem ser erro de parsing"
+        );
+    }
+
+    #[test]
+    fn formatar_undo_de_restaurado_menciona_o_caminho_e_a_acao() {
+        let outcome = agentry_core::checkpoint::UndoOutcome {
+            path: "a.txt".to_string(),
+            acao: agentry_core::checkpoint::UndoAcao::Restaurado,
+        };
+        assert_eq!(
+            formatar_undo(&outcome),
+            "'a.txt' restaurado ao conteúdo anterior"
+        );
+    }
+
+    #[test]
+    fn formatar_undo_de_removido_menciona_o_caminho_e_a_acao() {
+        let outcome = agentry_core::checkpoint::UndoOutcome {
+            path: "novo.txt".to_string(),
+            acao: agentry_core::checkpoint::UndoAcao::Removido,
+        };
+        assert_eq!(
+            formatar_undo(&outcome),
+            "'novo.txt' removido (não existia antes da mudança desfeita)"
+        );
     }
 
     // --- MT-49: consumo real do provider LiteLLM na CLI ---

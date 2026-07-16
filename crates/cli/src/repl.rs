@@ -9,7 +9,10 @@
 //! função usada pela flag `--init` do modo one-shot, sem duplicar a lógica.
 //! `/usage` (MT-83, ADR-0029) imprime o uso de tokens acumulado da sessão
 //! até aquele ponto, via [`crate::formatar_uso`] — mesma formatação do
-//! resumo do modo *one-shot*, sem *side-effect* na conversa.
+//! resumo do modo *one-shot*, sem *side-effect* na conversa. `/undo`
+//! (MT-87, ADR-0030) desfaz o checkpoint mais recente de `fs_write`/
+//! `fs_edit` via [`agentry_core::checkpoint::CheckpointStore::undo`] —
+//! mesma lógica da flag `--undo` do modo *one-shot*.
 //!
 //! Genérico sobre `Read`/`Write` (não amarrado a `stdin`/`stdout` reais) para
 //! ser testável com buffers em memória.
@@ -231,6 +234,15 @@ pub async fn run_repl<R: BufRead, W: Write>(
                 crate::formatar_uso(session.usage_total())
             )
             .map_err(|e| e.to_string())?;
+            continue;
+        }
+        if linha == "/undo" {
+            let store = agentry_core::checkpoint::CheckpointStore::new(workspace_root);
+            match store.undo() {
+                Ok(outcome) => writeln!(output, "{}", crate::formatar_undo(&outcome))
+                    .map_err(|e| e.to_string())?,
+                Err(erro) => writeln!(output, "erro: {erro}").map_err(|e| e.to_string())?,
+            }
             continue;
         }
         if linha == "/task-class" || linha.starts_with("/task-class ") {
@@ -757,11 +769,86 @@ mod tests {
         assert!(saida_texto.contains("10 tokens de entrada, 5 de saída (total: 15)"));
     }
 
+    #[tokio::test]
+    async fn comando_undo_desfaz_o_checkpoint_mais_recente() {
+        let dir = TempDir::new();
+        std::fs::write(dir.path().join("a.txt"), "original").unwrap();
+        let store = agentry_core::checkpoint::CheckpointStore::new(dir.path());
+        store
+            .record("a.txt", Some("original".to_string()))
+            .expect("record deve funcionar");
+        std::fs::write(dir.path().join("a.txt"), "sobrescrito pela tool").unwrap();
+
+        let mock = Arc::new(MockProvider::new(PROVIDER));
+        let mut router = router_com_ollama(mock.clone(), "modelo-x");
+        let rota = router.resolve(TASK_CLASS).expect("deve resolver");
+        let mut session = Session::new(rota, Arc::new(NoopExecutor), TokenBudget::new(100_000));
+
+        let entrada = "/undo\n/exit\n";
+        let mut saida = Vec::new();
+
+        run_repl(
+            Cursor::new(entrada.as_bytes()),
+            &mut saida,
+            &mut session,
+            &mut router,
+            RuntimeOverride::default(),
+            TASK_CLASS.to_string(),
+            &ReplConfig {
+                workspace_root: dir.path(),
+                preset_base: &CallPreset::default(),
+                candidato_extra: None,
+            },
+        )
+        .await
+        .expect("repl deve rodar sem erro");
+
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("a.txt")).unwrap(),
+            "original",
+            "/undo deve restaurar o conteúdo anterior"
+        );
+        let saida_texto = String::from_utf8(saida).unwrap();
+        assert!(saida_texto.contains("'a.txt' restaurado ao conteúdo anterior"));
+    }
+
+    #[tokio::test]
+    async fn comando_undo_sem_nenhum_checkpoint_e_erro_tratado_sem_derrubar_o_repl() {
+        let dir = TempDir::new();
+        let mock = Arc::new(MockProvider::new(PROVIDER));
+        let mut router = router_com_ollama(mock.clone(), "modelo-x");
+        let rota = router.resolve(TASK_CLASS).expect("deve resolver");
+        let mut session = Session::new(rota, Arc::new(NoopExecutor), TokenBudget::new(100_000));
+
+        let entrada = "/undo\n/exit\n";
+        let mut saida = Vec::new();
+
+        run_repl(
+            Cursor::new(entrada.as_bytes()),
+            &mut saida,
+            &mut session,
+            &mut router,
+            RuntimeOverride::default(),
+            TASK_CLASS.to_string(),
+            &ReplConfig {
+                workspace_root: dir.path(),
+                preset_base: &CallPreset::default(),
+                candidato_extra: None,
+            },
+        )
+        .await
+        .expect("repl deve rodar sem erro, mesmo com /undo falhando");
+
+        let saida_texto = String::from_utf8(saida).unwrap();
+        assert!(saida_texto.contains("erro:"));
+    }
+
     /// Diretório temporário de teste, removido automaticamente ao sair de
     /// escopo (mesma disciplina de `state_dir`/`config`/`main::tests`,
-    /// MT-38/39/41) — usado só pelo teste de `/init` abaixo, que de fato
-    /// escreve em disco (os demais testes deste módulo passam
-    /// `std::env::temp_dir()` porque nunca chamam `/init`).
+    /// MT-38/39/41) — usado pelos testes de `/init` e `/undo` (MT-87), que
+    /// de fato escrevem em disco (os demais testes deste módulo passam
+    /// `std::env::temp_dir()` compartilhado porque nunca tocam o disco de
+    /// verdade).
     struct TempDir(std::path::PathBuf);
 
     impl TempDir {
