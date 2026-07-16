@@ -27,6 +27,37 @@ escolha feita sozinho.
 
 ## Entradas (mais recente no topo)
 
+### 2026-07-15 — MT-77 (Fase 16, MCP) — exemplo de `mcpServers` no `--init` usa `echo` como comando inerte
+- **Contexto:** o MT-77 (`docs/roadmap-v0.10.md`) pede que `GENERIC_SETTINGS_EXAMPLE`
+  (`crates/cli/src/main.rs`) ganhe o bloco `mcpServers` com um exemplo comentado, mesma
+  convenção autoexplicativa (ADR-0022) já usada em todo outro bloco do arquivo. Mas
+  `mcpServers` é um `HashMap<String, McpServerSettings>` **sem** *struct* de embrulho — o
+  mesmo problema já encontrado no MT-57 para `taskClasses`: uma chave `_comentario` solta no
+  nível do mapa falha ao desserializar como `McpServerSettings`. Diferente de `taskClasses`
+  (onde o exemplo "chat" é seguro porque replica *exatamente* o comportamento zero-config),
+  não existe um "servidor MCP zero-config" natural para replicar — qualquer comando de exemplo
+  real (ex.: `npx -y @pacote/algum-servidor`) seria uma entrada de verdade, syntaticamente
+  válida, presente por padrão em todo projeto recém-inicializado.
+- **Opções consideradas:**
+  (a) exemplo com um comando MCP real plausível (ex.: `npx -y
+  @modelcontextprotocol/server-filesystem`) — mesmo padrão do `taskClasses`/`revisao-em-nuvem`;
+  (b) exemplo usando `echo` (presente em todo sistema, sem efeito colateral, não fala o
+  protocolo MCP) como comando — comentário explicativo dentro da própria entrada de exemplo,
+  mesma técnica do MT-57, mas escolhendo um comando deliberadamente inerte mesmo se um ticket
+  futuro (MT-78) vier a conectar automaticamente a todo servidor declarado.
+- **Escolha (recomendada):** (b).
+- **Justificativa:** (a) teria efeito colateral real assim que o MT-78 (ainda não implementado)
+  passar a conectar a servidores declarados — `npx` tentaria baixar/rodar um pacote não
+  verificado por padrão em todo projeto recém-inicializado, um resultado surpreendente e
+  potencialmente custoso/lento sem o usuário pedir. `taskClasses`' exemplo real é seguro
+  porque exige seleção explícita (`--task-class`/`/task-class`) antes de qualquer efeito;
+  `mcpServers`, como desenhado até agora (ADR-0028), não tem essa camada de seleção — a
+  suposição mais segura é que declarar um servidor basta para ele ser usado. `echo` resolve o
+  problema de mostrar o formato real (comando + args + egressClass) sem nenhum risco: não fala
+  o protocolo MCP, então mesmo uma tentativa de conexão falharia de forma tratada e óbvia
+  (*handshake* nunca completa), nunca silenciosa nem com efeito colateral de rede/disco.
+- **Commit:** `9fcbaaf`.
+
 ### 2026-07-15 — MT-73 (Fase 15, TUI) — novo acessor `Router::route_entry` em `crates/core` (fora da lista original de arquivos do ticket)
 - **Contexto:** o MT-73 (`docs/roadmap-v0.9.md`) lista só `crates/cli/src/tui/model_picker.rs`
   (novo) e `crates/cli/src/tui/mod.rs` como arquivos no escopo. Para popular o seletor com os

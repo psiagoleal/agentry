@@ -28,7 +28,7 @@ retoma a partir dele, sem deixar o número como lacuna permanente.
 
 ## Fase 16 — Cliente MCP via `rmcp` (ADR-0028)
 
-### MT-77: Adoção `rmcp` + schema `mcpServers` na configuração
+### MT-77: Adoção `rmcp` + schema `mcpServers` na configuração ✅ concluído (9fcbaaf)
 - **Objetivo:** `rmcp` adicionado a `crates/core/Cargo.toml` (`[workspace.dependencies]` no
   `Cargo.toml` raiz), só com as *features* `client` + `transport-child-process` (ADR-0028 —
   nunca `server`/`reqwest`/transporte HTTP em dependência de produção). Novo bloco

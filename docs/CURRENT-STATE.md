@@ -9,7 +9,7 @@
 
 - **Data:** 2026-07-15
 - **Branch:** `main`
-- **Commit:** `82c4785`
+- **Commit:** `9fcbaaf`
 - **Fase:** Roadmap v0.1..v0.4 **fechados/imutáveis**; **Fase 10 concluída** (LiteLLM).
   **Execução autônoma em andamento** (`/loop /implementar-roadmap`, modelo Sonnet 5) — ver
   `docs/decisoes-autonomas.md` para decisões tomadas sozinho (**5 decisões registradas** até a
@@ -61,6 +61,20 @@
   mesmo `PermissionGate` de sempre. `docs/roadmap-v0.10.md` detalha os 5 tickets (MT-77..81 —
   numeração retoma do MT-77, livre desde que o *widget* de lista de tarefas foi descartado na
   preparação da Fase 15). Pronta para começar a implementação a partir do MT-77.
+
+  **MT-77 concluído** — primeiro ticket de implementação da Fase 16: `rmcp` adicionado a
+  `crates/core/Cargo.toml` (só `client`+`transport-child-process`, ainda não usado em código
+  Rust — mesmo padrão de MT-55/56 já usado para `taskClasses`, schema antes de consumo). Novo
+  bloco `mcpServers` em `agentry.settings.json`: `McpServerSettings { command, args,
+  egressClass }`, `egress_class` sempre obrigatória, rejeitada em `Settings::from_json_str`
+  quando diferente de `local-only` (`ConfigError::McpServerEgressNotSupported`) — antes mesmo
+  do merge entre camadas, nunca conectada. `merge_mcp_servers` substitui a entrada inteira por
+  nome (não mescla campo a campo como `taskClasses` — sem semântica clara de herdar só parte
+  de "como spawnar este servidor"). Exemplo `--init` usa `echo` como comando inerte (decisão
+  registrada em `docs/decisoes-autonomas.md`: `mcpServers` não tem a mesma camada de seleção
+  explícita que torna os exemplos reais de `taskClasses` seguros). 6 testes novos + teste do
+  exemplo `--init` estendido. Smoke-test manual: `--init` gera o bloco corretamente, JSON
+  válido; carregar a config gerada e rodar uma tarefa real não falha.
 
   **MT-70 concluído** — primeiro ticket de implementação da Fase 15: `ratatui` (feature
   `crossterm`, `default-features = false` para árvore de dependências mínima) adicionada a
@@ -1143,17 +1157,35 @@
   lista de tarefas foi descartado na preparação da Fase 15). `mkdocs build --strict` limpo.
   Nenhuma mudança de código.
 
+- [x] **MT-77** — `rmcp` adicionado a `crates/core/Cargo.toml` (só *features*
+  `client`+`transport-child-process`, `default-features = false`), ainda não usado em código
+  Rust nesta ticket (mesmo padrão de MT-55/56: schema antes de consumo). Novo bloco
+  `mcpServers` em `agentry.settings.json`: `McpServerSettings { command, args, egressClass }`
+  (`crates/core/src/config/mod.rs`) — `command` obrigatório, `args` *default* vazio,
+  `egressClass` sempre obrigatória (nunca inferida, ADR-0002), validada como `local-only` já
+  em `Settings::from_json_str` (novo `ConfigError::McpServerEgressNotSupported`, rejeitado
+  antes do merge entre camadas, nunca conectado). `merge_mcp_servers` substitui a entrada
+  inteira por nome (não mescla campo a campo como `taskClasses`). `GENERIC_SETTINGS_EXAMPLE`
+  ganha o bloco com um servidor de exemplo usando `echo` como comando inerte — decisão
+  registrada em `docs/decisoes-autonomas.md` (`mcpServers` não tem a camada de seleção
+  explícita que torna os exemplos reais de `taskClasses` seguros; um comando MCP real como
+  `npx` teria efeito colateral assim que um ticket futuro conectar a servidores declarados).
+  6 testes novos + teste do exemplo `--init` estendido.
+
+  Smoke-test manual do binário `--release`: `--init` gera o bloco `mcpServers` corretamente
+  (JSON válido, `echo` como comando de exemplo); carregar a config gerada e rodar uma tarefa
+  real não falha (bloco presente mas inerte, nada ainda o consome).
+
 **Em andamento:** nada pendente — árvore de trabalho limpa, tudo commitado.
 
-**Próximo passo:** **MT-77** (`docs/roadmap-v0.10.md`, `Cargo.toml`, `crates/core/Cargo.toml`,
-`crates/core/src/config/mod.rs`, `crates/cli/src/main.rs`) — adoção `rmcp` (só *features*
-`client`+`transport-child-process`) + novo schema `mcpServers` em `agentry.settings.json`
-(mapa nome→`{command, args, egressClass}`, vazio por padrão; `egressClass` diferente de
-`local-only` é `ConfigError` tratado), primeiro ticket da Fase 16. Outros itens em aberto, sem
-ticket: deploy do site MkDocs (GitHub Pages) — decisão explícita do usuário de não fazer
-ainda; CI multi-SO ainda não observado verde (falta um push que dispare a matriz); backlog
-independente do `ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de reanálise de
-maturidade,
+**Próximo passo:** **MT-78** (`docs/roadmap-v0.10.md`, novo `crates/core/src/mcp/mod.rs`) —
+cliente MCP: spawna cada servidor declarado via `rmcp::transport::child_process::
+TokioChildProcess`, completa o *handshake* (`ServiceExt::serve`) e lista as tools
+(`list_tools()`); mesmo padrão de ciclo de vida de `LspClient` (`Drop` mata o subprocesso como
+rede de segurança), segundo ticket da Fase 16. Outros itens em aberto, sem ticket: deploy do
+site MkDocs (GitHub Pages) — decisão explícita do usuário de não fazer ainda; CI multi-SO
+ainda não observado verde (falta um push que dispare a matriz); backlog independente do
+`ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de reanálise de maturidade,
 perfis base+overlay/skills executáveis/config de serviços pendentes de validação de
 implementação).
 
@@ -1174,6 +1206,7 @@ implementação).
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-15 | `9fcbaaf` | MT-77: adoção rmcp + schema mcpServers na configuração | MT-77 |
 | 2026-07-15 | `82c4785` | ADR-0028: cliente MCP via rmcp (autorizado pelo mantenedor); prepara a Fase 16 | — |
 | 2026-07-15 | `eeae714` | MT-76: documentação (usuário) — ADR-0027 -> Accepted (fecha a Fase 15) | MT-76 |
 | 2026-07-15 | `ba11489` | MT-75: visualizador de diff (modal) para fs_write/fs_edit sob ask | MT-75 |
