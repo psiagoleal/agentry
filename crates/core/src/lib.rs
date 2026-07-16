@@ -21,6 +21,7 @@ pub mod context;
 pub mod egress;
 pub mod guardrail;
 pub mod mcp;
+pub mod memory;
 pub mod model;
 pub mod project_instructions;
 pub mod provider;
