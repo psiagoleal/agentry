@@ -9,7 +9,7 @@
 
 - **Data:** 2026-07-16
 - **Branch:** `main`
-- **Commit:** `66747d4`
+- **Commit:** `4d2fac1`
 - **Fase:** Roadmap v0.1..v0.4 **fechados/imutáveis**; **Fase 10 concluída** (LiteLLM).
   **Execução autônoma em andamento** (`/loop /implementar-roadmap`, modelo Sonnet 5) — ver
   `docs/decisoes-autonomas.md` para decisões tomadas sozinho (**5 decisões registradas** até a
@@ -380,6 +380,20 @@
   entre sessões, multimodal — as duas já têm a pergunta de design respondida pelo mantenedor
   (2026-07-16, `docs/decisoes-autonomas.md`), mas ainda sem ADR/tickets; ordem entre elas não
   decidida).
+
+  **Fase 20 preparada** — multimodal continua bloqueada por um pré-requisito próprio (o
+  *guardrail* de imagem ainda não construído), então memória entre sessões é a única frente
+  pronta para virar ADR agora — sem exigir escolher entre candidatas. ADR-0032 (`Proposed`,
+  `docs/adr/0032-memoria-de-projeto-explicita.md`) transforma a resposta já dada pelo
+  mantenedor em arquitetura concreta: `/remember <fato>` (REPL) / `--remember <fato>`
+  (*one-shot*) grava um fato em `.agentry/memory.json` (array de *strings*, sem teto — fatos
+  são curados manualmente); **deliberadamente nenhuma tool `remember`** no `ToolRegistry` — só
+  um comando digitado pelo usuário, nunca uma decisão do modelo. Carregada no início da
+  sessão pelo mesmo mecanismo de `project_instructions`/`skills_list` (ADR-0023) —
+  `Session::with_memoria`. Sem `/forget` nesta versão (editar o arquivo é o caminho). Três
+  decisões de implementação registradas em `docs/decisoes-autonomas.md`. `docs/roadmap-v0.14.md`
+  detalha MT-93..95. `docs/adr/README.md`/`mkdocs.yml` atualizados. `mkdocs build --strict`
+  limpo. Nenhuma mudança de código — esta iteração só prepara a fase.
 
   **MT-70 concluído** — primeiro ticket de implementação da Fase 15: `ratatui` (feature
   `crossterm`, `default-features = false` para árvore de dependências mínima) adicionada a
@@ -1672,20 +1686,28 @@
   `docs/roadmap-longo-prazo.md` atualizados — Fase 19 marcada concluída. `mkdocs build
   --strict` limpo. Nenhuma mudança de código.
 
-**Em andamento:** nada pendente — árvore de trabalho limpa, tudo commitado. **Fase 19
-concluída inteira (MT-90..92)** — última fase que já tinha tickets detalhados no roadmap de
-longo prazo.
+- [x] **Preparação da Fase 20** — multimodal continua bloqueada por um pré-requisito próprio
+  (*guardrail* de imagem ainda não construído), então memória entre sessões é a única frente
+  pronta para virar ADR agora. **ADR-0032** (`Proposed`,
+  `docs/adr/0032-memoria-de-projeto-explicita.md`): `/remember`/`--remember` grava um fato em
+  `.agentry/memory.json` (array de *strings*, sem teto); nenhuma tool `remember` no
+  `ToolRegistry`; carregada via `Session::with_memoria`, mesmo mecanismo de
+  `project_instructions`/`skills_list`. `docs/roadmap-v0.14.md` detalha MT-93..95.
+  `docs/adr/README.md`/`mkdocs.yml` atualizados. `mkdocs build --strict` limpo. Nenhuma
+  mudança de código — esta iteração só prepara a fase.
 
-**Próximo passo:** **preparar a Fase 20** (`docs/roadmap-longo-prazo.md` §Fase 20+: memória
-entre sessões) — diferente da preparação da Fase 19, **não** é preciso escalar de novo: o
-mantenedor já respondeu à pergunta de design (2026-07-16, `docs/decisoes-autonomas.md`) — só
-memória **explícita** via comando tipo `/remember`, nunca persistência automática de
-conversa. **Multimodal continua fora de cogitação por enquanto** — a própria resposta do
-mantenedor a adia até existir um *guardrail* de imagem (OCR), um pré-requisito ainda não
-construído; não há "escolha de ordem" real entre as duas, memória entre sessões é a única
-frente pronta para virar ADR agora. Outros itens em aberto, sem ticket: deploy do site
-MkDocs (GitHub Pages) — decisão explícita do usuário de não fazer ainda; CI multi-SO ainda
-não observado verde (falta um push que dispare a matriz); backlog independente do
+**Em andamento:** nada pendente — árvore de trabalho limpa, tudo commitado. **Fase 19
+concluída inteira (MT-90..92)**; **Fase 20 preparada** (ADR-0032 `Proposed`,
+`docs/roadmap-v0.14.md`, MT-93..95).
+
+**Próximo passo:** **MT-93** (`docs/roadmap-v0.14.md`, `crates/core/src/memory/mod.rs`) —
+`MemoryStore` (novo): `remember`/`load` sobre um array de *strings* persistido em
+`.agentry/memory.json` (`state_dir::ensure_state_dir`, ADR-0017); `render_memoria` formata a
+lista para o *system prompt* (mesmo padrão de `render_skills_list`). Primeiro ticket de
+implementação da Fase 20. Outros itens em aberto, sem ticket: **multimodal** (Fase 21+)
+continua bloqueada por um *guardrail* de imagem ainda não construído; deploy do site MkDocs
+(GitHub Pages) — decisão explícita do usuário de não fazer ainda; CI multi-SO ainda não
+observado verde (falta um push que dispare a matriz); backlog independente do
 `ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de reanálise de maturidade,
 perfis base+overlay/skills executáveis/config de serviços pendentes de validação de
 implementação).
