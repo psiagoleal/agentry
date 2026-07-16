@@ -2,7 +2,7 @@
 
 # ADR 0029: Uso de tokens visível durante a sessão
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Data:** 2026-07-16
 - **Decisores:** Iago Leal (mantenedor)
 - **Tags:** observabilidade, UX, sessão

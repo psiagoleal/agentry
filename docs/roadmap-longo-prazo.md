@@ -11,16 +11,15 @@ Cada fase abaixo lista **objetivo**, **ADR(s) necessária(s)** e a **primeira le
 micro-tickets** (título + objetivo de uma linha). Seguindo a disciplina do projeto
 (`skill adr-writer` / `micro-ticket-planner`): a **ADR completa e os tickets detalhados de
 cada fase são escritos quando a fase começa**, promovidos para um `roadmap-vX.Y.md`
-versionado. **Fases 12, 13, 14, 15 e 16** estão concluídas (`docs/roadmap-v0.6.md`,
+versionado. **Fases 12, 13, 14, 15, 16 e 17** estão concluídas (`docs/roadmap-v0.6.md`,
 `docs/roadmap-v0.7.md`, `docs/roadmap-v0.8.md`, `docs/roadmap-v0.9.md` — `ratatui` autorizado
 pelo mantenedor em 2026-07-15, após a parada dura do comando de loop por dependência nova;
-ADR-0027 `Accepted` — e `docs/roadmap-v0.10.md`, `rmcp` pré-autorizado pelo mantenedor junto
-de `ratatui`; ADR-0028 `Accepted`, escopo v1 restrito a servidores MCP locais). **Fase 17**
-já está detalhada — ver `docs/roadmap-v0.11.md` (ADR-0029, `Proposed`: uso de tokens visível
-durante a sessão — primeira das cinco frentes de "segunda onda", ordem escolhida e registrada
-em `docs/decisoes-autonomas.md`, 2026-07-16). Pronta para começar a implementação a partir do
-MT-82. As outras quatro frentes de "segunda onda" seguem sem tickets detalhados (ver seção
-própria abaixo).
+ADR-0027 `Accepted` — `docs/roadmap-v0.10.md`, `rmcp` pré-autorizado pelo mantenedor junto de
+`ratatui`; ADR-0028 `Accepted`, escopo v1 restrito a servidores MCP locais — e
+`docs/roadmap-v0.11.md`, ADR-0029 `Accepted`: uso de tokens visível durante a sessão,
+primeira das cinco frentes de "segunda onda", ordem escolhida e registrada em
+`docs/decisoes-autonomas.md`, 2026-07-16). Próxima fase sem tickets detalhados ainda: Fase
+18+ (ver seção própria abaixo) — as outras quatro frentes de "segunda onda".
 
 > Convenções de DoD, granularidade e "dependência nova exige ADR (ADR-0004)": iguais às dos
 > roadmaps versionados (`docs/roadmap-v0.1.md` §Convenções).
@@ -157,7 +156,7 @@ tools MCP no `ToolRegistry` (`crates/core/src/tools/mcp.rs`) com defesa em profu
 egresso (`McpClient::start_from_settings`), documentação de usuário e governança fechando a
 fase.
 
-## Fase 17 — Uso de tokens visível durante a sessão (ADR-0029)
+## Fase 17 — Uso de tokens visível durante a sessão (ADR-0029) ✅ concluída
 
 **Objetivo:** expor ao usuário quantos tokens uma sessão consumiu — `Usage`
 (`crates/core/src/model/mod.rs`) já é calculado por turno, só não é acumulado nem exibido.
@@ -165,7 +164,7 @@ Primeira das cinco frentes de "segunda onda" a ser preparada (ordem escolhida e 
 `docs/decisoes-autonomas.md`, 2026-07-16, por ser a única sem pergunta de segurança/
 confidencialidade/egresso em aberto).
 
-**ADR:** ADR-0029 — **escrita**, `Proposed`. Decisão central: `Session` acumula `Usage` ao
+**ADR:** ADR-0029 — **escrita**, `Accepted`. Decisão central: `Session` acumula `Usage` ao
 longo da sessão (nenhum tipo novo, só soma o que já existe por turno); exposto em três
 pontos — resumo em `stderr` no modo *one-shot*, comando `/usage` no REPL, rodapé da TUI.
 Contador **não persiste entre sessões** (fora de escopo — pertence à frente "memória entre
@@ -173,8 +172,11 @@ sessões" abaixo, se/quando essa decidir como persistência funciona). Custo em 
 deliberadamente fora de escopo (exigiria tabela de preço configurável, não é dado intrínseco
 ao provider como tokens são).
 
-**Detalhamento completo:** `docs/roadmap-v0.11.md` (MT-82..85). Pronta para começar a
-implementação a partir do MT-82.
+**Detalhamento completo:** `docs/roadmap-v0.11.md` (MT-82..85, **concluídos**).
+`Session::usage_total` acumula por turno e por `Session::compact`; `formatar_uso()`
+(`crates/cli/src/main.rs`) é a única fonte da string de formatação, reaproveitada pelos três
+pontos de exposição sem nenhuma divergência entre eles; documentação de usuário fechando a
+fase.
 
 ## Fase 18+ — Segunda onda, restante (ADRs 0030+ quando alcançadas)
 

@@ -11,6 +11,9 @@ agentry "liste os arquivos .rs deste projeto"
 Roda uma única tarefa (com o loop interno de tool-calls até chegar numa resposta final) e
 sai. A resposta é exibida incrementalmente (*streaming*) conforme o modelo gera texto.
 
+Ao final, uma linha `[uso] ...` em `stderr` (nunca em `stdout` — não afeta um `agentry "..."
+| algum-comando` que capture só a resposta) mostra o total de tokens consumidos pela tarefa.
+
 ## Modo REPL
 
 ```bash
@@ -62,6 +65,10 @@ A trilha de governança não muda com o modo TUI: nenhum caminho de rede/egresso
 introduzido — é só uma apresentação diferente sobre a mesma `Session`/`Router`/`ToolRegistry`
 já documentados no restante deste guia.
 
+O rodapé da caixa de entrada, além da legenda de *keybindings*, mostra o total de tokens
+consumidos pela sessão até o último turno concluído — mesmo dado do resumo do modo *one-shot*
+e do comando `/usage` do REPL, atualizado automaticamente a cada resposta.
+
 ## Flags de invocação (one-shot)
 
 | Flag | Efeito |
@@ -101,6 +108,7 @@ seguintes, até ser trocado de novo:
 | `/reasoning on\|off` | Liga/desliga raciocínio estendido. |
 | `/task-class <nome>` | Troca a task-class ativa (rota + preset) a partir da próxima mensagem — ver [`taskClasses`](configuracao.md#taskclasses). |
 | `/compact` | Resume o histórico da sessão numa única mensagem — reduz o consumo de tokens em conversas longas. |
+| `/usage` | Mostra o total de tokens consumidos pela sessão até aquele ponto — sem *side-effect* na conversa. |
 | `/init` (ou `/init <perfil>`) | Cria `.agentry/agentry.settings.json` sem sair do REPL. |
 | `/exit` (ou `/quit`) | Encerra o REPL. |
 
@@ -111,6 +119,10 @@ com o modelo pedido (via Ollama), mesmo que você tenha trocado para outra task-
 `/task-class` — trocar de modelo dentro de uma task-class customizada (ex.: uma que só usa
 LiteLLM) não é suportado nesta versão. Se você está numa task-class diferente de `chat` e
 quer voltar a ajustar o modelo Ollama, use `/task-class chat` primeiro.
+
+**`/usage` não zera com `/compact`:** o total de tokens mostrado é o consumo real desde o
+início da sessão, incluindo a própria chamada de compactação — resumir o histórico reduz o
+que vai para o modelo nas próximas mensagens, mas não desfaz o que já foi consumido até ali.
 
 ## O que esperar da resposta
 
