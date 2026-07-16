@@ -46,7 +46,7 @@ use ratatui::widgets::{Block, Clear, Paragraph};
 use ratatui::{DefaultTerminal, Frame};
 use tokio::sync::mpsc;
 
-use agentry_core::model::{StreamEvent, ToolCall};
+use agentry_core::model::{StreamEvent, ToolCall, Usage};
 use agentry_core::router::{RouteTarget, Router, RuntimeOverride};
 use agentry_core::session::{Session, SessionError, SessionOutcome};
 
@@ -183,6 +183,12 @@ struct Estado {
     /// (construído em `main()`); alternado por [`Action::ToggleAuto`].
     /// **Nunca** afeta uma tool sob `deny` — ver a doc de `TuiConfirmer`.
     auto: Arc<AtomicBool>,
+    /// Uso de tokens acumulado da sessão até o último turno concluído
+    /// (MT-84, ADR-0029) — copiado de `Session::usage_total()` a cada
+    /// `EventoAgente::Concluido` (a `Session` em si vive fora de `Estado`,
+    /// movida para a *task* de streaming durante um turno em voo; ver
+    /// [`disparar_turno`]). Renderizado no rodapé por [`draw`].
+    usage_total: Usage,
 }
 
 impl Estado {
@@ -196,6 +202,7 @@ impl Estado {
             overrides,
             solicitacao: None,
             auto,
+            usage_total: Usage::default(),
         }
     }
 
@@ -251,9 +258,21 @@ fn aplicar_selecao(
     Ok(())
 }
 
+/// Texto do rodapé da caixa de entrada: legenda de *keybindings* (lida
+/// direto de [`keybind::legenda`]) seguida do uso de tokens acumulado da
+/// sessão (MT-84, ADR-0029; mesma formatação de [`crate::formatar_uso`]
+/// usada pelo resumo *one-shot*/`/usage` do REPL) — função pura, separada de
+/// [`draw`] para ser testável sem terminal real.
+fn rodape_da_entrada(estado: &Estado) -> String {
+    format!(
+        " {} · {} ",
+        keybind::legenda(),
+        crate::formatar_uso(estado.usage_total)
+    )
+}
+
 /// Tela: histórico de chat (área rolável) em cima, caixa de entrada fixa
-/// embaixo — rodapé da caixa de entrada mostra a legenda de *keybindings*
-/// (lida direto de [`keybind::legenda`], nunca um texto solto). Com o
+/// embaixo — rodapé da caixa de entrada mostra [`rodape_da_entrada`]. Com o
 /// seletor de modelo aberto, um modal centralizado é desenhado por cima.
 fn draw(frame: &mut Frame<'_>, estado: &Estado) {
     let areas = Layout::default()
@@ -288,7 +307,7 @@ fn draw(frame: &mut Frame<'_>, estado: &Estado) {
     } else {
         format!(" mensagem{modo_auto} ")
     };
-    let rodape = format!(" {} ", keybind::legenda());
+    let rodape = rodape_da_entrada(estado);
     let caixa_de_entrada = Paragraph::new(estado.entrada.as_str()).block(
         Block::bordered()
             .title(titulo_entrada)
@@ -715,6 +734,7 @@ async fn loop_eventos(
                         if let Err(erro) = &concluido.resultado {
                             estado.chat.marcar_erro(&erro.to_string());
                         }
+                        estado.usage_total = concluido.sessao.usage_total();
                         sessao_atual = Some(concluido.sessao);
                         estado.enviando = false;
                     }
@@ -827,6 +847,34 @@ mod tests {
         }
 
         assert_eq!(estado.scroll, 1);
+    }
+
+    #[test]
+    fn rodape_da_entrada_inclui_a_legenda_e_o_uso_de_tokens_corrente() {
+        let mut estado = estado_vazio();
+        assert!(
+            rodape_da_entrada(&estado).contains("0 tokens de entrada, 0 de saída (total: 0)"),
+            "sessão nova deve mostrar uso zerado"
+        );
+
+        // Simula o que `EventoAgente::Concluido` faz ao final de um turno
+        // real (`estado.usage_total = concluido.sessao.usage_total()`) —
+        // sem terminal/Session reais, só o campo que `draw`/`rodape_da_entrada`
+        // consomem.
+        estado.usage_total = Usage {
+            input_tokens: 10,
+            output_tokens: 5,
+        };
+
+        let rodape = rodape_da_entrada(&estado);
+        assert!(
+            rodape.contains("10 tokens de entrada, 5 de saída (total: 15)"),
+            "rodapé deve refletir o uso acumulado após um turno: {rodape}"
+        );
+        assert!(
+            rodape.contains(&keybind::legenda()),
+            "rodapé continua incluindo a legenda de keybindings, não só o uso"
+        );
     }
 
     #[test]
