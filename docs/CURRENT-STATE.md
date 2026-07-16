@@ -9,7 +9,7 @@
 
 - **Data:** 2026-07-15
 - **Branch:** `main`
-- **Commit:** `ba11489`
+- **Commit:** `eeae714`
 - **Fase:** Roadmap v0.1..v0.4 **fechados/imutáveis**; **Fase 10 concluída** (LiteLLM).
   **Execução autônoma em andamento** (`/loop /implementar-roadmap`, modelo Sonnet 5) — ver
   `docs/decisoes-autonomas.md` para decisões tomadas sozinho (**2 decisões registradas**:
@@ -107,6 +107,15 @@
   Smoke-test manual: TUI renderiza/responde normalmente. Confirmação de `fs_write` via LLM real
   não pôde ser demonstrada de ponta a ponta — mesmo achado documentado em
   MT-61/64/65/66/67/68/74.
+
+  **MT-76 concluído — fecha a Fase 15 inteira (MT-70..76).** `docs/usuario/uso.md` ganha a
+  seção "Modo TUI": `--tui` opt-in, tabela de *keybindings* *default* (`Enter`/setas/`Ctrl+P`/
+  `Ctrl+A`/`Esc`/`Ctrl+C`), menção ao modal de diff e ao modal de `ask_user`, nota de que a
+  trilha de governança não muda (nenhum caminho de rede/egresso novo). `--tui` adicionada à
+  tabela de flags. **ADR-0027 promovida de `Proposed` para `Accepted`** (`docs/adr/README.md`
+  atualizado). `mkdocs build --strict` limpo, *anchors* conferidos no HTML gerado. Nenhuma
+  mudança de código — fmt/clippy/test rodados como checagem de sanidade.
+  `docs/roadmap-longo-prazo.md` marca a Fase 15 `✅ concluída`.
 
 ## Metas cumpridas / Em andamento / Próximo passo
 
@@ -1084,17 +1093,27 @@
   não pôde ser demonstrada de ponta a ponta — mesmo achado documentado em
   MT-61/64/65/66/67/68/74.
 
+- [x] **MT-76 — fecha a Fase 15 inteira (MT-70..76).** `docs/usuario/uso.md` ganha a seção
+  "Modo TUI" (`--tui` opt-in, tabela de *keybindings* *default*, nota de que a trilha de
+  governança não muda); `--tui` adicionada à tabela de flags de invocação. **ADR-0027
+  promovida de `Proposed` para `Accepted`** (`docs/adr/README.md` atualizado).
+  `docs/roadmap-longo-prazo.md` marca a Fase 15 `✅ concluída`. `mkdocs build --strict` limpo,
+  *anchors* conferidos no HTML gerado. Nenhuma mudança de código — fmt/clippy/test rodados como
+  checagem de sanidade (104+356 testes, tudo verde).
+
 **Em andamento:** nada pendente — árvore de trabalho limpa, tudo commitado.
 
-**Próximo passo:** **MT-76** (`docs/roadmap-v0.9.md`, `docs/usuario/uso.md`,
-`docs/adr/0027-tui-via-ratatui.md`, `docs/adr/README.md`) — documentação (usuário): seção "Modo
-TUI" (`--tui`, *keybindings* *default*, como sair); ADR-0027 promovida a `Accepted` (MT-70..75
-concluídos) — **fecha a Fase 15 inteira**. Sétimo e último ticket da Fase 15; depois dele,
-próxima fase a preparar é a Fase 16 (`rmcp`, MCP client), já pré-autorizada pelo mantenedor.
-Outros itens em aberto, sem ticket: deploy do site MkDocs (GitHub Pages) — decisão explícita do
-usuário de não fazer ainda; CI multi-SO ainda não observado verde (falta um push que dispare a
-matriz); backlog independente do `ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF
-pendentes de reanálise de maturidade,
+**Próximo passo:** **preparar a Fase 16** (MCP client via `rmcp`) — já pré-autorizada pelo
+mantenedor junto de `ratatui` (mensagem de 2026-07-15: "Vamos seguir para a fase 15 e depois a
+16. Pode confirmar ratatui e rmcp."). Sem tickets detalhados ainda: a próxima iteração escreve
+ADR-0028 (adoção de `rmcp`, verificação de maturidade via `crates.io/api/v1/crates/rmcp`,
+arquitetura do cliente MCP — servidores configuráveis, tools MCP sob o mesmo gate de
+permissão/classe de egresso, *progressive disclosure*) e quebra a fase em micro-tickets num
+novo `docs/roadmap-v0.10.md` (skill `micro-ticket-planner`), mesma disciplina usada para
+preparar a Fase 15. Outros itens em aberto, sem ticket: deploy do site MkDocs (GitHub Pages) —
+decisão explícita do usuário de não fazer ainda; CI multi-SO ainda não observado verde (falta
+um push que dispare a matriz); backlog independente do `ai-coding-agent-profiles` (ADRs
+0001-0005 — RTK/OKF pendentes de reanálise de maturidade,
 perfis base+overlay/skills executáveis/config de serviços pendentes de validação de
 implementação).
 
@@ -1115,6 +1134,7 @@ implementação).
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-15 | `eeae714` | MT-76: documentação (usuário) — ADR-0027 -> Accepted (fecha a Fase 15) | MT-76 |
 | 2026-07-15 | `ba11489` | MT-75: visualizador de diff (modal) para fs_write/fs_edit sob ask | MT-75 |
 | 2026-07-15 | `b4e9935` | MT-74: widgets de permissão (TuiConfirmer) e pergunta (TuiPrompter) | MT-74 |
 | 2026-07-15 | `7d3da53` | MT-73: seletor de modelo/provider com busca difusa (Ctrl+P) | MT-73 |

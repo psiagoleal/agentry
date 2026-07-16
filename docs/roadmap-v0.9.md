@@ -17,7 +17,7 @@ verificação de maturidade completa. Nenhuma outra dependência nova.
 
 ---
 
-## Fase 15 — TUI via `ratatui` (ADR-0027)
+## Fase 15 — TUI via `ratatui` (ADR-0027) ✅ concluída
 
 ### MT-70: *Scaffold* `ratatui`/`crossterm` + laço de eventos mínimo ✅ concluído (5b18d80)
 - **Objetivo:** `ratatui` (com a *feature* `crossterm`) adicionada a `crates/cli/Cargo.toml`
@@ -131,7 +131,7 @@ verificação de maturidade completa. Nenhuma outra dependência nova.
   houver demanda real).
 - **Depende de:** MT-74.
 
-### MT-76: Documentação (usuário)
+### MT-76: Documentação (usuário) ✅ concluído (eeae714)
 - **Objetivo:** `docs/usuario/uso.md` ganha a seção "Modo TUI" (`--tui`, *keybindings*
   *default*, como sair) — trilha de governança **não** muda (a TUI não introduz nenhum
   caminho de rede/egresso novo, é só apresentação sobre a mesma `Session`/`Router` já
