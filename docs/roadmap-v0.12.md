@@ -36,7 +36,7 @@ persistência via `serde_json` + `std::fs` (já dependências existentes), mesmo
   exposição via CLI/REPL/TUI (MT-87/88).
 - **Depende de:** ADR-0030.
 
-### MT-87: `CheckpointingTool` envolve `fs_write`/`fs_edit`; flag `--undo` e comando `/undo`
+### MT-87: `CheckpointingTool` envolve `fs_write`/`fs_edit`; flag `--undo` e comando `/undo` ✅ concluído (84e86bd)
 - **Objetivo:** novo `crates/core/src/tools/checkpoint.rs`: `CheckpointingTool` decora uma
   `Arc<dyn Tool>`, lê `arguments["path"]`, lê o conteúdo atual do arquivo antes de delegar a
   chamada de verdade, grava um checkpoint (`CheckpointStore::record`) só se o resultado

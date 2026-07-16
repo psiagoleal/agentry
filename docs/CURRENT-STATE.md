@@ -9,7 +9,7 @@
 
 - **Data:** 2026-07-16
 - **Branch:** `main`
-- **Commit:** `7e7f608`
+- **Commit:** `84e86bd`
 - **Fase:** Roadmap v0.1..v0.4 **fechados/imutáveis**; **Fase 10 concluída** (LiteLLM).
   **Execução autônoma em andamento** (`/loop /implementar-roadmap`, modelo Sonnet 5) — ver
   `docs/decisoes-autonomas.md` para decisões tomadas sozinho (**5 decisões registradas** até a
@@ -249,6 +249,21 @@
   antes de ler o conteúdo "antes", mesma checagem de segurança da escrita de verdade. 6
   testes novos, 378 testes em `agentry-core` (+6), 107 em `agentry`, `cargo build --release`
   limpo. Nenhuma mudança de comportamento observável da CLI ainda.
+
+  **MT-87 concluído** — `crates/core/src/tools/checkpoint.rs` (novo): `CheckpointingTool`
+  decora qualquer `Tool` cujo schema tenha uma chave `path` — lê o conteúdo atual do arquivo
+  (validado por `resolve_within_root`) antes de delegar a chamada de verdade, grava um
+  checkpoint só se o resultado delegado não for erro. `crates/cli/src/main.rs` envolve
+  `FsWriteTool`/`FsEditTool` com essa decoração. Nova flag `--undo` (mutuamente exclusiva com
+  `--init`/tarefa/`--tui`) e comando `/undo` no REPL, ambos chamando `CheckpointStore::undo()`
+  via o novo `formatar_undo()` (única fonte da string de resultado). 10 testes novos. 382
+  testes em `agentry-core` (+4), 113 em `agentry` (+6), `cargo build --release` limpo.
+  Smoke-test manual do binário `--release`: `--undo` com um checkpoint semeado manualmente
+  (mesmo formato exato gravado pelo código) restaura o conteúdo corretamente; `--undo` com
+  pilha vazia é erro tratado. Confirmação de `fs_write` via LLM real não pôde ser demonstrada
+  de ponta a ponta — mesmo achado de confiabilidade de *tool-calling* local já documentado
+  desde o MT-61, não um defeito deste código; o mecanismo em si tem cobertura automatizada
+  completa contra uma tool determinística equivalente.
 
   **MT-70 concluído** — primeiro ticket de implementação da Fase 15: `ratatui` (feature
   `crossterm`, `default-features = false` para árvore de dependências mínima) adicionada a
@@ -1487,18 +1502,25 @@
   testes novos. 378 testes em `agentry-core` (+6), 107 em `agentry`, `cargo build --release`
   limpo. Nenhuma mudança de comportamento observável da CLI ainda.
 
+- [x] **MT-87** — `crates/core/src/tools/checkpoint.rs` (novo): `CheckpointingTool` decora
+  `fs_write`/`fs_edit`, gravando checkpoint só em chamada bem-sucedida; nova flag `--undo`
+  (*one-shot*) e comando `/undo` (REPL), ambos via `formatar_undo()` (única fonte da string).
+  10 testes novos. 382 testes em `agentry-core` (+4), 113 em `agentry` (+6), `cargo build
+  --release` limpo. Smoke-test manual: `--undo` restaura/erra corretamente com um checkpoint
+  semeado no formato real; confirmação via LLM real não demonstrável (mesmo achado do MT-61).
+
 **Em andamento:** nada pendente — árvore de trabalho limpa, tudo commitado. **Fase 17
 concluída inteira (MT-82..85)**; **Fase 18 preparada** (ADR-0030 `Proposed`,
-`docs/roadmap-v0.12.md`, MT-86..89); **MT-86 concluído**.
+`docs/roadmap-v0.12.md`, MT-86..89); **MT-86/87 concluídos**.
 
-**Próximo passo:** **MT-87** (`docs/roadmap-v0.12.md`, `crates/core/src/tools/checkpoint.rs`,
-`crates/cli/src/main.rs`, `crates/cli/src/repl.rs`) — `CheckpointingTool` decora
-`fs_write`/`fs_edit`, gravando um checkpoint só em chamada bem-sucedida; nova flag `--undo`
-(*one-shot*) e comando `/undo` (REPL), ambos chamando `CheckpointStore::undo()`. Segundo
-ticket de implementação da Fase 18. Outros itens em aberto, sem ticket: deploy do site
-MkDocs (GitHub Pages) — decisão explícita do usuário de não fazer ainda; CI multi-SO ainda
-não observado verde (falta um push que dispare a matriz); backlog independente do
-`ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de reanálise de maturidade,
+**Próximo passo:** **MT-88** (`docs/roadmap-v0.12.md`, `crates/cli/src/tui/keybind.rs`,
+`crates/cli/src/tui/mod.rs`) — *keybinding* `Ctrl+Z` → `Action::Undo` na TUI, chamando a
+mesma `CheckpointStore::undo()` do MT-87 e mostrando o resultado como mensagem do sistema no
+histórico de chat. Terceiro ticket de implementação da Fase 18. Outros itens em aberto, sem
+ticket: deploy do site MkDocs (GitHub Pages) — decisão explícita do usuário de não fazer
+ainda; CI multi-SO ainda não observado verde (falta um push que dispare a matriz); backlog
+independente do `ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de reanálise
+de maturidade,
 perfis base+overlay/skills executáveis/config de serviços pendentes de validação de
 implementação).
 
