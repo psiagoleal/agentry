@@ -19,7 +19,7 @@ Mesmas dos roadmaps anteriores (`docs/roadmap-v0.1.md` §Convenções): **DoD** 
 
 ## Fase 19 — Subagentes/orquestração (ADR-0031)
 
-### MT-90: `SubagentTool` — núcleo (constrói e roda uma `Session` interna)
+### MT-90: `SubagentTool` — núcleo (constrói e roda uma `Session` interna) ✅ concluído (a4f8470)
 - **Objetivo:** novo `crates/core/src/tools/subagent.rs`: `SubagentTool` guarda `Arc<Router>`
   (o **mesmo** da sessão-mãe), `Arc<dyn ToolExecutor>` (cujo `ToolRegistry` interno **não**
   inclui a própria tool `subagent` — recursão impossível estruturalmente, ADR-0031),

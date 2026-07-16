@@ -9,7 +9,7 @@
 
 - **Data:** 2026-07-16
 - **Branch:** `main`
-- **Commit:** `50a1183`
+- **Commit:** `a4f8470`
 - **Fase:** Roadmap v0.1..v0.4 **fechados/imutáveis**; **Fase 10 concluída** (LiteLLM).
   **Execução autônoma em andamento** (`/loop /implementar-roadmap`, modelo Sonnet 5) — ver
   `docs/decisoes-autonomas.md` para decisões tomadas sozinho (**5 decisões registradas** até a
@@ -324,6 +324,23 @@
   fiação na CLI com dois registros de tools, documentação). `docs/adr/README.md`/`mkdocs.yml`
   atualizados. `mkdocs build --strict` limpo. Nenhuma mudança de código — esta iteração só
   prepara a fase.
+
+  **MT-90 concluído** — `crates/core/src/tools/subagent.rs` (novo): `SubagentTool` guarda o
+  **mesmo** `Arc<Router>` da sessão-mãe (nunca um `Router` próprio) e um
+  `Arc<dyn ToolExecutor>` cujo `ToolRegistry` interno nunca inclui esta própria tool (fiação
+  real fica para o MT-91). `execute()` lê `description`/`task_class` (opcional, *default*
+  `"chat"`), resolve via `Router::resolve_with_override`, constrói uma `Session` nova
+  (`.with_guardrails()` só se a sessão-mãe também tiver), roda até completar
+  (`Session::run`, sem *streaming*) e devolve o texto da resposta final. A restrição de
+  egresso do mantenedor vem "de graça" do `Router` compartilhado — `Router::resolve` já
+  recusa qualquer candidato mais permissivo que o teto do perfil ativo, para qualquer
+  chamador, nenhum código novo de imposição foi necessário. 4 testes novos: subtarefa simples
+  completa; `task_class` desconhecida é erro tratado; um `Router` com teto `local-only` nunca
+  deixa o subagente resolver um candidato de nuvem; um `ToolRegistry` vazio (mesma forma do
+  executor interno real) nunca lista `"subagent"` entre suas *specs*. 386 testes em
+  `agentry-core` (+4), 118 em `agentry`, `cargo build --release` limpo. Nenhuma mudança de
+  comportamento observável da CLI ainda — `SubagentTool` não é registrada em nenhum lugar
+  nesta ticket.
 
   **MT-70 concluído** — primeiro ticket de implementação da Fase 15: `ratatui` (feature
   `crossterm`, `default-features = false` para árvore de dependências mínima) adicionada a
@@ -1591,21 +1608,29 @@
   `docs/adr/README.md`/`mkdocs.yml` atualizados. `mkdocs build --strict` limpo. Nenhuma
   mudança de código — esta iteração só prepara a fase.
 
+- [x] **MT-90** — `crates/core/src/tools/subagent.rs` (novo): `SubagentTool` guarda o mesmo
+  `Arc<Router>` da sessão-mãe e um `Arc<dyn ToolExecutor>` cujo `ToolRegistry` interno não
+  inclui a própria tool `subagent`; `execute()` resolve via `Router::resolve_with_override`,
+  constrói e roda uma `Session` nova até completar (sem *streaming*), devolve o texto final.
+  4 testes novos (inclusive um `Router` com teto `local-only` nunca deixando o subagente
+  resolver um candidato de nuvem). 386 testes em `agentry-core` (+4), 118 em `agentry`,
+  `cargo build --release` limpo. Nenhuma mudança de comportamento observável da CLI ainda.
+
 **Em andamento:** nada pendente — árvore de trabalho limpa, tudo commitado. **Fase 18
 concluída inteira (MT-86..89)**; **Fase 19 preparada** (ADR-0031 `Proposed`,
-`docs/roadmap-v0.13.md`, MT-90..92).
+`docs/roadmap-v0.13.md`, MT-90..92); **MT-90 concluído**.
 
-**Próximo passo:** **MT-90** (`docs/roadmap-v0.13.md`, `crates/core/src/tools/subagent.rs`) —
-`SubagentTool` (novo): guarda o mesmo `Arc<Router>` da sessão-mãe e um `Arc<dyn ToolExecutor>`
-cujo `ToolRegistry` interno não inclui a própria tool `subagent`; `execute()` resolve via
-`Router::resolve`/`resolve_with_override`, constrói e roda uma `Session` nova até completar
-(sem *streaming*), devolve o texto final. Primeiro ticket de implementação da Fase 19. Outros
-itens em aberto, sem ticket: **memória entre sessões** e **multimodal** (Fase 20+) já têm a
-pergunta de design respondida pelo mantenedor (ver `docs/roadmap-longo-prazo.md` §Fase 20+),
-mas ainda sem ADR/tickets — preparar quando a Fase 19 concluir; deploy do site MkDocs (GitHub
-Pages) — decisão explícita do usuário de não fazer ainda; CI multi-SO ainda não observado
-verde (falta um push que dispare a matriz); backlog independente do
-`ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de reanálise de maturidade,
+**Próximo passo:** **MT-91** (`docs/roadmap-v0.13.md`, `crates/cli/src/main.rs`) — fiação na
+CLI: refatora a construção de tools para uma lista reutilizável de `Arc<dyn Tool>`, registrada
+em **dois** `ToolRegistry` (um sem `SubagentTool`, vira o executor interno do subagente; outro
+com `SubagentTool`, vira o executor da sessão principal de verdade). Segundo ticket de
+implementação da Fase 19. Outros itens em aberto, sem ticket: **memória entre sessões** e
+**multimodal** (Fase 20+) já têm a pergunta de design respondida pelo mantenedor (ver
+`docs/roadmap-longo-prazo.md` §Fase 20+), mas ainda sem ADR/tickets — preparar quando a
+Fase 19 concluir; deploy do site MkDocs (GitHub Pages) — decisão explícita do usuário de não
+fazer ainda; CI multi-SO ainda não observado verde (falta um push que dispare a matriz);
+backlog independente do `ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de
+reanálise de maturidade,
 perfis base+overlay/skills executáveis/config de serviços pendentes de validação de
 implementação).
 
