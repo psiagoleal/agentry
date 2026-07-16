@@ -337,6 +337,14 @@ pub struct Session {
     /// Concatenada **por último** em [`Self::ensure_system_prompt`], depois
     /// das instruções de projeto e do `system_prompt` do preset.
     skills_list: Option<String>,
+    /// Uso de tokens acumulado ao longo de **toda** a sessão (MT-82,
+    /// ADR-0029) — soma o `Usage` de cada turno concluído (`run`/
+    /// `run_streaming`) e de cada chamada de [`Self::compact`], nunca
+    /// reseta sozinho (só existe uma sessão nova para zerar). Distinto do
+    /// `consumed` local de `run`/`run_streaming`, que só existe durante
+    /// **uma** chamada (para decidir estouro de [`TokenBudget`]) — este
+    /// campo persiste entre chamadas, exposto via [`Self::usage_total`].
+    usage_total: Usage,
 }
 
 impl Session {
@@ -358,6 +366,7 @@ impl Session {
             guardrails: None,
             project_instructions: None,
             skills_list: None,
+            usage_total: Usage::default(),
         }
     }
 
@@ -446,6 +455,11 @@ impl Session {
     /// automaticamente pelo loop (ADR-0016); quem decide quando compactar é
     /// quem chama (ex.: comando `/compact` do REPL, MT-37).
     ///
+    /// A chamada de compactação em si consome tokens reais — seu `Usage` é
+    /// somado a [`Self::usage_total`] como qualquer outro turno (MT-82,
+    /// ADR-0029); o total nunca **reseta** por compactar (resumir histórico
+    /// não é "começar de novo" do ponto de vista de uso já consumido).
+    ///
     /// # Errors
     ///
     /// Devolve [`SessionError::Router`] se a `task-class` `"compact"` não
@@ -477,6 +491,10 @@ impl Session {
             .await
             .map_err(SessionError::Provider)?;
 
+        self.usage_total = Usage {
+            input_tokens: self.usage_total.input_tokens + resposta.usage.input_tokens,
+            output_tokens: self.usage_total.output_tokens + resposta.usage.output_tokens,
+        };
         self.messages = vec![Message::system(resposta.message.text_content())];
         Ok(())
     }
@@ -485,6 +503,15 @@ impl Session {
     #[must_use]
     pub fn messages(&self) -> &[Message] {
         &self.messages
+    }
+
+    /// Uso de tokens acumulado ao longo de **toda** a sessão até aqui —
+    /// soma de cada turno (`run`/`run_streaming`) e de cada [`Self::compact`]
+    /// já concluídos (MT-82, ADR-0029). Zerado só ao criar uma [`Session`]
+    /// nova (`Self::new`); nunca reseta sozinho, inclusive após `compact`.
+    #[must_use]
+    pub fn usage_total(&self) -> Usage {
+        self.usage_total
     }
 
     /// Garante que a mensagem de sistema esteja no início do histórico —
@@ -542,6 +569,10 @@ impl Session {
         *consumed = Usage {
             input_tokens: consumed.input_tokens + turn_usage.input_tokens,
             output_tokens: consumed.output_tokens + turn_usage.output_tokens,
+        };
+        self.usage_total = Usage {
+            input_tokens: self.usage_total.input_tokens + turn_usage.input_tokens,
+            output_tokens: self.usage_total.output_tokens + turn_usage.output_tokens,
         };
         let tool_calls = extract_tool_calls(&message);
         self.messages.push(message);
@@ -1733,6 +1764,129 @@ mod tests {
             mock.chat_requests().len(),
             0,
             "nenhuma chamada deveria ter sido feita para histórico vazio"
+        );
+    }
+
+    #[tokio::test]
+    async fn sessao_recem_criada_comeca_com_usage_total_zerado() {
+        let mock = Arc::new(MockProvider::new("mock"));
+        let executor = Arc::new(CountingExecutor::default());
+        let session = Session::new(route(mock), executor, TokenBudget::new(10_000));
+
+        assert_eq!(session.usage_total(), Usage::default());
+    }
+
+    #[tokio::test]
+    async fn um_turno_soma_corretamente_ao_usage_total() {
+        let mock = Arc::new(MockProvider::new("mock"));
+        mock.enqueue_chat(Ok(resposta_final(
+            "resposta",
+            Usage {
+                input_tokens: 10,
+                output_tokens: 5,
+            },
+        )));
+        let executor = Arc::new(CountingExecutor::default());
+        let mut session = Session::new(route(mock), executor, TokenBudget::new(10_000));
+        session.push_user_message("pergunta");
+
+        session.run(&router_vazio()).await.expect("deve completar");
+
+        assert_eq!(
+            session.usage_total(),
+            Usage {
+                input_tokens: 10,
+                output_tokens: 5
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn multiplos_turnos_acumulam_no_usage_total_em_vez_de_sobrescrever() {
+        let mock = Arc::new(MockProvider::new("mock"));
+        mock.enqueue_chat(Ok(resposta_final(
+            "primeira",
+            Usage {
+                input_tokens: 10,
+                output_tokens: 5,
+            },
+        )));
+        let executor = Arc::new(CountingExecutor::default());
+        let mut session = Session::new(route(mock.clone()), executor, TokenBudget::new(10_000));
+        session.push_user_message("primeira pergunta");
+        session
+            .run(&router_vazio())
+            .await
+            .expect("primeiro turno deve completar");
+
+        mock.enqueue_chat(Ok(resposta_final(
+            "segunda",
+            Usage {
+                input_tokens: 7,
+                output_tokens: 3,
+            },
+        )));
+        session.push_user_message("segunda pergunta");
+        session
+            .run(&router_vazio())
+            .await
+            .expect("segundo turno deve completar");
+
+        assert_eq!(
+            session.usage_total(),
+            Usage {
+                input_tokens: 17,
+                output_tokens: 8
+            },
+            "os dois turnos devem se somar, nenhum sobrescreve o outro"
+        );
+    }
+
+    #[tokio::test]
+    async fn compact_soma_seu_proprio_uso_e_nunca_zera_o_total_acumulado() {
+        let mock = Arc::new(MockProvider::new("mock"));
+        mock.enqueue_chat(Ok(resposta_final(
+            "primeira resposta",
+            Usage {
+                input_tokens: 10,
+                output_tokens: 5,
+            },
+        )));
+        let executor = Arc::new(CountingExecutor::default());
+        let mut session = Session::new(route(mock.clone()), executor, TokenBudget::new(10_000));
+        session.push_user_message("pergunta original");
+        session
+            .run(&router_vazio())
+            .await
+            .expect("turno deve completar");
+        assert_eq!(
+            session.usage_total(),
+            Usage {
+                input_tokens: 10,
+                output_tokens: 5
+            }
+        );
+
+        mock.enqueue_chat(Ok(resposta_final(
+            "resumo da conversa",
+            Usage {
+                input_tokens: 20,
+                output_tokens: 8,
+            },
+        )));
+        let router = router_com_compact(mock.clone());
+        session
+            .compact(&router)
+            .await
+            .expect("compactação deve funcionar");
+
+        assert_eq!(
+            session.usage_total(),
+            Usage {
+                input_tokens: 30,
+                output_tokens: 13
+            },
+            "compact soma seu próprio uso ao total, nunca reseta o que já foi consumido"
         );
     }
 
