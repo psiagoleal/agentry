@@ -774,6 +774,7 @@ async fn main() {
             Arc::new(tool_executor::TuiConfirmer::new(
                 tx_humano.clone(),
                 Arc::clone(&auto_confirmacao),
+                workspace_root.clone(),
             )),
         )
     } else {

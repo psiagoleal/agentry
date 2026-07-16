@@ -22,10 +22,13 @@
 //! streaming (não no laço de eventos, que possui o terminal) — pedidos de
 //! confirmação/pergunta chegam aqui por
 //! [`crate::tool_executor::PedidoHumano`], mesma disciplina de canal +
-//! `oneshot` do restante do módulo.
+//! `oneshot` do restante do módulo. Para `fs_write`/`fs_edit` sob `ask`, o
+//! pedido já chega com o diff pronto ([`diff::LinhaDiff`], MT-75) — montado
+//! do lado do `TuiConfirmer`, não aqui.
 
 mod ask_user;
 mod chat;
+pub(crate) mod diff;
 mod keybind;
 mod model_picker;
 
@@ -37,6 +40,7 @@ use std::sync::Arc;
 
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
+use ratatui::style::{Color, Style};
 use ratatui::text::Line;
 use ratatui::widgets::{Block, Clear, Paragraph};
 use ratatui::{DefaultTerminal, Frame};
@@ -48,6 +52,7 @@ use agentry_core::session::{Session, SessionError, SessionOutcome};
 
 use crate::tool_executor::PedidoHumano;
 use chat::{Autor, ChatState};
+use diff::LinhaDiff;
 use keybind::Action;
 use model_picker::CandidatoExibicao;
 
@@ -75,6 +80,10 @@ enum SolicitacaoAtiva {
     /// Confirmação de uma tool-call pendente sob `ask` (`TuiConfirmer`).
     Confirmacao {
         call: ToolCall,
+        /// Diff pronto (MT-75) para `fs_write`/`fs_edit` — `None` para
+        /// qualquer outra tool, que continua mostrando os argumentos
+        /// brutos.
+        diff: Option<Vec<LinhaDiff>>,
         responder: tokio::sync::oneshot::Sender<bool>,
     },
     /// Pergunta de texto livre da tool `ask_user` (`TuiPrompter`,
@@ -302,16 +311,25 @@ fn draw(frame: &mut Frame<'_>, estado: &Estado) {
 /// bloqueado por falta de `Session` disponível).
 fn draw_solicitacao(frame: &mut Frame<'_>, solicitacao: &SolicitacaoAtiva) {
     match solicitacao {
-        SolicitacaoAtiva::Confirmacao { call, .. } => {
-            let area = area_centralizada(60, 30, frame.area());
+        SolicitacaoAtiva::Confirmacao { call, diff, .. } => {
+            // Área maior que a de confirmação genérica — o diff de um
+            // fs_write/fs_edit real costuma ter mais linhas do que cabe no
+            // modal compacto original.
+            let area = area_centralizada(70, 60, frame.area());
             frame.render_widget(Clear, area);
-            let texto = vec![
-                Line::from(format!("tool: {}", call.name)),
-                Line::from(format!("argumentos: {}", call.arguments)),
-                Line::from(""),
-                Line::from("Enter aprova · Esc recusa"),
-            ];
-            let paragrafo = Paragraph::new(texto)
+            let mut linhas = vec![Line::from(format!("tool: {}", call.name))];
+            match diff {
+                Some(linhas_diff) if !linhas_diff.is_empty() => {
+                    linhas.push(Line::from(""));
+                    linhas.extend(linhas_diff.iter().map(linha_de_diff));
+                }
+                _ => {
+                    linhas.push(Line::from(format!("argumentos: {}", call.arguments)));
+                }
+            }
+            linhas.push(Line::from(""));
+            linhas.push(Line::from("Enter aprova · Esc recusa"));
+            let paragrafo = Paragraph::new(linhas)
                 .block(Block::bordered().title(" confirmar execução de tool "));
             frame.render_widget(paragrafo, area);
         }
@@ -340,6 +358,21 @@ fn draw_solicitacao(frame: &mut Frame<'_>, solicitacao: &SolicitacaoAtiva) {
                 .block(Block::bordered().title(" sua resposta (Enter envia, Esc cancela) "));
             frame.render_widget(resposta, layout[1]);
         }
+    }
+}
+
+/// Renderiza uma [`LinhaDiff`] como `Line` — prefixo `-`/`+`/` ` (mesma
+/// convenção do `diff` do Unix) com cor vermelha/verde para linhas
+/// removidas/adicionadas; linhas inalteradas ficam sem estilo especial.
+fn linha_de_diff(linha: &LinhaDiff) -> Line<'static> {
+    match linha {
+        LinhaDiff::Removida(texto) => {
+            Line::styled(format!("- {texto}"), Style::default().fg(Color::Red))
+        }
+        LinhaDiff::Adicionada(texto) => {
+            Line::styled(format!("+ {texto}"), Style::default().fg(Color::Green))
+        }
+        LinhaDiff::Inalterada(texto) => Line::from(format!("  {texto}")),
     }
 }
 
@@ -521,7 +554,11 @@ async fn loop_eventos(
 
                 if let Some(solicitacao) = estado.solicitacao.take() {
                     match solicitacao {
-                        SolicitacaoAtiva::Confirmacao { call, responder } => match acao {
+                        SolicitacaoAtiva::Confirmacao {
+                            call,
+                            diff,
+                            responder,
+                        } => match acao {
                             Some(Action::Quit) => {
                                 let _ = responder.send(false);
                                 return Ok(());
@@ -533,8 +570,11 @@ async fn loop_eventos(
                                 let _ = responder.send(false);
                             }
                             _ => {
-                                estado.solicitacao =
-                                    Some(SolicitacaoAtiva::Confirmacao { call, responder });
+                                estado.solicitacao = Some(SolicitacaoAtiva::Confirmacao {
+                                    call,
+                                    diff,
+                                    responder,
+                                });
                             }
                         },
                         SolicitacaoAtiva::Pergunta {
@@ -686,9 +726,15 @@ async fn loop_eventos(
                 // laço de eventos, então não há conflito com um
                 // `solicitacao` já em aberto (só um turno em voo por vez).
                 estado.solicitacao = Some(match pedido {
-                    PedidoHumano::Confirmacao { call, responder } => {
-                        SolicitacaoAtiva::Confirmacao { call, responder }
-                    }
+                    PedidoHumano::Confirmacao {
+                        call,
+                        diff,
+                        responder,
+                    } => SolicitacaoAtiva::Confirmacao {
+                        call,
+                        diff,
+                        responder,
+                    },
                     PedidoHumano::Pergunta {
                         question,
                         options,
