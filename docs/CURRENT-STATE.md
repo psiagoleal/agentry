@@ -9,7 +9,7 @@
 
 - **Data:** 2026-07-16
 - **Branch:** `main`
-- **Commit:** `a4f8470`
+- **Commit:** `0d2c4cf`
 - **Fase:** Roadmap v0.1..v0.4 **fechados/imutáveis**; **Fase 10 concluída** (LiteLLM).
   **Execução autônoma em andamento** (`/loop /implementar-roadmap`, modelo Sonnet 5) — ver
   `docs/decisoes-autonomas.md` para decisões tomadas sozinho (**5 decisões registradas** até a
@@ -341,6 +341,27 @@
   `agentry-core` (+4), 118 em `agentry`, `cargo build --release` limpo. Nenhuma mudança de
   comportamento observável da CLI ainda — `SubagentTool` não é registrada em nenhum lugar
   nesta ticket.
+
+  **MT-91 concluído** — `ToolRegistry::tools()` (novo): expõe as tools registradas para
+  reaproveitar as mesmas instâncias `Arc<dyn Tool>` num segundo registro, sem reconstruir
+  nenhuma. `register_subagent_tool()` (nova, `crates/cli/src/main.rs`): constrói um segundo
+  `ToolRegistry` com as mesmas tools já registradas na sessão principal (exceto a própria
+  `subagent`), vira o executor interno de `SubagentTool`; a tool `subagent` é então
+  registrada no registro real, que vira o executor da sessão principal de verdade — recursão
+  impossível estruturalmente. **Achado durante a implementação, registrado em
+  `docs/decisoes-autonomas.md`:** `Router` não é `Clone` e é mutável em tempo de execução
+  (`/model`/`/task-class`) — compartilhar um `Arc<Router>` literalmente único exigiria
+  `Arc<Mutex<Router>>` tocando três pontos de entrada da CLI. Resolvido com uma nova
+  `montar_router()` (função pura), chamada duas vezes com os mesmos insumos já computados
+  (nenhum I/O/reconstrução de verdade) — dá ao subagente sua própria instância "equivalente"
+  (mesmos providers, mesmas *task-classes* declaradas, mesma classe de egresso). Consequência
+  documentada: o subagente usa a "foto" da configuração tirada no arranque da CLI, não uma
+  troca de modelo/task-class feita depois via `/model`/`/task-class` — a garantia de egresso
+  em si permanece intacta (o teto nunca muda em tempo de execução). 3 testes novos (inclusive
+  uma chamada real de ponta a ponta via `RegistryToolExecutor`/`PermissionGate`). 386 testes
+  em `agentry-core`, 121 em `agentry` (+3), `cargo build --release` limpo. Smoke-test manual
+  do binário `--release`: modo *one-shot* e REPL (com `/model` mutando o router principal em
+  tempo real) continuam funcionando normalmente depois do *refactor*.
 
   **MT-70 concluído** — primeiro ticket de implementação da Fase 15: `ratatui` (feature
   `crossterm`, `default-features = false` para árvore de dependências mínima) adicionada a
@@ -1616,21 +1637,33 @@
   resolver um candidato de nuvem). 386 testes em `agentry-core` (+4), 118 em `agentry`,
   `cargo build --release` limpo. Nenhuma mudança de comportamento observável da CLI ainda.
 
+- [x] **MT-91** — `ToolRegistry::tools()` (novo) + `register_subagent_tool()`
+  (`crates/cli/src/main.rs`): dois `ToolRegistry` (um sem `SubagentTool`, vira o executor
+  interno do subagente; outro com `SubagentTool`, vira o executor da sessão principal).
+  Achado registrado em `docs/decisoes-autonomas.md`: `Router` não é `Clone`/mutável em tempo
+  de execução — `montar_router()` (nova, função pura) chamada duas vezes com os mesmos
+  insumos dá ao subagente sua própria instância "equivalente", sem `Mutex` compartilhado.
+  3 testes novos. 386 testes em `agentry-core`, 121 em `agentry` (+3), `cargo build
+  --release` limpo. Smoke-test manual: *one-shot* e REPL (com `/model` em tempo real)
+  continuam funcionando normalmente.
+
 **Em andamento:** nada pendente — árvore de trabalho limpa, tudo commitado. **Fase 18
 concluída inteira (MT-86..89)**; **Fase 19 preparada** (ADR-0031 `Proposed`,
-`docs/roadmap-v0.13.md`, MT-90..92); **MT-90 concluído**.
+`docs/roadmap-v0.13.md`, MT-90..92); **MT-90/91 concluídos**.
 
-**Próximo passo:** **MT-91** (`docs/roadmap-v0.13.md`, `crates/cli/src/main.rs`) — fiação na
-CLI: refatora a construção de tools para uma lista reutilizável de `Arc<dyn Tool>`, registrada
-em **dois** `ToolRegistry` (um sem `SubagentTool`, vira o executor interno do subagente; outro
-com `SubagentTool`, vira o executor da sessão principal de verdade). Segundo ticket de
-implementação da Fase 19. Outros itens em aberto, sem ticket: **memória entre sessões** e
-**multimodal** (Fase 20+) já têm a pergunta de design respondida pelo mantenedor (ver
-`docs/roadmap-longo-prazo.md` §Fase 20+), mas ainda sem ADR/tickets — preparar quando a
-Fase 19 concluir; deploy do site MkDocs (GitHub Pages) — decisão explícita do usuário de não
-fazer ainda; CI multi-SO ainda não observado verde (falta um push que dispare a matriz);
-backlog independente do `ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de
-reanálise de maturidade,
+**Próximo passo:** **MT-92** (`docs/roadmap-v0.13.md`, `docs/usuario/uso.md`,
+`docs/governanca/privacidade-e-egresso.md`, `docs/adr/0031-subagentes-com-egresso-restrito.md`,
+`docs/adr/README.md`, `docs/roadmap-longo-prazo.md`) — documentação: nota sobre a tool
+`subagent` em `docs/usuario/uso.md`; seção "Subagentes e egresso" em
+`docs/governanca/privacidade-e-egresso.md`; ADR-0031 promovida de `Proposed` para `Accepted`;
+`docs/adr/README.md`/`docs/roadmap-longo-prazo.md` atualizados — Fase 19 marcada concluída.
+Último ticket da Fase 19 — fecha a fase inteira. Outros itens em aberto, sem ticket:
+**memória entre sessões** e **multimodal** (Fase 20+) já têm a pergunta de design respondida
+pelo mantenedor (ver `docs/roadmap-longo-prazo.md` §Fase 20+), mas ainda sem ADR/tickets —
+preparar quando a Fase 19 concluir; deploy do site MkDocs (GitHub Pages) — decisão explícita
+do usuário de não fazer ainda; CI multi-SO ainda não observado verde (falta um push que
+dispare a matriz); backlog independente do `ai-coding-agent-profiles` (ADRs 0001-0005 —
+RTK/OKF pendentes de reanálise de maturidade,
 perfis base+overlay/skills executáveis/config de serviços pendentes de validação de
 implementação).
 

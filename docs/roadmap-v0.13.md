@@ -43,7 +43,7 @@ Mesmas dos roadmaps anteriores (`docs/roadmap-v0.1.md` §Convenções): **DoD** 
 - **Fora de escopo:** fiação em `crates/cli/src/main.rs` (MT-91); documentação (MT-92).
 - **Depende de:** ADR-0031.
 
-### MT-91: Fiação na CLI — dois registros de tools, um sem `subagent`
+### MT-91: Fiação na CLI — dois registros de tools, um sem `subagent` ✅ concluído (0d2c4cf)
 - **Objetivo:** `crates/cli/src/main.rs` refatora a construção de tools para uma lista
   reutilizável de `Arc<dyn Tool>` (mesmas instâncias, sem duplicar estado real de nenhuma
   tool), registrada em **dois** `ToolRegistry`: um sem `SubagentTool` (vira o

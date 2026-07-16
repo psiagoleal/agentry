@@ -27,6 +27,41 @@ escolha feita sozinho.
 
 ## Entradas (mais recente no topo)
 
+### 2026-07-16 — MT-91 (Fase 19, subagentes) — `Router` não é `Clone`, subagente ganha instância própria "equivalente"
+- **Contexto:** ADR-0031 (e o MT-90) descreviam o subagente usando "o mesmo `Arc<Router>`" da
+  sessão-mãe, de forma literal — um único objeto compartilhado. Ao escrever a fiação real
+  (MT-91), isso esbarrou num obstáculo concreto: `Router` (`crates/core/src/router/mod.rs`)
+  **não implementa `Clone`** e é **mutável em tempo de execução** — `/model`/`/task-class`
+  (REPL) e o seletor de modelo (TUI) chamam `router.set_route(...)` (`&mut self`) para trocar
+  a rota `"chat"` ativa a qualquer momento durante a sessão. Compartilhar um `Arc<Router>`
+  verdadeiramente único exigiria conceder ao `SubagentTool` acesso de **mutação** ao mesmo
+  objeto que o laço principal também muta (via `Arc<Mutex<Router>>` ou similar) — uma mudança
+  de arquitetura maior, tocando três pontos de entrada da CLI (*one-shot*, REPL, TUI).
+- **Opções consideradas:** (a) `Arc<Mutex<Router>>` compartilhado de verdade entre sessão-mãe
+  e subagente — reflete qualquer troca de modelo/task-class em tempo real, mas exige revisar
+  todo ponto que hoje segura `&Router`/`&mut Router` (`Session::run`, `resolve_with_override`,
+  `/model`, `/task-class`, seletor da TUI) para conviver com `Mutex`, incluindo risco de
+  *deadlock* se um subagente disparado de dentro de um turno tentar re-adquirir o lock que o
+  laço principal já segura; (b) segunda instância de `Router` construída de forma **idêntica**
+  (mesmos providers, mesmas *task-classes* declaradas, mesma classe de egresso) a partir dos
+  mesmos insumos já computados no arranque da CLI (nenhuma reconstrução de verdade, nenhum
+  I/O novo) — mais simples, sem *lock*, mas não reflete uma troca de modelo/task-class feita
+  **depois** que a CLI já inicializou.
+- **Escolha (recomendada):** (b) segunda instância "equivalente", construída por uma nova
+  função pura `montar_router(...)` chamada duas vezes com os mesmos insumos.
+- **Justificativa:** a garantia de segurança que a ADR-0031 pede — o subagente nunca resolve
+  um candidato mais permissivo que o teto de egresso do perfil ativo — **continua
+  integralmente preservada**, porque a classe de egresso (`cfg.egress_class`) é a mesma nas
+  duas instâncias e nunca muda em tempo de execução (só as *rotas* declaradas podem mudar via
+  `/model`/`/task-class`, nunca o teto). A única diferença observável é que o subagente usa a
+  "foto" de `taskClasses` tirada no arranque, não a rota ativa **agora** — uma limitação bem
+  menor que a complexidade/risco de introduzir `Mutex` compartilhado só para este caso, e sem
+  nenhum I/O/reconstrução de verdade duplicada (providers/config são reaproveitados via
+  `Arc::clone`/`Clone`, nunca recriados). Documentado como consequência explícita no
+  comentário do código e no *handoff* — extensão futura clara se houver demanda de ver a rota
+  ativa refletida em tempo real.
+- **Commit:** `0d2c4cf`.
+
 ### 2026-07-16 — ADR-0031 (Fase 19, subagentes) — interpretação de "classe da sessão-mãe" e prevenção de recursão
 - **Contexto:** o mantenedor respondeu explicitamente (não uma decisão autônoma) a pergunta-
   chave da ADR-0031 — um subagente pode declarar sua própria classe de egresso, mas só igual
