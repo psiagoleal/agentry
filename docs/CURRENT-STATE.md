@@ -9,7 +9,7 @@
 
 - **Data:** 2026-07-15
 - **Branch:** `main`
-- **Commit:** `7a68941`
+- **Commit:** `f758b2d`
 - **Fase:** Roadmap v0.1..v0.4 **fechados/imutáveis**; **Fase 10 concluída** (LiteLLM).
   **Execução autônoma em andamento** (`/loop /implementar-roadmap`, modelo Sonnet 5) — ver
   `docs/decisoes-autonomas.md` para decisões tomadas sozinho (**5 decisões registradas** até a
@@ -93,6 +93,20 @@
   `shutdown` não deixa processo órfão, comando inexistente é erro tratado) + 1 unitário.
   `cargo build --release` limpo — confirma que a superfície de produção do `rmcp` continua só
   `client`+`transport-child-process`.
+
+  **MT-79 concluído** — `crates/core/src/tools/mcp.rs` (novo): cada tool descoberta por
+  `McpClient` (MT-78) vira uma `McpTool` implementando a *trait* `Tool` (MT-11), nome de
+  registro prefixado pelo servidor (`"<servidor>__<tool>"`, ADR-0028); `execute()` encaminha
+  para o novo `McpClient::call_tool` — sob o mesmo `ToolRegistry`/`PermissionGate` de qualquer
+  outra tool. `register_mcp_tools` (`crates/cli/src/main.rs`) conecta a cada servidor
+  configurado; falha de **um** servidor é não-fatal (`stderr` + `continue`), não trava a CLI
+  nem os demais servidores — distinto do MT-77, onde config inválida já é erro fatal.
+  Corrigido durante o teste de ponta a ponta um *hang* no `fake_mcp_server` (MT-78): método
+  sem resposta deixava o cliente `rmcp` real esperando para sempre, sem *timeout* próprio;
+  agora responde `tools/call` de verdade e devolve erro JSON-RPC `-32601` para qualquer método
+  desconhecido em vez de ignorar em silêncio. 8 testes novos (3 unitários + 5 de integração),
+  `cargo build --release` limpo, smoke-test manual confirma que um servidor MCP fora do ar não
+  impede a CLI de completar uma tarefa.
 
   **MT-70 concluído** — primeiro ticket de implementação da Fase 15: `ratatui` (feature
   `crossterm`, `default-features = false` para árvore de dependências mínima) adicionada a
@@ -1222,17 +1236,46 @@
   teste unitário. `cargo build --release` limpo — confirma que a superfície de produção do
   `rmcp` continua só `client`+`transport-child-process`, sem vazamento de `server`/`macros`.
 
+- [x] **MT-79** — `crates/core/src/tools/mcp.rs` (novo): cada tool descoberta por
+  `McpClient::list_tools()` (MT-78) vira uma `McpTool`, implementando a *trait* `Tool`
+  (MT-11) — nome de registro prefixado pelo servidor (`"<servidor>__<tool>"`, ADR-0028) para
+  nunca colidir entre servidores; a chamada de verdade ao servidor usa o nome **original**,
+  sem prefixo. `execute()` encaminha para `McpClient::call_tool` (novo em
+  `crates/core/src/mcp/mod.rs`) — sob o **mesmo** `ToolRegistry`/`PermissionGate` de qualquer
+  outra tool, nenhum mecanismo paralelo de confirmação/bloqueio. `register_mcp_tools`
+  (`crates/cli/src/main.rs`) conecta a cada servidor de `cfg.mcp_servers` e registra suas
+  tools; falha de conexão/listagem de **um** servidor é não-fatal (`eprintln!` + `continue`) —
+  problema de ambiente/*runtime*, distinto de config inválida (que já é fatal desde o MT-77),
+  e um servidor fora do ar não deve travar a CLI nem os demais servidores configurados.
+
+  **Achado corrigido durante o teste de ponta a ponta (bug, não decisão de projeto — não
+  gerou entrada em `docs/decisoes-autonomas.md`):** o teste de execução real
+  (`execucao_via_registry_chega_ao_servidor_real_e_devolve_pong`) travou indefinidamente. Causa: o
+  `fake_mcp_server` (fixture do MT-78) ignorava em silêncio qualquer método não tratado,
+  incluindo `tools/call` — o cliente `rmcp` real não tem *timeout* próprio por requisição e
+  ficava esperando para sempre por uma resposta que nunca viria. Corrigido: `fake_mcp_server`
+  agora responde `tools/call` de verdade (`CallToolResult::success` com `"pong"`) e devolve um
+  erro JSON-RPC `-32601` ("Method not found") para qualquer outro método com `id`, em vez de
+  ignorar — fecha essa classe de trava por completo, não só o caso observado.
+
+  366 testes em `agentry-core` (+8: 3 unitários em `tools/mcp.rs`, 5 de integração em
+  `tests/mcp_tool.rs`) e 104 em `agentry`, `cargo build --release` limpo. Smoke-test manual do
+  binário `--release`: `--init` gera `mcpServers.exemplo` (comando `echo`, não fala MCP de
+  verdade); rodar uma tarefa real com essa config presente imprime
+  `erro ao conectar ao servidor MCP 'exemplo': ...` em `stderr` e segue normalmente até
+  completar a tarefa — confirma que uma falha de conexão de um servidor nunca trava a CLI.
+
 **Em andamento:** nada pendente — árvore de trabalho limpa, tudo commitado.
 
-**Próximo passo:** **MT-79** (`docs/roadmap-v0.10.md`, novo `crates/core/src/tools/mcp.rs`,
-`crates/cli/src/main.rs`) — tools MCP no `ToolRegistry`: cada tool descoberta por `McpClient`
-vira uma entrada implementando a *trait* `Tool` (MT-11), nome prefixado pelo servidor
-(`"<servidor>__<tool>"`), `execute()` encaminha para `peer.call_tool(...)` — sob o mesmo
-`PermissionGate` de qualquer outra tool, terceiro ticket da Fase 16. Outros itens em aberto,
-sem ticket: deploy do site MkDocs (GitHub Pages) — decisão explícita do usuário de não fazer
-ainda; CI multi-SO ainda não observado verde (falta um push que dispare a matriz); backlog
-independente do `ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de reanálise de
-maturidade,
+**Próximo passo:** **MT-80** (`docs/roadmap-v0.10.md`, `crates/core/src/config/mod.rs`,
+`crates/core/src/mcp/mod.rs`) — classe de egresso declarada por servidor MCP (ADR-0002):
+formaliza e testa de ponta a ponta o que o MT-77 já começou no *parsing* — garante que
+**nenhum caminho** (inclusive um `mcpServers` montado manualmente por código, contornando o
+*parsing* do MT-77) chega a spawnar/conectar um servidor com `egressClass` diferente de
+`local-only`; quarto ticket da Fase 16. Outros itens em aberto, sem ticket: deploy do site
+MkDocs (GitHub Pages) — decisão explícita do usuário de não fazer ainda; CI multi-SO ainda não
+observado verde (falta um push que dispare a matriz); backlog independente do
+`ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de reanálise de maturidade,
 perfis base+overlay/skills executáveis/config de serviços pendentes de validação de
 implementação).
 

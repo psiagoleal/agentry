@@ -69,7 +69,7 @@ retoma a partir dele, sem deixar o número como lacuna permanente.
   subprocesso local.
 - **Depende de:** MT-77.
 
-### MT-79: Tools MCP no `ToolRegistry` sob o gate de permissão
+### MT-79: Tools MCP no `ToolRegistry` sob o gate de permissão ✅ concluído (f758b2d)
 - **Objetivo:** cada tool descoberta por `McpClient` (MT-78) vira uma entrada no
   `ToolRegistry` já existente, implementando a *trait* `Tool` (MT-11) — `execute()` encaminha
   a chamada para `peer.call_tool(...)` do `rmcp`. Nome registrado sempre prefixado pelo nome
