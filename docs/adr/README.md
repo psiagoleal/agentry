@@ -37,3 +37,4 @@ Registros de decisões estruturais (ver skill `adr-writer`). Use
 | [0028](0028-mcp-client-via-rmcp.md) | Cliente MCP via `rmcp` — só servidores locais (`stdio`) na v1 | Accepted |
 | [0029](0029-uso-de-tokens-visivel-na-sessao.md) | Uso de tokens visível durante a sessão (`Session::usage_total`) | Accepted |
 | [0030](0030-checkpoints-e-undo-de-mudancas-de-arquivo.md) | Checkpoints e *undo* de mudanças de arquivo (`fs_write`/`fs_edit`) | Accepted |
+| [0031](0031-subagentes-com-egresso-restrito.md) | Subagentes com classe de egresso restrita à sessão-mãe | Proposed |

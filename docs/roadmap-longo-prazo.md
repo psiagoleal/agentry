@@ -18,10 +18,13 @@ ADR-0027 `Accepted` — `docs/roadmap-v0.10.md`, `rmcp` pré-autorizado pelo man
 `ratatui`; ADR-0028 `Accepted`, escopo v1 restrito a servidores MCP locais — `docs/roadmap-v0.11.md`,
 ADR-0029 `Accepted`: uso de tokens visível durante a sessão, primeira das cinco frentes de
 "segunda onda" — e `docs/roadmap-v0.12.md`, ADR-0030 `Accepted`: checkpoints e *undo* de
-mudanças de arquivo, segunda das cinco frentes de "segunda onda", ordens escolhidas e
-registradas em `docs/decisoes-autonomas.md`, 2026-07-16). Próxima fase sem tickets
-detalhados ainda: Fase 19+ (ver seção própria abaixo) — as outras três frentes de "segunda
-onda".
+mudanças de arquivo, segunda das cinco frentes de "segunda onda"). Das três frentes
+restantes, todas levantavam pergunta de design/segurança sem opção recomendada óbvia — o
+mantenedor foi consultado diretamente (2026-07-16, ver `docs/decisoes-autonomas.md`) e
+escolheu **subagentes/orquestração** para vir primeiro. **Fase 19** já está detalhada — ver
+`docs/roadmap-v0.13.md` (ADR-0031, `Proposed`). Pronta para começar a implementação a partir
+do MT-90. As outras duas frentes (memória entre sessões, multimodal) seguem sem tickets
+detalhados, mas já com a pergunta de design de cada uma respondida (ver Fase 20+ abaixo).
 
 > Convenções de DoD, granularidade e "dependência nova exige ADR (ADR-0004)": iguais às dos
 > roadmaps versionados (`docs/roadmap-v0.1.md` §Convenções).
@@ -39,8 +42,8 @@ micro-tickets) antes de implementadas.
 ## Sequência das fases
 
 ```
-Fase 11 → Fase 12 → Fase 13 → Fase 14 → Fase 15 → Fase 16 → Fase 17 → Fase 18       → Fase 19+
-(ignore)  (config)   (memória)  (tools)   (TUI)     (MCP)     (uso)     (checkpoints)  (2ª onda, restante)
+Fase 11 → Fase 12 → Fase 13 → Fase 14 → Fase 15 → Fase 16 → Fase 17 → Fase 18       → Fase 19        → Fase 20+
+(ignore)  (config)   (memória)  (tools)   (TUI)     (MCP)     (uso)     (checkpoints)  (subagentes)     (2ª onda, restante)
 ```
 
 Prioridade escolhida: **fundamentos antes das vitrines** — configuração e memória de projeto
@@ -203,25 +206,48 @@ retidos, sem configuração nova (YAGNI).
 como única fonte de formatação, reaproveitada pelos três pontos de exposição; documentação de
 usuário fechando a fase.
 
-## Fase 19+ — Segunda onda, restante (ADRs 0031+ quando alcançadas)
+## Fase 19 — Subagentes/orquestração (ADR-0031)
 
-Enumeradas; *stubs de ADR adiados* — cada uma ganha ADR e detalhamento quando chegar a vez:
+**Objetivo:** delegar subtarefas a uma `Session` interna (equivalente ao `Task` do Claude
+Code / árvore de sessão do OpenCode) — escolhida pelo mantenedor entre as três frentes
+restantes de "segunda onda" (`docs/decisoes-autonomas.md`, 2026-07-16), depois de responder
+diretamente à decisão-chave de design: **um subagente pode declarar sua própria classe de
+egresso, mas só igual ou mais restrita que a da sessão-mãe** — nunca mais permissiva.
+
+**ADR:** ADR-0031 — **escrita**, `Proposed`. Decisão central: o subagente usa o **mesmo**
+`Arc<Router>` da sessão-mãe — como `Router::resolve` já recusa qualquer candidato mais
+permissivo que o teto de egresso do perfil ativo, para **qualquer** chamador, essa garantia
+vale automaticamente, sem nenhum código novo de imposição. Recursão (subagente criando
+subagente) é impossível **estruturalmente**: o executor interno do subagente nunca registra
+a própria tool `subagent`, em vez de uma checagem em tempo de execução. Reaproveita 100% da
+infraestrutura existente — mesmo `PermissionGate`/`Confirmer`/`GuardrailGate` da sessão-mãe,
+nenhum mecanismo paralelo. Fora de escopo (v1): uso do subagente não soma automaticamente ao
+`usage_total` da sessão-mãe (aparece no próprio texto de resposta); sem `AGENTS.md`/skills no
+contexto do subagente; um nível de aninhamento só, sequencial, sem *streaming*.
+
+**Detalhamento completo:** `docs/roadmap-v0.13.md` (MT-90..92). Pronta para começar a
+implementação a partir do MT-90.
+
+## Fase 20+ — Segunda onda, restante (ADRs 0032+ quando alcançadas)
+
+Enumeradas; *stubs de ADR adiados* — cada uma ganha ADR e detalhamento quando chegar a vez.
+O mantenedor já respondeu à pergunta de design de cada uma (2026-07-16), mas a ADR completa
+e os micro-tickets só são escritos quando a fase começar, com contexto fresco:
 
 - **Memória entre sessões** (padrão LLM-Wiki/OKF, ADR-0004(c)) — hoje só há compactação
-  *dentro* de uma sessão (ADR-0016); nada persiste conhecimento entre sessões/dias. Levanta
-  pergunta de retenção/confidencialidade própria (persistir conteúdo de conversa entre
-  sessões) — merece ADR com contexto de design fresco, não decidida de antemão aqui.
-- **Subagentes / orquestração** dentro do `agentry` (equivalente ao `Task` do Claude Code /
-  árvore de sessão do OpenCode). **Decisão-chave da futura ADR:** um subagente herda a classe
-  de egresso da sessão-mãe ou pode ter a própria? (implicação direta em ADR-0002 — decisão que
-  provavelmente exige escalar ao mantenedor em vez de decidir autonomamente, quando chegar a
-  vez).
+  *dentro* de uma sessão (ADR-0016); nada persiste conhecimento entre sessões/dias.
+  **Resposta do mantenedor:** só memória **explícita** — um comando tipo `/remember` que
+  grava um fato pontual aprovado pelo usuário, nunca persistência automática do conteúdo
+  integral de uma conversa.
 - **Multimodal** — `ContentBlock::Image` (`crates/core/src/model/mod.rs` só tem
-  Text/ToolCall/ToolResult hoje); aceitar screenshot/imagem como entrada. Levanta pergunta de
-  confidencialidade própria (imagem pode conter informação sensível que os *guardrails* de
-  texto atuais não enxergam) — merece ADR com contexto de design fresco.
+  Text/ToolCall/ToolResult hoje); aceitar screenshot/imagem como entrada. **Resposta do
+  mantenedor:** adiada até existir um *guardrail* de imagem (ex.: OCR alimentando as regras de
+  texto já existentes, `crates/core/src/guardrail/`) — os *guardrails* de conteúdo hoje só
+  inspecionam texto; multimodal sem esse pré-requisito abriria um canal de conteúdo não
+  auditado. Um mecanismo de OCR provavelmente exige uma dependência nova (biblioteca de OCR)
+  — quando essa frente chegar, a escolha da biblioteca passa pelo mantenedor de novo (ADR-0004).
 
-Ordem entre essas três ainda não decidida — fica para quando a Fase 18 concluir.
+Ordem entre essas duas ainda não decidida — fica para quando a Fase 19 concluir.
 
 ---
 
@@ -229,5 +255,6 @@ Ordem entre essas três ainda não decidida — fica para quando a Fase 18 concl
 
 ADR-0021 e ADR-0022 **escritas** (Fase 12). ADR-0023..0028 **reservadas** (números fixados
 aqui; arquivo de cada uma escrito ao iniciar sua fase, com contexto fresco). ADR-0029
-**escrita** (Fase 17, `Accepted`). ADR-0030 **escrita** (Fase 18, `Accepted`). ADR-0031+ para
-o restante da segunda onda (Fase 19+), sem número fixado ainda.
+**escrita** (Fase 17, `Accepted`). ADR-0030 **escrita** (Fase 18, `Accepted`). ADR-0031
+**escrita** (Fase 19, `Proposed`). ADR-0032+ para o restante da segunda onda (Fase 20+), sem
+número fixado ainda.

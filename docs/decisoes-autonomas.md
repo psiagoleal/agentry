@@ -27,6 +27,43 @@ escolha feita sozinho.
 
 ## Entradas (mais recente no topo)
 
+### 2026-07-16 — ADR-0031 (Fase 19, subagentes) — interpretação de "classe da sessão-mãe" e prevenção de recursão
+- **Contexto:** o mantenedor respondeu explicitamente (não uma decisão autônoma) a pergunta-
+  chave da ADR-0031 — um subagente pode declarar sua própria classe de egresso, mas só igual
+  ou mais restrita que a da sessão-mãe (opção B, escalada em turno anterior). Duas questões de
+  design **de implementação** ficaram abertas ao transformar essa resposta em arquitetura
+  concreta, ambas com opção recomendada clara:
+  1. **O que exatamente é "a classe da sessão-mãe"?** O `Router` (`crates/core/src/router/mod.rs`)
+     é construído uma vez por processo com **uma** `EgressClass` (o teto do perfil ativo,
+     ADR-0002) — `resolve()`/`resolve_with_override()` já recusam qualquer candidato mais
+     permissivo que esse teto, para **qualquer** chamador. Uma leitura mais estrita seria "a
+     classe da rota especificamente ativa na sessão-mãe agora" (que pode ser mais restrita que
+     o teto do perfil, se o usuário trocou de task-class via `/task-class`) — isso exigiria
+     rastrear e repassar esse estado mutável (hoje só existe como `String` na CLI, não no
+     `Router`/`Session`) até o `SubagentTool`.
+  2. **Como impedir um subagente de criar outro subagente (recursão)?** Um contador/*flag*
+     compartilhado (`Arc<AtomicBool>`) checado em `execute()` funcionaria, mas exige estado
+     mutável só para essa checagem.
+- **Opções consideradas (questão 1):** (a) o subagente usa o **mesmo** `Arc<Router>` da sessão-
+  mãe — o teto do perfil já é enforced estruturalmente por `resolve()`, sem código novo; (b)
+  rastrear a rota especificamente ativa da sessão-mãe (mais preciso, mas exige um mecanismo de
+  estado compartilhado mutável novo, hoje inexistente).
+- **Opções consideradas (questão 2):** (a) o executor interno do subagente **não inclui a tool
+  `subagent` no próprio registro** — recursão impossível estruturalmente (o modelo nem enxerga
+  a tool), sem estado compartilhado; (b) *flag* atômico compartilhado, checado em tempo de
+  execução.
+- **Escolha (recomendada):** (1a) mesmo `Arc<Router>` compartilhado; (2a) executor do subagente
+  sem a própria tool registrada.
+- **Justificativa:** ambas são a opção **estruturalmente mais forte** (a garantia vem da
+  construção do objeto, não de uma checagem que poderia ser esquecida ou contornada) e a de
+  **menor código novo** (zero estado mutável compartilhado adicional) — mesma disciplina de
+  design mínimo do projeto. (1a) ainda cumpre a letra da resposta do mantenedor: um subagente
+  nunca resolve um candidato mais permissivo que o teto que a própria sessão-mãe já respeita.
+  Caso o mantenedor prefira a leitura mais estrita (1b) depois de ver a implementação, é uma
+  extensão futura clara (rastrear a rota ativa da mãe), não uma reversão.
+- **Commit:** preparação da Fase 19 nesta mesma iteração (ver `docs/adr/0031-*.md` e
+  `docs/roadmap-v0.13.md`).
+
 ### 2026-07-16 — Preparação da Fase 18 — qual frente restante da "segunda onda" preparar
 - **Contexto:** a Fase 17 (uso de tokens visível) fechou inteira (MT-82..85). Restam quatro
   frentes de "segunda onda" em `docs/roadmap-longo-prazo.md` §Fase 18+ (à época), sem ordem
