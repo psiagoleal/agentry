@@ -9,7 +9,7 @@
 
 - **Data:** 2026-07-16
 - **Branch:** `main`
-- **Commit:** `5e54de9`
+- **Commit:** `4cd7f5e`
 - **Fase:** Roadmap v0.1..v0.4 **fechados/imutáveis**; **Fase 10 concluída** (LiteLLM).
   **Execução autônoma em andamento** (`/loop /implementar-roadmap`, modelo Sonnet 5) — ver
   `docs/decisoes-autonomas.md` para decisões tomadas sozinho (**5 decisões registradas** até a
@@ -196,6 +196,18 @@
   `"[uso] ..."` só em `stderr` (`stdout` só a resposta, confirmado com redirecionamento
   separado dos dois fluxos); REPL responde `/usage` com o total acumulado após uma mensagem
   real.
+
+  **MT-84 concluído — fecha os tickets de implementação da Fase 17 (MT-82..84); falta só o
+  MT-85 (documentação).** `Estado` (TUI, `crates/cli/src/tui/mod.rs`) ganha `usage_total`
+  (`Usage`), copiado de `Session::usage_total()` a cada `EventoAgente::Concluido` — a
+  `Session` em si vive fora de `Estado`, movida para a *task* de *streaming* durante um turno
+  em voo. Novo `rodape_da_entrada(estado)`, extraído de `draw()` para ser testável sem
+  terminal real: legenda de *keybindings* + `formatar_uso(estado.usage_total)`, mesma
+  formatação já usada pelo resumo *one-shot*/comando `/usage` do REPL (MT-83) — nenhuma
+  formatação divergente. 1 teste novo. 107 testes em `agentry` (+1), 372 em `agentry-core`,
+  `cargo build --release` limpo. Smoke-test manual via `tmux` (`--tui` num terminal real):
+  rodapé mostra `"0 tokens de entrada, 0 de saída (total: 0)"` no início; após uma mensagem
+  real completar, atualiza para o total correto, chat renderiza normalmente.
 
   **MT-70 concluído** — primeiro ticket de implementação da Fase 15: `ratatui` (feature
   `crossterm`, `default-features = false` para árvore de dependências mínima) adicionada a
@@ -1405,17 +1417,28 @@
   em `agentry-core`, `cargo build --release` limpo. Smoke-test manual confirma a separação
   `stdout`/`stderr` no modo *one-shot* e `/usage` funcionando no REPL real.
 
+- [x] **MT-84** — `Estado` (TUI) ganha `usage_total` (`Usage`), copiado de
+  `Session::usage_total()` a cada `EventoAgente::Concluido`. Novo `rodape_da_entrada(estado)`
+  (legenda de *keybindings* + `formatar_uso`), extraído de `draw()` para ser testável sem
+  terminal real. 1 teste novo. 107 testes em `agentry` (+1), 372 em `agentry-core`, `cargo
+  build --release` limpo. Smoke-test manual via `tmux`: rodapé mostra uso zerado no início e
+  atualiza corretamente após uma mensagem real completar.
+
 **Em andamento:** nada pendente — árvore de trabalho limpa, tudo commitado. **Fase 16
 concluída inteira (MT-77..81)**; **Fase 17 preparada** (ADR-0029 `Proposed`,
-`docs/roadmap-v0.11.md`, MT-82..85); **MT-82/83 concluídos**.
+`docs/roadmap-v0.11.md`, MT-82..85); **MT-82/83/84 concluídos** — falta só o MT-85
+(documentação) para fechar a Fase 17 inteira.
 
-**Próximo passo:** **MT-84** (`docs/roadmap-v0.11.md`, `crates/cli/src/tui/mod.rs`) —
-exposição do uso de tokens no rodapé da TUI (mesmo lugar da legenda de *keybindings*,
-`keybind::legenda()`), atualizado a cada turno concluído. Terceiro ticket de implementação da
-Fase 17. Outros itens em aberto, sem ticket: deploy do site MkDocs (GitHub Pages) — decisão
-explícita do usuário de não fazer ainda; CI multi-SO ainda não observado verde (falta um push
-que dispare a matriz); backlog independente do `ai-coding-agent-profiles` (ADRs 0001-0005 —
-RTK/OKF pendentes de reanálise de maturidade,
+**Próximo passo:** **MT-85** (`docs/roadmap-v0.11.md`, `docs/usuario/uso.md`,
+`docs/adr/0029-uso-de-tokens-visivel-na-sessao.md`, `docs/adr/README.md`,
+`docs/roadmap-longo-prazo.md`) — documentação: `docs/usuario/uso.md` ganha uma nota sobre o
+comando `/usage`, o resumo do modo *one-shot* e o rodapé da TUI; ADR-0029 promovida de
+`Proposed` para `Accepted`; `docs/adr/README.md`/`docs/roadmap-longo-prazo.md` atualizados —
+Fase 17 marcada concluída. Último ticket da Fase 17 — fecha a fase inteira. Outros itens em
+aberto, sem ticket: deploy do site MkDocs (GitHub Pages) — decisão explícita do usuário de não
+fazer ainda; CI multi-SO ainda não observado verde (falta um push que dispare a matriz);
+backlog independente do `ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de
+reanálise de maturidade,
 perfis base+overlay/skills executáveis/config de serviços pendentes de validação de
 implementação).
 

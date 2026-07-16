@@ -49,7 +49,7 @@ expor.
 - **Fora de escopo:** exposição na TUI (MT-84).
 - **Depende de:** MT-82.
 
-### MT-84: Exposição na TUI (rodapé)
+### MT-84: Exposição na TUI (rodapé) ✅ concluído (4cd7f5e)
 - **Objetivo:** modo TUI (`--tui`, `crates/cli/src/tui/mod.rs`) mostra o uso total acumulado
   na barra de rodapé já existente (mesmo lugar da legenda de *keybindings*,
   `keybind::legenda()`), atualizado a cada turno concluído — sem modal novo, sem tecla nova.
