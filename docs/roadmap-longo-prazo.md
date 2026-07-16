@@ -11,21 +11,22 @@ Cada fase abaixo lista **objetivo**, **ADR(s) necessária(s)** e a **primeira le
 micro-tickets** (título + objetivo de uma linha). Seguindo a disciplina do projeto
 (`skill adr-writer` / `micro-ticket-planner`): a **ADR completa e os tickets detalhados de
 cada fase são escritos quando a fase começa**, promovidos para um `roadmap-vX.Y.md`
-versionado. **Fases 12, 13, 14, 15, 16, 17, 18 e 19** estão concluídas (`docs/roadmap-v0.6.md`,
-`docs/roadmap-v0.7.md`, `docs/roadmap-v0.8.md`, `docs/roadmap-v0.9.md` — `ratatui` autorizado
-pelo mantenedor em 2026-07-15, após a parada dura do comando de loop por dependência nova;
-ADR-0027 `Accepted` — `docs/roadmap-v0.10.md`, `rmcp` pré-autorizado pelo mantenedor junto de
-`ratatui`; ADR-0028 `Accepted`, escopo v1 restrito a servidores MCP locais — `docs/roadmap-v0.11.md`,
-ADR-0029 `Accepted`: uso de tokens visível durante a sessão, primeira das cinco frentes de
-"segunda onda" — `docs/roadmap-v0.12.md`, ADR-0030 `Accepted`: checkpoints e *undo* de
-mudanças de arquivo, segunda das cinco frentes de "segunda onda" — e `docs/roadmap-v0.13.md`,
-ADR-0031 `Accepted`: subagentes/orquestração, terceira das cinco frentes, escolhida pelo
-mantenedor entre as três restantes depois de responder diretamente às perguntas de design de
-cada uma, 2026-07-16, ver `docs/decisoes-autonomas.md`). **Fase 20** já está detalhada — ver
-`docs/roadmap-v0.14.md` (ADR-0032, `Proposed`: memória de projeto explícita entre sessões,
-quarta das cinco frentes — única restante pronta para virar ADR agora, já que multimodal
-segue bloqueada por um pré-requisito próprio, ver Fase 21+ abaixo). Pronta para começar a
-implementação a partir do MT-93.
+versionado. **Fases 12, 13, 14, 15, 16, 17, 18, 19 e 20** estão concluídas
+(`docs/roadmap-v0.6.md`, `docs/roadmap-v0.7.md`, `docs/roadmap-v0.8.md`, `docs/roadmap-v0.9.md`
+— `ratatui` autorizado pelo mantenedor em 2026-07-15, após a parada dura do comando de loop
+por dependência nova; ADR-0027 `Accepted` — `docs/roadmap-v0.10.md`, `rmcp` pré-autorizado
+pelo mantenedor junto de `ratatui`; ADR-0028 `Accepted`, escopo v1 restrito a servidores MCP
+locais — `docs/roadmap-v0.11.md`, ADR-0029 `Accepted`: uso de tokens visível durante a
+sessão, primeira das cinco frentes de "segunda onda" — `docs/roadmap-v0.12.md`, ADR-0030
+`Accepted`: checkpoints e *undo* de mudanças de arquivo, segunda das cinco frentes —
+`docs/roadmap-v0.13.md`, ADR-0031 `Accepted`: subagentes/orquestração, terceira das cinco
+frentes, escolhida pelo mantenedor entre as três restantes depois de responder diretamente
+às perguntas de design de cada uma, 2026-07-16 — e `docs/roadmap-v0.14.md`, ADR-0032
+`Accepted`: memória de projeto explícita entre sessões, quarta das cinco frentes, única
+restante pronta para virar ADR já que multimodal seguia bloqueada por um pré-requisito
+próprio, ver `docs/decisoes-autonomas.md`). Próxima fase sem tickets detalhados ainda: Fase
+21+ (ver seção própria abaixo) — multimodal, ainda bloqueada pelo mesmo pré-requisito
+(*guardrail* de imagem não construído).
 
 > Convenções de DoD, granularidade e "dependência nova exige ADR (ADR-0004)": iguais às dos
 > roadmaps versionados (`docs/roadmap-v0.1.md` §Convenções).
@@ -234,13 +235,13 @@ trocados depois que a CLI já inicializou.
 (`crates/core/src/tools/subagent.rs`), fiação com dois `ToolRegistry` em
 `crates/cli/src/main.rs`, documentação de usuário e governança fechando a fase.
 
-## Fase 20 — Memória de projeto explícita entre sessões (ADR-0032)
+## Fase 20 — Memória de projeto explícita entre sessões (ADR-0032) ✅ concluída
 
 **Objetivo:** persistir fatos pontuais entre sessões (hoje só há compactação *dentro* de uma
 sessão, ADR-0016) — única frente de "segunda onda" restante pronta para virar ADR agora
 (multimodal continua bloqueada por um pré-requisito próprio, ver Fase 21+ abaixo).
 
-**ADR:** ADR-0032 — **escrita**, `Proposed`. Decisão central: só memória **explícita** — o
+**ADR:** ADR-0032 — **escrita**, `Accepted`. Decisão central: só memória **explícita** — o
 comando `/remember <fato>` (REPL) / flag `--remember <fato>` (*one-shot*) grava um fato em
 `.agentry/memory.json` (array de *strings*, sem teto — fatos são curados manualmente, não
 gerados automaticamente). **Deliberadamente nenhuma tool `remember`** no `ToolRegistry` — só
@@ -250,8 +251,10 @@ Carregada no início da sessão pelo mesmo mecanismo de `project_instructions`/`
 de projeto, memória, preset da *task-class*, lista de skills. Sem `/forget` nesta versão
 (editar o arquivo é o caminho).
 
-**Detalhamento completo:** `docs/roadmap-v0.14.md` (MT-93..95). Pronta para começar a
-implementação a partir do MT-93.
+**Detalhamento completo:** `docs/roadmap-v0.14.md` (MT-93..95, **concluídos**).
+`MemoryStore` (`crates/core/src/memory/`) + `Session::with_memoria`, fiação em
+`crates/cli/src/main.rs`/`crates/cli/src/repl.rs`, documentação de usuário e governança
+fechando a fase.
 
 ## Fase 21+ — Multimodal (bloqueada por pré-requisito)
 
@@ -272,6 +275,6 @@ decidir/construir o *guardrail* de imagem em si (uma ADR própria, quando houver
 ADR-0021 e ADR-0022 **escritas** (Fase 12). ADR-0023..0028 **reservadas** (números fixados
 aqui; arquivo de cada uma escrito ao iniciar sua fase, com contexto fresco). ADR-0029
 **escrita** (Fase 17, `Accepted`). ADR-0030 **escrita** (Fase 18, `Accepted`). ADR-0031
-**escrita** (Fase 19, `Accepted`). ADR-0032 **escrita** (Fase 20, `Proposed`). ADR-0033+ para
+**escrita** (Fase 19, `Accepted`). ADR-0032 **escrita** (Fase 20, `Accepted`). ADR-0033+ para
 multimodal (Fase 21+, bloqueada por pré-requisito), sem
 número fixado ainda.

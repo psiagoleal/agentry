@@ -2,7 +2,7 @@
 
 # ADR 0032: Memória de projeto explícita entre sessões (`/remember`)
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Data:** 2026-07-16
 - **Decisores:** Iago Leal (mantenedor)
 - **Tags:** ferramentas, persistência, confidencialidade

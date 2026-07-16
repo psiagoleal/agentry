@@ -87,6 +87,7 @@ e do comando `/usage` do REPL, atualizado automaticamente a cada resposta.
 | `--init` | Cria `.agentry/agentry.settings.json` e sai (ver [Configuração](configuracao.md)). |
 | `--profile <nome>` | Com `--init`: busca a configuração real daquele perfil. |
 | `--undo` | Desfaz o checkpoint mais recente de `fs_write`/`fs_edit` (ver [Checkpoints e *undo*](#checkpoints-e-undo-de-mudancas-de-arquivo) abaixo) e sai, sem rodar tarefa. Incompatível com `--init`/`--tui`/tarefa. |
+| `--remember <fato>` | Grava `<fato>` como memória de projeto (ver [Memória de projeto](#memoria-de-projeto-remember) abaixo) e sai, sem rodar tarefa. Incompatível com `--init`/`--tui`/tarefa. |
 
 ```bash
 agentry --model llama3.1:70b --temperature 0.2 "revise este diff"
@@ -112,6 +113,7 @@ seguintes, até ser trocado de novo:
 | `/compact` | Resume o histórico da sessão numa única mensagem — reduz o consumo de tokens em conversas longas. |
 | `/usage` | Mostra o total de tokens consumidos pela sessão até aquele ponto — sem *side-effect* na conversa. |
 | `/undo` | Desfaz o checkpoint mais recente de `fs_write`/`fs_edit` (ver [Checkpoints e *undo*](#checkpoints-e-undo-de-mudancas-de-arquivo) abaixo). |
+| `/remember <fato>` | Grava `<fato>` como memória de projeto (ver [Memória de projeto](#memoria-de-projeto-remember) abaixo) — disponível em sessões futuras. |
 | `/init` (ou `/init <perfil>`) | Cria `.agentry/agentry.settings.json` sem sair do REPL. |
 | `/exit` (ou `/quit`) | Encerra o REPL. |
 
@@ -155,6 +157,32 @@ guarda índices e configuração — auto-excluído do git por padrão), então 
 mais recente de **qualquer** invocação anterior, não só da sessão atual. Um teto fixo (não
 configurável nesta versão) limita quantos checkpoints ficam retidos — o mais antigo é
 descartado silenciosamente ao ultrapassar.
+
+## Memória de projeto (`/remember`)
+
+`--remember <fato>` (*one-shot*) e `/remember <fato>` (REPL) gravam um fato pontual em
+`.agentry/memory.json` — disponível no *system prompt* de **toda sessão futura** desse
+projeto, sem precisar repetir a informação a cada conversa.
+
+```bash
+agentry --remember "o endpoint de staging é https://staging.exemplo.internal"
+```
+
+```
+> /remember o time prefere PRs pequenos, um commit por ticket
+lembrado: o time prefere PRs pequenos, um commit por ticket
+```
+
+**Sempre um ato explícito seu — nunca uma decisão do agente.** Diferente de outras
+ferramentas, **não existe** uma tool que o agente possa chamar sozinho para gravar memória:
+um fato só entra em `.agentry/memory.json` porque você digitou o comando. Isso é deliberado —
+memória de projeto nesta versão não tenta resumir conversas automaticamente, só registra o
+que você decide explicitamente que vale lembrar.
+
+Memória persiste em `.agentry/memory.json` (mesmo diretório de estado local auto-excluído do
+git que guarda checkpoints/índices/configuração) como uma lista simples de fatos, sem teto de
+entradas. **Não existe `/forget` nesta versão** — para remover um fato, edite o arquivo
+diretamente (é só uma lista de texto).
 
 ## O que esperar da resposta
 

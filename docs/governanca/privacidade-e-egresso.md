@@ -173,6 +173,19 @@ quem avalia a postura de egresso do produto, o ponto central é este:
   egresso: o teto de privacidade em si nunca muda em tempo de execução, só a rota escolhida
   dentro dele.
 
+## Memória de projeto e confidencialidade
+
+O `agentry` persiste memória de projeto entre sessões
+([ADR-0032](../adr/0032-memoria-de-projeto-explicita.md)) só de forma **explícita** — não
+existe resumo automático de conversa, nem uma tool que o agente possa chamar sozinho para
+decidir o que vale lembrar. Cada entrada em `.agentry/memory.json` existe porque o usuário
+digitou `/remember`/`--remember` para aquele fato específico. Isso foi uma escolha
+deliberada do mantenedor justamente para evitar a pergunta de retenção que persistência
+automática do conteúdo integral de uma conversa levantaria — o modelo de "resumo automático
+entre sessões" (padrão LLM-Wiki/OKF) cogitado originalmente no roadmap de longo prazo foi
+descartado por esse motivo. Local ao projeto e auto-excluído do git por padrão, mesma
+garantia já aceita para checkpoints e índices RAG (ADR-0017).
+
 ## O que audita e o que não sabe
 
 O `agentry` audita **tentativas de rede** (host, permitida ou não) — não decide sozinho o
