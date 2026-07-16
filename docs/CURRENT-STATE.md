@@ -9,7 +9,7 @@
 
 - **Data:** 2026-07-16
 - **Branch:** `main`
-- **Commit:** `f62bfe4`
+- **Commit:** `50a1183`
 - **Fase:** Roadmap v0.1..v0.4 **fechados/imutáveis**; **Fase 10 concluída** (LiteLLM).
   **Execução autônoma em andamento** (`/loop /implementar-roadmap`, modelo Sonnet 5) — ver
   `docs/decisoes-autonomas.md` para decisões tomadas sozinho (**5 decisões registradas** até a
@@ -294,6 +294,36 @@
   tickets ainda; ordem entre elas não decidida). **Subagentes**, em particular, provavelmente
   merece escalar ao mantenedor quando chegar a vez — o próprio roadmap já assinala uma
   "decisão-chave" com implicação direta na ADR-0002 (egresso).
+
+  **Loop parado em 2026-07-16** — as três frentes restantes de "segunda onda" (diferente das
+  Fases 16/17/18) todas levantavam uma pergunta de design/segurança sem opção recomendada
+  óbvia; registrado como impedimento aberto e escalado ao mantenedor em vez de decidido
+  sozinho (regra do comando `/loop /implementar-roadmap` §6). O mantenedor respondeu
+  diretamente às três, e escolheu **subagentes** para vir primeiro:
+  - **Subagentes** — pode declarar classe de egresso própria, mas só igual ou mais restrita
+    que a da sessão-mãe (nunca mais permissiva).
+  - **Memória entre sessões** — só memória **explícita** (comando tipo `/remember`, grava um
+    fato pontual aprovado pelo usuário), nunca persistência automática de conversa integral.
+  - **Multimodal** — adiado até existir um *guardrail* de imagem (ex.: OCR alimentando as
+    regras de texto já existentes) — os *guardrails* de conteúdo hoje só inspecionam texto.
+
+  **Fase 19 preparada** — ADR-0031 (`Proposed`, `docs/adr/0031-subagentes-com-egresso-restrito.md`)
+  transforma a resposta do mantenedor em arquitetura concreta: subagente usa o **mesmo**
+  `Arc<Router>` da sessão-mãe — `Router::resolve` já recusa qualquer candidato mais permissivo
+  que o teto de egresso do perfil ativo, para qualquer chamador, então a restrição vem de
+  graça, sem código novo de imposição. Recursão (subagente criando subagente) é impossível
+  **estruturalmente**: o executor interno do subagente nunca registra a própria tool
+  `subagent`, em vez de um *flag*/contador em tempo de execução — as duas escolhas de
+  implementação (interpretação de "classe da sessão-mãe" e prevenção de recursão) registradas
+  em `docs/decisoes-autonomas.md` como a opção estruturalmente mais forte e de menor código
+  novo. Reaproveita 100% da infraestrutura existente (mesmo `PermissionGate`/`Confirmer`/
+  `GuardrailGate` da sessão-mãe). Fora de escopo v1: uso do subagente não soma
+  automaticamente ao `usage_total` da sessão-mãe (problema estrutural de *ownership*,
+  documentado); sem `AGENTS.md`/skills no contexto do subagente; um nível de aninhamento só,
+  sequencial, sem *streaming*. `docs/roadmap-v0.13.md` detalha MT-90..92 (núcleo da tool,
+  fiação na CLI com dois registros de tools, documentação). `docs/adr/README.md`/`mkdocs.yml`
+  atualizados. `mkdocs build --strict` limpo. Nenhuma mudança de código — esta iteração só
+  prepara a fase.
 
   **MT-70 concluído** — primeiro ticket de implementação da Fase 15: `ratatui` (feature
   `crossterm`, `default-features = false` para árvore de dependências mínima) adicionada a
@@ -1552,21 +1582,29 @@
   `docs/roadmap-longo-prazo.md` atualizados — Fase 18 marcada concluída. `mkdocs build
   --strict` limpo. Nenhuma mudança de código.
 
-**Em andamento:** nada pendente — árvore de trabalho limpa, tudo commitado. **Fase 18
-concluída inteira (MT-86..89)** — última fase que já tinha tickets detalhados no roadmap de
-longo prazo.
+- [x] **Preparação da Fase 19** — o mantenedor respondeu diretamente às três perguntas de
+  design das frentes restantes de "segunda onda" e escolheu **subagentes/orquestração** para
+  vir primeiro. **ADR-0031** (`Proposed`, `docs/adr/0031-subagentes-com-egresso-restrito.md`):
+  subagente usa o mesmo `Arc<Router>` da sessão-mãe (restrição de egresso "de graça", sem
+  código novo de imposição); recursão impossível estruturalmente (executor interno nunca
+  registra a própria tool `subagent`). `docs/roadmap-v0.13.md` detalha MT-90..92.
+  `docs/adr/README.md`/`mkdocs.yml` atualizados. `mkdocs build --strict` limpo. Nenhuma
+  mudança de código — esta iteração só prepara a fase.
 
-**Próximo passo:** **loop autônomo parado — aguardando decisão do mantenedor** (ver
-"Impedimentos abertos" abaixo). Fases 11 a 18 concluídas inteiras; as três frentes
-restantes de "segunda onda" (memória entre sessões, subagentes/orquestração, multimodal)
-**todas** levantam uma pergunta de design/segurança sem opção recomendada óbvia o bastante
-para decidir sozinho — diferente das Fases 16/17/18, escolhidas exatamente por não terem
-essa característica. Retomar exige o mantenedor escolher qual frente seguir (ou dar direção
-sobre as perguntas em aberto de cada uma); depois disso, a próxima unidade de trabalho volta
-a ser **preparar** essa fase (ADR + quebra em micro-tickets), seguindo a disciplina normal do
-comando `/loop /implementar-roadmap`. Outros itens em aberto, sem ticket: deploy do site
-MkDocs (GitHub Pages) — decisão explícita do usuário de não fazer ainda; CI multi-SO ainda
-não observado verde (falta um push que dispare a matriz); backlog independente do
+**Em andamento:** nada pendente — árvore de trabalho limpa, tudo commitado. **Fase 18
+concluída inteira (MT-86..89)**; **Fase 19 preparada** (ADR-0031 `Proposed`,
+`docs/roadmap-v0.13.md`, MT-90..92).
+
+**Próximo passo:** **MT-90** (`docs/roadmap-v0.13.md`, `crates/core/src/tools/subagent.rs`) —
+`SubagentTool` (novo): guarda o mesmo `Arc<Router>` da sessão-mãe e um `Arc<dyn ToolExecutor>`
+cujo `ToolRegistry` interno não inclui a própria tool `subagent`; `execute()` resolve via
+`Router::resolve`/`resolve_with_override`, constrói e roda uma `Session` nova até completar
+(sem *streaming*), devolve o texto final. Primeiro ticket de implementação da Fase 19. Outros
+itens em aberto, sem ticket: **memória entre sessões** e **multimodal** (Fase 20+) já têm a
+pergunta de design respondida pelo mantenedor (ver `docs/roadmap-longo-prazo.md` §Fase 20+),
+mas ainda sem ADR/tickets — preparar quando a Fase 19 concluir; deploy do site MkDocs (GitHub
+Pages) — decisão explícita do usuário de não fazer ainda; CI multi-SO ainda não observado
+verde (falta um push que dispare a matriz); backlog independente do
 `ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de reanálise de maturidade,
 perfis base+overlay/skills executáveis/config de serviços pendentes de validação de
 implementação).
@@ -1576,35 +1614,6 @@ implementação).
 - **`protoc` não vem pré-instalado por padrão** (nem, presumivelmente, nos runners padrão do GitHub Actions) — exigido pelo build script de `lance-encoding` (transitiva do `lancedb`, MT-27). CI já corrigido; ambientes de desenvolvimento locais precisam instalar `protobuf-compiler` (Debian/Ubuntu), `protobuf` (Homebrew) ou equivalente antes de rodar `cargo build`/`cargo test` neste crate — ver `docs/testing.md`. **Nesta máquina de desenvolvimento, já resolvido**: `protobuf-compiler` instalado via `apt` pelo usuário (precisa de `sudo` — funciona só com terminal interativo; o agente não deve tentar rodar `sudo` sozinho, sempre pedir para o usuário rodar). Um binário `protoc` *standalone* baixado manualmente mais cedo na sessão (`~/.local/bin/protoc`, contornando a falta de `sudo` interativo) foi removido para não sombrear o `/usr/bin/protoc` do pacote no `PATH` — `cargo build`/`test`/`clippy` voltaram a funcionar sem nenhuma variável de ambiente extra (`PROTOC`/`PROTOC_INCLUDE`).
 
 ## Impedimentos abertos
-
-- **Escolha de qual frente da Fase 19+ preparar exige decisão do mantenedor.** As Fases
-  16/17/18 (MCP, uso de tokens, checkpoints/*undo*) fecharam inteiras — todas as três tinham
-  uma opção claramente recomendável (nenhuma pergunta de segurança/confidencialidade em
-  aberto). Restam três frentes de "segunda onda" (`docs/roadmap-longo-prazo.md` §Fase 19+),
-  e **as três** levantam uma pergunta de design/segurança que não tem opção recomendada óbvia
-  o bastante para decidir sozinho, seguindo a mesma régua usada para escolher as três fases
-  anteriores:
-  - **Subagentes/orquestração** — decisão-chave já sinalizada pelo próprio roadmap: um
-    subagente herda a classe de egresso da sessão-mãe ou pode ter a própria? Implicação
-    direta na ADR-0002 (modelo de privacidade), não um detalhe de implementação.
-  - **Memória entre sessões** (LLM-Wiki/OKF) — persistir conteúdo de conversa **entre**
-    sessões (diferente da compactação intra-sessão já existente, ADR-0016) levanta pergunta
-    de retenção/confidencialidade real: por quanto tempo, onde, e se isso é compatível com o
-    objetivo de homologação corporativa do projeto.
-  - **Multimodal** (`ContentBlock::Image`) — o mecanismo de *guardrails* de conteúdo
-    (`crates/core/src/guardrail/`) hoje só inspeciona texto; uma imagem anexada pelo usuário
-    passaria pelo *pipeline* sem nenhuma checagem de bloqueio/mascaramento, abrindo um canal
-    de conteúdo não auditado pelo mecanismo existente — mais que um "fora de escopo"
-    documentável, é uma pergunta real sobre se isso é aceitável como está ou exige um desenho
-    de *guardrail* específico para imagem antes de liberar a capacidade.
-
-  Registrado como impedimento aberto em vez de decidido sozinho, seguindo a própria regra do
-  comando `/loop /implementar-roadmap` §6 ("houver ambiguidade genuína sem opção recomendada
-  clara ⇒ pare e escale ao usuário"). **Decisão que o mantenedor precisa tomar:** qual das
-  três frentes seguir primeiro (ou uma ordem para as três), e para cada uma, se a pergunta de
-  design correspondente acima já tem uma resposta aceitável ou se precisa de mais definição
-  antes de virar ADR. O loop autônomo parou aqui, com a árvore de trabalho limpa e as Fases
-  11-18 inteiras concluídas.
 
 - **ADR-0004 pendente de dado:** maturidade real de `rtk`/`caveman`/`ponytail` não verificada via `gh repo view`. Verificar antes de qualquer adoção como dependência.
 - **Copilot/GitHub Enterprise:** caminho oficial (GitHub Models vs. API Enterprise) indefinido pela empresa; adapter adiado.
