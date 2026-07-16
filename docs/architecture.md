@@ -97,7 +97,8 @@ memória de projeto AGENTS.md + Skills (ADR-0023, fecha ADR-0003) · **Fase 14**
 essenciais — AskUser, web/SearXNG, Glob, shell background (ADR-0024..0026) · **Fase 15** TUI
 `ratatui` (ADR-0027) · **Fase 16** MCP client `rmcp` (ADR-0028) · **Fase 17** uso de tokens
 visível na sessão (ADR-0029) · **Fase 18** checkpoints e *undo* de mudanças de arquivo
-(ADR-0030) · **Fase 19** subagentes/orquestração (ADR-0031) · **Fase 20+** restante da
-segunda onda (memória entre sessões, multimodal).
+(ADR-0030) · **Fase 19** subagentes/orquestração (ADR-0031) · **Fase 20** memória de projeto
+explícita entre sessões (ADR-0032) · **Fase 21+** multimodal, bloqueada por um *guardrail* de
+imagem ainda não construído.
 
 O detalhamento de cada fase vira **micro-tickets** (skill `micro-ticket-planner`) ao iniciar.

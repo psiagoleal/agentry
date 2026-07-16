@@ -27,6 +27,38 @@ escolha feita sozinho.
 
 ## Entradas (mais recente no topo)
 
+### 2026-07-16 — ADR-0032 (Fase 20, memória entre sessões) — comando-apenas (sem tool), formato de armazenamento, ordem no *system prompt*
+- **Contexto:** o mantenedor já respondeu à pergunta-chave desta frente (2026-07-16): só
+  memória **explícita** via um comando tipo `/remember`, nunca persistência automática de
+  conversa. Transformar essa resposta em arquitetura concreta exigiu três decisões de
+  implementação sem ambiguidade de segurança (só de design), cada uma com opção recomendada
+  clara:
+  1. **Comando humano vs. tool chamável pelo agente.** O texto da resposta ("comando tipo
+     `/remember`... que o usuário aprova") lido literalmente descreve um comando digitado
+     pelo usuário — nunca uma tool que o modelo decide chamar sozinho (mesmo com um gate de
+     confirmação `ask`, isso reintroduziria o agente "decidindo o que vale lembrar", o
+     oposto do que a resposta pretendia evitar). Escolhido: só comando (REPL `/remember` +
+     flag `--remember` no modo *one-shot*), nenhuma tool nova no `ToolRegistry`.
+  2. **Formato de armazenamento.** `.agentry/memory.json` (mesmo diretório de estado local
+     da ADR-0017, auto-excluído do git) como um array JSON de **strings simples** — um fato
+     por entrada, sem *id*/timestamp/estrutura extra. Mais simples de editar à mão também
+     (o usuário pode abrir o arquivo e remover uma linha, já que não há comando `/forget`
+     nesta versão — YAGNI, extensão futura clara se houver demanda). Diferente de
+     `checkpoints.json` (MT-86), sem teto de entradas: fatos são curados manualmente pelo
+     usuário (um por comando explícito), não gerados automaticamente a cada tool-call, então
+     o risco de crescimento descontrolado é muito menor.
+  3. **Onde entra no *system prompt*.** Mesmo mecanismo já usado por `project_instructions`
+     (ADR-0023)/`skills_list` — `Session::ensure_system_prompt` concatena instruções de
+     projeto, depois a memória (mesma categoria de contexto durável específico do projeto),
+     depois o `system_prompt` do preset da *task-class* (mais específico), depois a lista de
+     skills — nenhum mecanismo paralelo de injeção de contexto.
+- **Justificativa:** as três reaproveitam 100% de infraestrutura/convenção já existente
+  (`.agentry/` da ADR-0017, o padrão builder `with_*` de `Session`, o mesmo ponto de
+  concatenação de *system prompt*) — design mínimo, sem dependência nova, sem superfície de
+  configuração nova.
+- **Commit:** preparação da Fase 20 nesta mesma iteração (ver `docs/adr/0032-*.md` e
+  `docs/roadmap-v0.14.md`).
+
 ### 2026-07-16 — MT-91 (Fase 19, subagentes) — `Router` não é `Clone`, subagente ganha instância própria "equivalente"
 - **Contexto:** ADR-0031 (e o MT-90) descreviam o subagente usando "o mesmo `Arc<Router>`" da
   sessão-mãe, de forma literal — um único objeto compartilhado. Ao escrever a fiação real

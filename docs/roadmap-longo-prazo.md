@@ -21,9 +21,11 @@ ADR-0029 `Accepted`: uso de tokens visível durante a sessão, primeira das cinc
 mudanças de arquivo, segunda das cinco frentes de "segunda onda" — e `docs/roadmap-v0.13.md`,
 ADR-0031 `Accepted`: subagentes/orquestração, terceira das cinco frentes, escolhida pelo
 mantenedor entre as três restantes depois de responder diretamente às perguntas de design de
-cada uma, 2026-07-16, ver `docs/decisoes-autonomas.md`). Próxima fase sem tickets detalhados
-ainda: Fase 20+ (ver seção própria abaixo) — as outras duas frentes (memória entre sessões,
-multimodal), já com a pergunta de design de cada uma respondida.
+cada uma, 2026-07-16, ver `docs/decisoes-autonomas.md`). **Fase 20** já está detalhada — ver
+`docs/roadmap-v0.14.md` (ADR-0032, `Proposed`: memória de projeto explícita entre sessões,
+quarta das cinco frentes — única restante pronta para virar ADR agora, já que multimodal
+segue bloqueada por um pré-requisito próprio, ver Fase 21+ abaixo). Pronta para começar a
+implementação a partir do MT-93.
 
 > Convenções de DoD, granularidade e "dependência nova exige ADR (ADR-0004)": iguais às dos
 > roadmaps versionados (`docs/roadmap-v0.1.md` §Convenções).
@@ -41,8 +43,8 @@ micro-tickets) antes de implementadas.
 ## Sequência das fases
 
 ```
-Fase 11 → Fase 12 → Fase 13 → Fase 14 → Fase 15 → Fase 16 → Fase 17 → Fase 18       → Fase 19        → Fase 20+
-(ignore)  (config)   (memória)  (tools)   (TUI)     (MCP)     (uso)     (checkpoints)  (subagentes)     (2ª onda, restante)
+Fase 11 → Fase 12 → Fase 13 → Fase 14 → Fase 15 → Fase 16 → Fase 17 → Fase 18       → Fase 19       → Fase 20    → Fase 21+
+(ignore)  (config)   (memória)  (tools)   (TUI)     (MCP)     (uso)     (checkpoints)  (subagentes)    (memória)    (multimodal, bloqueada)
 ```
 
 Prioridade escolhida: **fundamentos antes das vitrines** — configuração e memória de projeto
@@ -232,26 +234,36 @@ trocados depois que a CLI já inicializou.
 (`crates/core/src/tools/subagent.rs`), fiação com dois `ToolRegistry` em
 `crates/cli/src/main.rs`, documentação de usuário e governança fechando a fase.
 
-## Fase 20+ — Segunda onda, restante (ADRs 0032+ quando alcançadas)
+## Fase 20 — Memória de projeto explícita entre sessões (ADR-0032)
 
-Enumeradas; *stubs de ADR adiados* — cada uma ganha ADR e detalhamento quando chegar a vez.
-O mantenedor já respondeu à pergunta de design de cada uma (2026-07-16), mas a ADR completa
-e os micro-tickets só são escritos quando a fase começar, com contexto fresco:
+**Objetivo:** persistir fatos pontuais entre sessões (hoje só há compactação *dentro* de uma
+sessão, ADR-0016) — única frente de "segunda onda" restante pronta para virar ADR agora
+(multimodal continua bloqueada por um pré-requisito próprio, ver Fase 21+ abaixo).
 
-- **Memória entre sessões** (padrão LLM-Wiki/OKF, ADR-0004(c)) — hoje só há compactação
-  *dentro* de uma sessão (ADR-0016); nada persiste conhecimento entre sessões/dias.
-  **Resposta do mantenedor:** só memória **explícita** — um comando tipo `/remember` que
-  grava um fato pontual aprovado pelo usuário, nunca persistência automática do conteúdo
-  integral de uma conversa.
-- **Multimodal** — `ContentBlock::Image` (`crates/core/src/model/mod.rs` só tem
-  Text/ToolCall/ToolResult hoje); aceitar screenshot/imagem como entrada. **Resposta do
-  mantenedor:** adiada até existir um *guardrail* de imagem (ex.: OCR alimentando as regras de
-  texto já existentes, `crates/core/src/guardrail/`) — os *guardrails* de conteúdo hoje só
-  inspecionam texto; multimodal sem esse pré-requisito abriria um canal de conteúdo não
-  auditado. Um mecanismo de OCR provavelmente exige uma dependência nova (biblioteca de OCR)
-  — quando essa frente chegar, a escolha da biblioteca passa pelo mantenedor de novo (ADR-0004).
+**ADR:** ADR-0032 — **escrita**, `Proposed`. Decisão central: só memória **explícita** — o
+comando `/remember <fato>` (REPL) / flag `--remember <fato>` (*one-shot*) grava um fato em
+`.agentry/memory.json` (array de *strings*, sem teto — fatos são curados manualmente, não
+gerados automaticamente). **Deliberadamente nenhuma tool `remember`** no `ToolRegistry` — só
+um comando digitado pelo usuário, nunca uma decisão do modelo sobre o que vale lembrar.
+Carregada no início da sessão pelo mesmo mecanismo de `project_instructions`/`skills_list`
+(ADR-0023) — `Session::with_memoria`, concatenada no *system prompt* nessa ordem: instruções
+de projeto, memória, preset da *task-class*, lista de skills. Sem `/forget` nesta versão
+(editar o arquivo é o caminho).
 
-Ordem entre essas duas ainda não decidida — fica para quando a Fase 19 concluir.
+**Detalhamento completo:** `docs/roadmap-v0.14.md` (MT-93..95). Pronta para começar a
+implementação a partir do MT-93.
+
+## Fase 21+ — Multimodal (bloqueada por pré-requisito)
+
+**Multimodal** — `ContentBlock::Image` (`crates/core/src/model/mod.rs` só tem
+Text/ToolCall/ToolResult hoje); aceitar screenshot/imagem como entrada. **Resposta do
+mantenedor** (2026-07-16): adiada até existir um *guardrail* de imagem (ex.: OCR alimentando
+as regras de texto já existentes, `crates/core/src/guardrail/`) — os *guardrails* de
+conteúdo hoje só inspecionam texto; multimodal sem esse pré-requisito abriria um canal de
+conteúdo não auditado. Um mecanismo de OCR provavelmente exige uma dependência nova
+(biblioteca de OCR) — quando essa frente chegar, a escolha da biblioteca passa pelo
+mantenedor de novo (ADR-0004). **Não é uma fase pronta para preparar ainda** — falta primeiro
+decidir/construir o *guardrail* de imagem em si (uma ADR própria, quando houver demanda).
 
 ---
 
@@ -260,5 +272,6 @@ Ordem entre essas duas ainda não decidida — fica para quando a Fase 19 conclu
 ADR-0021 e ADR-0022 **escritas** (Fase 12). ADR-0023..0028 **reservadas** (números fixados
 aqui; arquivo de cada uma escrito ao iniciar sua fase, com contexto fresco). ADR-0029
 **escrita** (Fase 17, `Accepted`). ADR-0030 **escrita** (Fase 18, `Accepted`). ADR-0031
-**escrita** (Fase 19, `Accepted`). ADR-0032+ para o restante da segunda onda (Fase 20+), sem
+**escrita** (Fase 19, `Accepted`). ADR-0032 **escrita** (Fase 20, `Proposed`). ADR-0033+ para
+multimodal (Fase 21+, bloqueada por pré-requisito), sem
 número fixado ainda.
