@@ -39,7 +39,7 @@ use clap::Parser;
 use agentry_core::config::{Config, Settings};
 use agentry_core::egress::allowlist::{Allowlist, AllowlistEntry, ANY_HOST};
 use agentry_core::egress::audit::AuditEntry;
-use agentry_core::guardrail::{GuardrailAuditEntry, GuardrailAuditSink};
+use agentry_core::guardrail::{GuardrailAuditEntry, GuardrailAuditSink, GuardrailGate};
 use agentry_core::mcp::McpClient;
 use agentry_core::provider::ollama::OllamaProvider;
 use agentry_core::provider::openai_compat::OpenAiCompatProvider;
@@ -58,6 +58,7 @@ use agentry_core::tools::permission::PermissionGate;
 use agentry_core::tools::repo_map::{register_repo_map_tool, RepoMapTool};
 use agentry_core::tools::shell::{ShellBackgroundTool, ShellPolicy, ShellTool};
 use agentry_core::tools::skill::SkillTool;
+use agentry_core::tools::subagent::SubagentTool;
 use agentry_core::tools::web_fetch::{WebFetchTool, WEB_TOOL_USER_AGENT};
 use agentry_core::tools::web_search::WebSearchTool;
 use agentry_core::tools::ToolRegistry;
@@ -702,6 +703,65 @@ fn register_declared_task_classes(
     }
 }
 
+/// Monta um `Router` completo (providers registrados, `"chat"` declarada,
+/// task-classes auxiliares/configuradas registradas) — função pura dos
+/// insumos dados, para poder ser chamada mais de uma vez com o mesmo
+/// resultado (MT-91/ADR-0031: o subagente ganha sua própria instância
+/// "equivalente" à do laço principal, já que `Router` não é `Clone`/
+/// compartilhável sob mutação concorrente).
+fn montar_router(
+    egress_class: agentry_core::config::privacy::EgressClass,
+    ollama: Arc<dyn LlmProvider>,
+    litellm_registro: Option<RegistroDeProvider>,
+    modelo_inicial: &str,
+    cfg: &Config,
+) -> Router {
+    let mut router = Router::new(egress_class);
+    router.register_provider(ollama);
+    let litellm_candidato = litellm_registro.map(|(provider, candidato)| {
+        router.register_provider(provider);
+        candidato
+    });
+    repl::set_chat_route(
+        &mut router,
+        modelo_inicial,
+        &CallPreset::default(),
+        litellm_candidato.as_ref(),
+    );
+    register_declared_task_classes(&mut router, cfg, modelo_inicial, litellm_candidato.as_ref());
+    router
+}
+
+/// Registra a tool `subagent` (MT-91/ADR-0031) em `registry` — o executor
+/// que ela usa internamente vem de um **segundo** `ToolRegistry`, com as
+/// MESMAS tools já registradas em `registry` até aqui (mesmas instâncias
+/// `Arc<dyn Tool>`, reaproveitadas — nenhuma reconstrução), mas que
+/// **nunca** registra a própria `SubagentTool`: recursão (subagente
+/// criando subagente) fica impossível **estruturalmente**, não por uma
+/// checagem em tempo de execução. `router_subagente` é a instância de
+/// `Router` "equivalente" construída por [`montar_router`] — ver a doc
+/// daquela função para por que não é literalmente o mesmo objeto
+/// compartilhado do laço principal.
+fn register_subagent_tool(
+    registry: &mut ToolRegistry,
+    permissions: agentry_core::config::Permissions,
+    confirmer: Arc<dyn Confirmer>,
+    router_subagente: Arc<Router>,
+    guardrails: Option<(Arc<GuardrailGate>, Arc<dyn GuardrailAuditSink>)>,
+) {
+    let mut registry_subagente = ToolRegistry::new(PermissionGate::new(permissions));
+    for tool in registry.tools() {
+        registry_subagente.register(Arc::clone(tool));
+    }
+    let executor_subagente: Arc<dyn ToolExecutor> =
+        Arc::new(RegistryToolExecutor::new(registry_subagente, confirmer));
+    registry.register(Arc::new(SubagentTool::new(
+        router_subagente,
+        executor_subagente,
+        guardrails,
+    )));
+}
+
 #[tokio::main]
 async fn main() {
     let args = Args::parse();
@@ -769,6 +829,10 @@ async fn main() {
         eprintln!("erro de configuração: {erro}");
         std::process::exit(2)
     });
+    // Construído cedo e compartilhado (`Arc::clone`) entre a `Session`
+    // principal e o `SubagentTool` (MT-91/ADR-0031) — mesmo `GuardrailGate`,
+    // nenhum mecanismo paralelo.
+    let guardrail_gate = Arc::new(cfg.guardrails.clone());
 
     // Sob `--tui`, `eprintln!` corrompe a tela alternativa do `crossterm`
     // (achado do smoke-test manual do MT-72) — auditoria descartada nesse
@@ -809,37 +873,45 @@ async fn main() {
     // (ADR-0011), não um segundo cliente.
     let ollama_provider: Arc<dyn LlmProvider> = ollama.clone();
 
-    let mut router = Router::new(cfg.egress_class);
-    router.register_provider(ollama);
-
     let chave_litellm = std::env::var(LITELLM_API_KEY_ENV).ok();
-    let litellm_candidato =
+    let litellm_registro: Option<RegistroDeProvider> =
         build_litellm_provider(&cfg, chave_litellm.as_deref(), Arc::clone(&audit_sink))
             .unwrap_or_else(|erro| {
                 eprintln!("erro de configuração: {erro}");
                 std::process::exit(2)
-            })
-            .map(|(provider, candidato)| {
-                router.register_provider(provider);
-                candidato
             });
 
     let modelo_inicial = args
         .model
         .clone()
         .unwrap_or_else(|| DEFAULT_MODEL.to_string());
-    repl::set_chat_route(
-        &mut router,
+
+    // `Router` não é `Clone` (mutável em tempo de execução via `/model`/
+    // `/task-class`, ADR-0014) — para o subagente (MT-91/ADR-0031) ter sua
+    // própria instância "equivalente" (mesmos providers, mesmas task-classes
+    // declaradas, mesma classe de egresso), monta-se uma segunda vez com os
+    // mesmos insumos já computados (`ollama`/`litellm_registro` clonados,
+    // nenhuma reconstrução de verdade — nenhum I/O novo). Consequência
+    // documentada: o subagente não reflete uma troca de modelo/task-class
+    // feita via `/model`/`/task-class` **depois** que a CLI já inicializou
+    // — só o que já estava declarado na configuração no arranque.
+    let mut router = montar_router(
+        cfg.egress_class,
+        ollama.clone(),
+        litellm_registro.clone(),
         &modelo_inicial,
-        &CallPreset::default(),
-        litellm_candidato.as_ref(),
-    );
-    register_declared_task_classes(
-        &mut router,
         &cfg,
-        &modelo_inicial,
-        litellm_candidato.as_ref(),
     );
+    let litellm_candidato = litellm_registro
+        .as_ref()
+        .map(|(_, candidato)| candidato.clone());
+    let router_subagente = Arc::new(montar_router(
+        cfg.egress_class,
+        ollama,
+        litellm_registro,
+        &modelo_inicial,
+        &cfg,
+    ));
 
     let task_class = args
         .task_class
@@ -948,6 +1020,17 @@ async fn main() {
         &modelo_inicial,
     );
 
+    register_subagent_tool(
+        &mut registry,
+        cfg.permissions.clone(),
+        Arc::clone(&confirmer),
+        router_subagente,
+        Some((
+            Arc::clone(&guardrail_gate),
+            Arc::clone(&guardrail_audit_sink),
+        )),
+    );
+
     let executor: Arc<dyn ToolExecutor> = Arc::new(RegistryToolExecutor::new(registry, confirmer));
 
     let budget = cfg
@@ -955,7 +1038,7 @@ async fn main() {
         .map(u64::from)
         .unwrap_or(DEFAULT_TOKEN_BUDGET);
     let mut session = Session::new(rota, executor, TokenBudget::new(budget))
-        .with_guardrails(Arc::new(cfg.guardrails), guardrail_audit_sink);
+        .with_guardrails(guardrail_gate, guardrail_audit_sink);
     if cfg.agents_file_enabled {
         if let Some(instrucoes) = agentry_core::project_instructions::load_project_instructions(
             &workspace_root,
@@ -1231,6 +1314,99 @@ mod tests {
         assert!(!nomes.contains(&"code_search".to_string()));
         assert!(!nomes.contains(&"lsp_hover".to_string()));
         assert!(!nomes.contains(&"lsp_definition".to_string()));
+    }
+
+    // --- MT-91: register_subagent_tool ---
+
+    fn router_subagente_de_teste(mock: Arc<MockProvider>) -> Arc<Router> {
+        let mut router = Router::new(EgressClass::LocalOnly);
+        router.register_provider(mock.clone());
+        router.set_route(
+            "chat",
+            RouteEntry {
+                candidates: vec![RouteTarget::new("mock", "modelo-x", EgressClass::LocalOnly)],
+                preset: CallPreset::default(),
+            },
+        );
+        Arc::new(router)
+    }
+
+    #[test]
+    fn register_subagent_tool_expoe_a_tool_subagent_na_sessao_principal() {
+        let mut registry = ToolRegistry::new(PermissionGate::new(Permissions::default()));
+        registry.register(Arc::new(SkillTool::new(Vec::new())));
+        let mock = Arc::new(MockProvider::new("mock"));
+        let router_subagente = router_subagente_de_teste(mock);
+
+        register_subagent_tool(
+            &mut registry,
+            Permissions::default(),
+            Arc::new(InteractiveConfirmer),
+            router_subagente,
+            None,
+        );
+
+        let nomes = nomes_registrados(&registry);
+        assert!(nomes.contains(&"subagent".to_string()));
+        assert!(
+            nomes.contains(&"skill".to_string()),
+            "as tools já registradas antes continuam presentes na sessão principal"
+        );
+    }
+
+    #[tokio::test]
+    async fn chamada_real_a_subagent_completa_de_ponta_a_ponta_via_registry_executor() {
+        let mut registry = ToolRegistry::new(PermissionGate::new(Permissions::default()));
+        let mock = Arc::new(MockProvider::new("mock"));
+        mock.enqueue_chat(Ok(agentry_core::provider::ChatResponse {
+            message: agentry_core::model::Message::assistant("resposta do subagente"),
+            usage: agentry_core::model::Usage::default(),
+        }));
+        let router_subagente = router_subagente_de_teste(mock);
+
+        register_subagent_tool(
+            &mut registry,
+            Permissions::default(),
+            Arc::new(InteractiveConfirmer),
+            router_subagente,
+            None,
+        );
+
+        let executor: Arc<dyn ToolExecutor> = Arc::new(RegistryToolExecutor::new(
+            registry,
+            Arc::new(InteractiveConfirmer),
+        ));
+        let call = agentry_core::model::ToolCall {
+            id: "1".into(),
+            name: "subagent".into(),
+            arguments: serde_json::json!({ "description": "resuma este arquivo" }),
+        };
+
+        let resultado = executor.execute(&call).await;
+
+        assert!(!resultado.is_error);
+        assert_eq!(resultado.content, "resposta do subagente");
+    }
+
+    #[test]
+    fn executor_interno_do_subagente_nunca_lista_a_propria_tool_subagent() {
+        // Reaproveita a MESMA lógica de register_subagent_tool para provar
+        // que o registry_subagente construído internamente (a mesma
+        // "forma" do que fica dentro de SubagentTool) nunca inclui
+        // "subagent" — recursão impossível estruturalmente (ADR-0031).
+        let mut registry = ToolRegistry::new(PermissionGate::new(Permissions::default()));
+        registry.register(Arc::new(SkillTool::new(Vec::new())));
+        let antes = nomes_registrados(&registry);
+        assert!(!antes.contains(&"subagent".to_string()));
+
+        let mut registry_subagente = ToolRegistry::new(PermissionGate::new(Permissions::default()));
+        for tool in registry.tools() {
+            registry_subagente.register(Arc::clone(tool));
+        }
+
+        let nomes_internos = nomes_registrados(&registry_subagente);
+        assert!(nomes_internos.contains(&"skill".to_string()));
+        assert!(!nomes_internos.contains(&"subagent".to_string()));
     }
 
     #[test]

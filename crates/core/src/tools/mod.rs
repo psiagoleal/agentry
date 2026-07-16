@@ -134,6 +134,14 @@ impl ToolRegistry {
         self.tools.insert(tool.name().to_string(), tool);
     }
 
+    /// As tools registradas — usado para **reaproveitar** as mesmas
+    /// instâncias `Arc<dyn Tool>` num segundo `ToolRegistry` (MT-91/
+    /// ADR-0031: o executor interno de `SubagentTool` precisa das mesmas
+    /// tools, exceto a própria `subagent`, sem reconstruir nenhuma).
+    pub fn tools(&self) -> impl Iterator<Item = &Arc<dyn Tool>> {
+        self.tools.values()
+    }
+
     /// Especificações das tools registradas, prontas para `ChatRequest::tools`.
     #[must_use]
     pub fn specs(&self) -> Vec<ToolSpec> {
