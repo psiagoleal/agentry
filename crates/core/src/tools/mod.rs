@@ -16,6 +16,7 @@ pub mod code_search;
 pub mod fs;
 pub mod glob;
 pub mod lsp;
+pub mod mcp;
 pub mod permission;
 pub mod repo_map;
 pub mod shell;

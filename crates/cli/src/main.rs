@@ -40,6 +40,7 @@ use agentry_core::config::{Config, Settings};
 use agentry_core::egress::allowlist::{Allowlist, AllowlistEntry, ANY_HOST};
 use agentry_core::egress::audit::AuditEntry;
 use agentry_core::guardrail::{GuardrailAuditEntry, GuardrailAuditSink};
+use agentry_core::mcp::McpClient;
 use agentry_core::provider::ollama::OllamaProvider;
 use agentry_core::provider::openai_compat::OpenAiCompatProvider;
 use agentry_core::provider::LlmProvider;
@@ -51,6 +52,7 @@ use agentry_core::tools::code_search::{register_code_search_tool, CodeSearchSess
 use agentry_core::tools::fs::{FsEditTool, FsReadTool, FsSearchTool, FsWriteTool};
 use agentry_core::tools::glob::GlobTool;
 use agentry_core::tools::lsp::{register_lsp_tools, LspSession};
+use agentry_core::tools::mcp::McpTool;
 use agentry_core::tools::permission::PermissionGate;
 use agentry_core::tools::repo_map::{register_repo_map_tool, RepoMapTool};
 use agentry_core::tools::shell::{ShellBackgroundTool, ShellPolicy, ShellTool};
@@ -360,6 +362,46 @@ impl AuditSink for NoopAuditSink {
 
 impl GuardrailAuditSink for NoopAuditSink {
     fn record(&self, _entry: GuardrailAuditEntry) {}
+}
+
+/// Conecta a cada servidor MCP declarado em `cfg.mcp_servers` (Fase 16,
+/// ADR-0028), descobre as tools que ele expõe (`McpClient::list_tools`,
+/// MT-78) e registra cada uma no `registry` — nome prefixado pelo servidor
+/// (`crates/core/src/tools/mcp.rs`, MT-79), sob o mesmo `PermissionGate`
+/// de qualquer outra tool.
+///
+/// Falha ao conectar a um servidor (comando ausente no `PATH`, *handshake*
+/// que não completa) é reportada em stderr e **não aborta a CLI** — os
+/// demais servidores (e o restante da sessão) continuam normalmente.
+/// Diferente de `register_context_tools` (nome/schema de cada tool é
+/// estático, erro só aparece por chamada), aqui não há como registrar uma
+/// tool "estática": sem uma conexão bem-sucedida não se sabe nem o nome
+/// nem o schema dela — por isso a falha acontece na hora do registro, não
+/// depois.
+async fn register_mcp_tools(registry: &mut ToolRegistry, cfg: &Config) {
+    for (nome_servidor, servidor) in &cfg.mcp_servers {
+        let cliente = match McpClient::start(&servidor.command, &servidor.args).await {
+            Ok(cliente) => Arc::new(cliente),
+            Err(erro) => {
+                eprintln!("erro ao conectar ao servidor MCP '{nome_servidor}': {erro}");
+                continue;
+            }
+        };
+        let tools = match cliente.list_tools().await {
+            Ok(tools) => tools,
+            Err(erro) => {
+                eprintln!("erro ao listar tools do servidor MCP '{nome_servidor}': {erro}");
+                continue;
+            }
+        };
+        for tool in &tools {
+            registry.register(Arc::new(McpTool::new(
+                Arc::clone(&cliente),
+                nome_servidor,
+                tool,
+            )));
+        }
+    }
 }
 
 /// Registra as 3 tools de contexto (`repo_map`, `code_search`,
@@ -830,6 +872,7 @@ async fn main() {
             std::process::exit(2)
         }
     }
+    register_mcp_tools(&mut registry, &cfg).await;
 
     register_context_tools(
         &mut registry,

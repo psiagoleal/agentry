@@ -23,16 +23,22 @@
 //! gate* — disponível só com `client`, já a dependência de produção) é
 //! mais simples e não exige nenhuma mudança de escopo de dependência.
 //!
-//! Responde `initialize`/`tools/list` com sucesso trivial (fixo,
-//! independente dos parâmetros pedidos), ignora a notificação
-//! `notifications/initialized` e qualquer outro método, e encerra ao
-//! `stdin` fechar — mesma técnica do `fake_lsp_server`, só com o formato
-//! de mensagem do MCP em vez do LSP.
+//! Responde `initialize`/`tools/list`/`tools/call` com sucesso trivial
+//! (fixo, independente dos parâmetros pedidos), ignora a notificação
+//! `notifications/initialized` e encerra ao `stdin` fechar — mesma técnica
+//! do `fake_lsp_server`, só com o formato de mensagem do MCP em vez do
+//! LSP. Qualquer outro **método com `id`** (uma requisição de verdade,
+//! diferente de uma notificação) recebe um erro JSON-RPC `-32601` ("Method
+//! not found") em vez de ser ignorado em silêncio — descoberto durante o
+//! MT-79: um método sem resposta nenhuma deixa o cliente `rmcp` real
+//! esperando para sempre (sem *timeout* próprio), travando o teste em vez
+//! de falhar de forma tratada.
 
 use std::io::{BufRead, Write};
 
 use rmcp::model::{
-    InitializeResult, JsonObject, ListToolsResult, ServerCapabilities, Tool, ToolsCapability,
+    CallToolResult, ContentBlock, InitializeResult, JsonObject, ListToolsResult,
+    ServerCapabilities, Tool, ToolsCapability,
 };
 
 /// `ServerCapabilities::builder()` exige a *feature* `server`/`macros` do
@@ -56,6 +62,16 @@ fn tool_ping() -> Tool {
 
 fn escreve_resposta(saida: &mut impl Write, id: serde_json::Value, resultado: serde_json::Value) {
     let envelope = serde_json::json!({ "jsonrpc": "2.0", "id": id, "result": resultado });
+    let _ = writeln!(saida, "{envelope}");
+    let _ = saida.flush();
+}
+
+fn escreve_erro_metodo_desconhecido(saida: &mut impl Write, id: serde_json::Value, metodo: &str) {
+    let envelope = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "error": { "code": -32601, "message": format!("Method not found: {metodo}") }
+    });
     let _ = writeln!(saida, "{envelope}");
     let _ = saida.flush();
 }
@@ -96,7 +112,15 @@ fn main() {
                     serde_json::to_value(resultado).unwrap_or_default(),
                 );
             }
-            _ => {} // métodos não implementados nesta fixture mínima: ignorados
+            "tools/call" => {
+                let resultado = CallToolResult::success(vec![ContentBlock::text("pong")]);
+                escreve_resposta(
+                    &mut saida,
+                    id,
+                    serde_json::to_value(resultado).unwrap_or_default(),
+                );
+            }
+            outro => escreve_erro_metodo_desconhecido(&mut saida, id, outro),
         }
     }
 }

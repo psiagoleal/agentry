@@ -10,9 +10,10 @@
 //! nesta fase; transportes remotos (HTTP/SSE) ficam fora de escopo
 //! (ADR-0028).
 //!
-//! Registrar as tools descobertas no `ToolRegistry` fica para o MT-79.
+//! Registro das tools descobertas no `ToolRegistry` fica em
+//! [`crate::tools::mcp`] (MT-79).
 
-use rmcp::model::Tool;
+use rmcp::model::{CallToolRequestParams, CallToolResult, Tool};
 use rmcp::service::{RoleClient, RunningService};
 use rmcp::transport::TokioChildProcess;
 use rmcp::ServiceExt;
@@ -91,6 +92,23 @@ impl McpClient {
     pub async fn list_tools(&self) -> Result<Vec<Tool>, McpError> {
         self.servico
             .list_all_tools()
+            .await
+            .map_err(|e| McpError::Protocol(e.to_string()))
+    }
+
+    /// Chama uma tool pelo nome **original** (como o servidor a conhece,
+    /// sem o prefixo de servidor que [`crate::tools::mcp::McpTool`] usa só
+    /// no nome de *registro*).
+    ///
+    /// # Errors
+    ///
+    /// Devolve [`McpError::Protocol`] se a chamada falhar.
+    pub async fn call_tool(
+        &self,
+        params: CallToolRequestParams,
+    ) -> Result<CallToolResult, McpError> {
+        self.servico
+            .call_tool(params)
             .await
             .map_err(|e| McpError::Protocol(e.to_string()))
     }
