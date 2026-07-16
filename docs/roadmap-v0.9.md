@@ -96,7 +96,7 @@ verificação de maturidade completa. Nenhuma outra dependência nova.
   rastreia hoje) — lista simples de candidatos declarados, sem histórico de uso.
 - **Depende de:** MT-72.
 
-### MT-74: Widgets de permissão (`TuiConfirmer`) e pergunta (`TuiPrompter`)
+### MT-74: Widgets de permissão (`TuiConfirmer`) e pergunta (`TuiPrompter`) ✅ concluído (b4e9935)
 - **Objetivo:** `TuiConfirmer` (implementa `Confirmer`, `crates/cli/src/tool_executor.rs`,
   MT-14) e `TuiPrompter` (implementa `Prompter`, `crates/core/src/tools/ask_user.rs`, MT-63) —
   widgets modais em vez de `print!`/`read_line` síncronos. *Toggle* de dois estados

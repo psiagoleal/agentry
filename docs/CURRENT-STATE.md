@@ -9,7 +9,7 @@
 
 - **Data:** 2026-07-15
 - **Branch:** `main`
-- **Commit:** `7d3da53`
+- **Commit:** `b4e9935`
 - **Fase:** Roadmap v0.1..v0.4 **fechados/imutáveis**; **Fase 10 concluída** (LiteLLM).
   **Execução autônoma em andamento** (`/loop /implementar-roadmap`, modelo Sonnet 5) — ver
   `docs/decisoes-autonomas.md` para decisões tomadas sozinho (**2 decisões registradas**:
@@ -74,6 +74,25 @@
   *fail-closed* (ADR-0002). Smoke-test manual com dois modelos Ollama declarados: `Ctrl+P` abre
   o modal, filtro em tempo real, `Enter` confirma, `Esc` cancela, mensagem seguinte prova que a
   rota mudou de verdade (resposta veio do modelo recém-selecionado).
+
+  **MT-74 concluído** — `TuiConfirmer`/`TuiPrompter` (`crates/cli/src/tool_executor.rs`,
+  `crates/cli/src/tui/ask_user.rs`, novo) enviam `PedidoHumano` por canal ao laço de eventos
+  (que possui o terminal — o `Confirmer`/`Prompter` rodam dentro da *task* de streaming, MT-72)
+  e aguardam a resposta por `oneshot`. *Toggle* `auto`/`normal` (`Ctrl+A`) só acelera a
+  aprovação de tools sob `ask` — invariante de segurança com teste dedicado nomeado
+  (`modo_auto_do_tui_confirmer_nunca_aprova_uma_tool_sob_deny`), estrutural:
+  `RegistryToolExecutor::execute` nem chama `Confirmer::confirm` para `Denied`. `TuiPrompter`
+  não tem *toggle* (a tool `ask_user` existe para perguntar, pular contrariaria seu propósito).
+  15 testes novos.
+
+  Smoke-test manual: indicador `[auto]` no título da caixa de mensagem alterna corretamente
+  com `Ctrl+A`, terminal não corrompe. **Confirmação de tool via LLM real não pôde ser
+  demonstrada de ponta a ponta** — mesmo achado já documentado em MT-61/64/65/66/67/68: os
+  modelos locais disponíveis neste ambiente (`llama3.1:8b`, `qwen2.5:7b`) narram em prosa em
+  vez de emitir uma *tool-call* real, mesmo para tools já testadas e funcionais (não é um
+  defeito do código). A fiação `TuiConfirmer`→canal→`oneshot` é coberta por testes
+  automatizados que simulam exatamente esse *handshake* (o mesmo papel que o laço de eventos
+  real desempenharia do lado receptor).
 
 ## Metas cumpridas / Em andamento / Próximo passo
 
@@ -1006,18 +1025,43 @@
   rota mudou de verdade (resposta veio do modelo recém-selecionado, "Eu sou Qwen..."). `Ctrl+C`
   sai limpo com código 0.
 
+- [x] **MT-74** — `crates/cli/src/tool_executor.rs`: `PedidoHumano` (novo) — pedido de
+  interação humana enviado por canal ao laço de eventos da TUI, já que `Confirmer`/`Prompter`
+  rodam dentro da *task* de streaming (MT-72), não no laço que possui o terminal.
+  `TuiConfirmer` (implementa `Confirmer`): *toggle* `auto`/`normal` (`AtomicBool` compartilhado
+  via `Arc`, alternado por `Ctrl+A`) — em `auto`, aprova sem passar pelo canal nem mostrar
+  modal; em `normal`, envia `PedidoHumano::Confirmacao` e aguarda a resposta por `oneshot`.
+  Invariante de segurança central do ticket, com teste dedicado nomeado
+  (`modo_auto_do_tui_confirmer_nunca_aprova_uma_tool_sob_deny`): a garantia é **estrutural**,
+  `RegistryToolExecutor::execute` nem chama `Confirmer::confirm` para `ExecutionOutcome::Denied`
+  — nenhum `TuiConfirmer`, em `auto` ou não, jamais participa dessa decisão. Novo
+  `crates/cli/src/tui/ask_user.rs`: `TuiPrompter` (implementa `Prompter`, ADR-0024) — mesmo
+  canal `PedidoHumano`, sem *toggle* `auto` (a tool `ask_user` existe para perguntar algo ao
+  usuário; pular a pergunta contrariaria o propósito da tool). `tui/mod.rs`: `SolicitacaoAtiva`
+  (`Confirmacao`/`Pergunta`) com prioridade sobre o seletor de modelo e o chat normal — `Enter`
+  aprova/confirma, `Esc` recusa/cancela, digitação livre na caixa de resposta da pergunta.
+  Indicador `[auto]` no título da caixa de mensagem quando o *toggle* está ligado. `main.rs`
+  constrói `TuiConfirmer`/`TuiPrompter` (em vez de `Interactive*`) só sob `--tui`. 15 testes
+  novos.
+
+  Smoke-test manual: indicador `[auto]` alterna corretamente com `Ctrl+A`, terminal não
+  corrompe. **Confirmação de tool via LLM real não pôde ser demonstrada de ponta a ponta** —
+  mesmo achado documentado em MT-61/64/65/66/67/68: os modelos locais disponíveis
+  (`llama3.1:8b`, `qwen2.5:7b`) narram em prosa em vez de emitir uma *tool-call* real, mesmo
+  para tools já testadas e funcionais (não é um defeito do código). A fiação
+  `TuiConfirmer`→canal→`oneshot` é coberta por testes automatizados que simulam exatamente esse
+  *handshake*.
+
 **Em andamento:** nada pendente — árvore de trabalho limpa, tudo commitado.
 
-**Próximo passo:** **MT-74** (`docs/roadmap-v0.9.md`, `crates/cli/src/tool_executor.rs`, novo
-`crates/cli/src/tui/ask_user.rs`, `crates/cli/src/tui/mod.rs`) — widgets de permissão
-(`TuiConfirmer`, implementa `Confirmer`) e pergunta (`TuiPrompter`, implementa `Prompter`) em
-vez do `print!`/`read_line` síncrono atual (que já sabemos, do achado do MT-72, que briga com o
-modo bruto do terminal); *toggle* `auto`/`normal` **nunca** contorna um `deny` do
-`PermissionGate` — invariante de segurança central do ticket, com teste dedicado nomeado
-explicitamente para ela, quinto ticket da Fase 15. Outros itens em aberto, sem ticket: deploy
-do site MkDocs (GitHub Pages) — decisão explícita do usuário de não fazer ainda; CI multi-SO
-ainda não observado verde (falta um push que dispare a matriz); backlog independente do
-`ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de reanálise de maturidade,
+**Próximo passo:** **MT-75** (`docs/roadmap-v0.9.md`, novo `crates/cli/src/tui/diff.rs`,
+`crates/cli/src/tool_executor.rs`) — visualizador de diff (modal): para confirmações de
+`fs_write`/`fs_edit` sob `ask`, o `TuiConfirmer` (MT-74) passa a detectar essas duas tools e
+montar um diff de verdade (linhas removidas/adicionadas) em vez de mostrar os argumentos
+brutos — nenhuma mudança em `FsWriteTool`/`FsEditTool`, sexto ticket da Fase 15. Outros itens
+em aberto, sem ticket: deploy do site MkDocs (GitHub Pages) — decisão explícita do usuário de
+não fazer ainda; CI multi-SO ainda não observado verde (falta um push que dispare a matriz);
+backlog independente do `ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de reanálise de maturidade,
 perfis base+overlay/skills executáveis/config de serviços pendentes de validação de
 implementação).
 
@@ -1038,6 +1082,7 @@ implementação).
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-15 | `b4e9935` | MT-74: widgets de permissão (TuiConfirmer) e pergunta (TuiPrompter) | MT-74 |
 | 2026-07-15 | `7d3da53` | MT-73: seletor de modelo/provider com busca difusa (Ctrl+P) | MT-73 |
 | 2026-07-15 | `04db36e` | MT-72: view de chat com streaming real (integração com Session/Router) | MT-72 |
 | 2026-07-15 | `fb39a2a` | MT-71: tabela de keybindings (mapa único) + navegação básica | MT-71 |
