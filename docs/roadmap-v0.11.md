@@ -36,7 +36,7 @@ expor.
   (fora de escopo da ADR-0029 inteira).
 - **Depende de:** ADR-0029.
 
-### MT-83: Exposição no modo *one-shot* e comando `/usage` no REPL
+### MT-83: Exposição no modo *one-shot* e comando `/usage` no REPL ✅ concluído (5e54de9)
 - **Objetivo:** modo *one-shot* (`agentry "tarefa"`, `crates/cli/src/main.rs`) imprime uma
   linha de resumo do uso total em `stderr` ao final da tarefa (mesma classe de saída de
   `[audit] ...`, nunca em `stdout`). REPL (`crates/cli/src/repl.rs`) ganha o comando `/usage`

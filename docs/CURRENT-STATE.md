@@ -9,7 +9,7 @@
 
 - **Data:** 2026-07-16
 - **Branch:** `main`
-- **Commit:** `60b1b41`
+- **Commit:** `5e54de9`
 - **Fase:** Roadmap v0.1..v0.4 **fechados/imutáveis**; **Fase 10 concluída** (LiteLLM).
   **Execução autônoma em andamento** (`/loop /implementar-roadmap`, modelo Sonnet 5) — ver
   `docs/decisoes-autonomas.md` para decisões tomadas sozinho (**5 decisões registradas** até a
@@ -183,6 +183,19 @@
   nunca zera). 372 testes em `agentry-core` (+4), 104 em `agentry`, `cargo build --release`
   limpo. Nenhuma mudança de comportamento observável da CLI ainda — `usage_total()` não é
   consumido por nenhum modo de invocação nesta ticket (MT-83/84).
+
+  **MT-83 concluído** — novo `formatar_uso()` (`crates/cli/src/main.rs`) — única fonte da
+  string `"N tokens de entrada, M de saída (total: T)"` — usada tanto pelo resumo do modo
+  *one-shot* (`"[uso] ..."` em `stderr`, ao final da tarefa, mesma classe de saída de
+  `"[audit] ..."`) quanto pelo comando `/usage` do REPL (mesmo padrão de `/compact`: imprime
+  o total corrente sem *side-effect* na conversa). 2 testes novos: `/usage` não altera
+  histórico nem preset e imprime o total correto (`repl.rs`); resumo de uso nunca vaza para o
+  `stdout` que `stream_to_writer` escreve, confirmando a separação `stdout`/`stderr`
+  (`streaming.rs`). 106 testes em `agentry` (+2), 372 em `agentry-core`, `cargo build
+  --release` limpo. Smoke-test manual do binário `--release`: modo *one-shot* imprime
+  `"[uso] ..."` só em `stderr` (`stdout` só a resposta, confirmado com redirecionamento
+  separado dos dois fluxos); REPL responde `/usage` com o total acumulado após uma mensagem
+  real.
 
   **MT-70 concluído** — primeiro ticket de implementação da Fase 15: `ratatui` (feature
   `crossterm`, `default-features = false` para árvore de dependências mínima) adicionada a
@@ -1385,17 +1398,24 @@
   `agentry-core` (+4), 104 em `agentry`, `cargo build --release` limpo. Nenhuma mudança de
   comportamento observável da CLI ainda.
 
+- [x] **MT-83** — `formatar_uso()` (`crates/cli/src/main.rs`) formata o `Usage` acumulado;
+  usada pelo resumo `"[uso] ..."` em `stderr` do modo *one-shot* e pelo comando `/usage` do
+  REPL (mesmo padrão de `/compact`). 2 testes novos (`/usage` sem *side-effect* na conversa;
+  resumo de uso nunca vaza para o `stdout` do *streaming*). 106 testes em `agentry` (+2), 372
+  em `agentry-core`, `cargo build --release` limpo. Smoke-test manual confirma a separação
+  `stdout`/`stderr` no modo *one-shot* e `/usage` funcionando no REPL real.
+
 **Em andamento:** nada pendente — árvore de trabalho limpa, tudo commitado. **Fase 16
 concluída inteira (MT-77..81)**; **Fase 17 preparada** (ADR-0029 `Proposed`,
-`docs/roadmap-v0.11.md`, MT-82..85); **MT-82 concluído**.
+`docs/roadmap-v0.11.md`, MT-82..85); **MT-82/83 concluídos**.
 
-**Próximo passo:** **MT-83** (`docs/roadmap-v0.11.md`, `crates/cli/src/main.rs`,
-`crates/cli/src/repl.rs`) — exposição do uso de tokens no modo *one-shot* (resumo em
-`stderr` ao final da tarefa) e comando `/usage` no REPL (mesmo padrão de `/compact`).
-Segundo ticket de implementação da Fase 17. Outros itens em aberto, sem ticket: deploy do
-site MkDocs (GitHub Pages) — decisão explícita do usuário de não fazer ainda; CI multi-SO
-ainda não observado verde (falta um push que dispare a matriz); backlog independente do
-`ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de reanálise de maturidade,
+**Próximo passo:** **MT-84** (`docs/roadmap-v0.11.md`, `crates/cli/src/tui/mod.rs`) —
+exposição do uso de tokens no rodapé da TUI (mesmo lugar da legenda de *keybindings*,
+`keybind::legenda()`), atualizado a cada turno concluído. Terceiro ticket de implementação da
+Fase 17. Outros itens em aberto, sem ticket: deploy do site MkDocs (GitHub Pages) — decisão
+explícita do usuário de não fazer ainda; CI multi-SO ainda não observado verde (falta um push
+que dispare a matriz); backlog independente do `ai-coding-agent-profiles` (ADRs 0001-0005 —
+RTK/OKF pendentes de reanálise de maturidade,
 perfis base+overlay/skills executáveis/config de serviços pendentes de validação de
 implementação).
 
