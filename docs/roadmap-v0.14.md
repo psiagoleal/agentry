@@ -21,7 +21,7 @@ persistência via `serde_json` + `std::fs` (já dependências existentes), mesmo
 
 ## Fase 20 — Memória de projeto explícita entre sessões (ADR-0032)
 
-### MT-93: `MemoryStore` — grava e carrega fatos
+### MT-93: `MemoryStore` — grava e carrega fatos ✅ concluído (0c47121)
 - **Objetivo:** novo `crates/core/src/memory/mod.rs`: `MemoryStore` persiste um array de
   *strings* em `.agentry/memory.json` (via `state_dir::ensure_state_dir`, ADR-0017 —
   auto-excluído do git). `remember(fato)` acrescenta uma entrada (sem teto — fatos são

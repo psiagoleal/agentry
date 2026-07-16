@@ -9,7 +9,7 @@
 
 - **Data:** 2026-07-16
 - **Branch:** `main`
-- **Commit:** `4d2fac1`
+- **Commit:** `0c47121`
 - **Fase:** Roadmap v0.1..v0.4 **fechados/imutáveis**; **Fase 10 concluída** (LiteLLM).
   **Execução autônoma em andamento** (`/loop /implementar-roadmap`, modelo Sonnet 5) — ver
   `docs/decisoes-autonomas.md` para decisões tomadas sozinho (**5 decisões registradas** até a
@@ -394,6 +394,17 @@
   decisões de implementação registradas em `docs/decisoes-autonomas.md`. `docs/roadmap-v0.14.md`
   detalha MT-93..95. `docs/adr/README.md`/`mkdocs.yml` atualizados. `mkdocs build --strict`
   limpo. Nenhuma mudança de código — esta iteração só prepara a fase.
+
+  **MT-93 concluído** — `crates/core/src/memory/mod.rs` (novo): `MemoryStore` persiste um
+  array de *strings* em `.agentry/memory.json` (via `state_dir::ensure_state_dir`, ADR-0017 —
+  auto-excluído do git). `remember(fato)` acrescenta uma entrada, nunca sobrescreve; `load()`
+  devolve todas as entradas em ordem, arquivo ausente vira lista vazia (nunca erro). Sem teto
+  de entradas (diferente de `checkpoints.json`, MT-86) — fatos são curados manualmente pelo
+  usuário. `render_memoria(&fatos)` (função pura) formata a lista para o *system prompt*
+  (mesmo padrão de `render_skills_list`, ADR-0023). Nenhuma tool nova no `ToolRegistry` — só
+  alcançado por `/remember`/`--remember` (MT-94). 6 testes novos, 392 testes em
+  `agentry-core` (+6), 121 em `agentry`, `cargo build --release` limpo. Nenhuma mudança de
+  comportamento observável da CLI ainda.
 
   **MT-70 concluído** — primeiro ticket de implementação da Fase 15: `ratatui` (feature
   `crossterm`, `default-features = false` para árvore de dependências mínima) adicionada a
@@ -1696,18 +1707,25 @@
   `docs/adr/README.md`/`mkdocs.yml` atualizados. `mkdocs build --strict` limpo. Nenhuma
   mudança de código — esta iteração só prepara a fase.
 
+- [x] **MT-93** — `crates/core/src/memory/mod.rs` (novo): `MemoryStore` persiste um array de
+  *strings* em `.agentry/memory.json`; `remember`/`load`; sem teto de entradas.
+  `render_memoria` formata a lista para o *system prompt* (mesmo padrão de
+  `render_skills_list`). 6 testes novos. 392 testes em `agentry-core` (+6), 121 em `agentry`,
+  `cargo build --release` limpo. Nenhuma mudança de comportamento observável da CLI ainda.
+
 **Em andamento:** nada pendente — árvore de trabalho limpa, tudo commitado. **Fase 19
 concluída inteira (MT-90..92)**; **Fase 20 preparada** (ADR-0032 `Proposed`,
-`docs/roadmap-v0.14.md`, MT-93..95).
+`docs/roadmap-v0.14.md`, MT-93..95); **MT-93 concluído**.
 
-**Próximo passo:** **MT-93** (`docs/roadmap-v0.14.md`, `crates/core/src/memory/mod.rs`) —
-`MemoryStore` (novo): `remember`/`load` sobre um array de *strings* persistido em
-`.agentry/memory.json` (`state_dir::ensure_state_dir`, ADR-0017); `render_memoria` formata a
-lista para o *system prompt* (mesmo padrão de `render_skills_list`). Primeiro ticket de
-implementação da Fase 20. Outros itens em aberto, sem ticket: **multimodal** (Fase 21+)
-continua bloqueada por um *guardrail* de imagem ainda não construído; deploy do site MkDocs
-(GitHub Pages) — decisão explícita do usuário de não fazer ainda; CI multi-SO ainda não
-observado verde (falta um push que dispare a matriz); backlog independente do
+**Próximo passo:** **MT-94** (`docs/roadmap-v0.14.md`, `crates/core/src/session/mod.rs`,
+`crates/cli/src/main.rs`, `crates/cli/src/repl.rs`) — `Session::with_memoria` (novo, mesmo
+padrão *builder* de `with_project_instructions`/`with_skills_list`); nova flag `--remember`
+(*one-shot*) e comando `/remember` (REPL), ambos gravando via `MemoryStore::remember`; a
+sessão real carrega `.agentry/memory.json` no arranque e injeta no *system prompt*. Segundo
+ticket de implementação da Fase 20. Outros itens em aberto, sem ticket: **multimodal**
+(Fase 21+) continua bloqueada por um *guardrail* de imagem ainda não construído; deploy do
+site MkDocs (GitHub Pages) — decisão explícita do usuário de não fazer ainda; CI multi-SO
+ainda não observado verde (falta um push que dispare a matriz); backlog independente do
 `ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de reanálise de maturidade,
 perfis base+overlay/skills executáveis/config de serviços pendentes de validação de
 implementação).
