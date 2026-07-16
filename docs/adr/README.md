@@ -34,4 +34,4 @@ Registros de decisões estruturais (ver skill `adr-writer`). Use
 | [0025](0025-web-tools-webfetch-websearch-searxng.md) | Web tools — `WebFetch` e `WebSearch` via SearXNG configurável | Accepted |
 | [0026](0026-tool-glob-e-shell-em-background.md) | Tool `Glob` (busca por padrão de arquivo) e shell em background/streaming | Accepted |
 | [0027](0027-tui-via-ratatui.md) | TUI via `ratatui` — modo interativo opt-in, sem substituir o REPL | Accepted |
-| [0028](0028-mcp-client-via-rmcp.md) | Cliente MCP via `rmcp` — só servidores locais (`stdio`) na v1 | Proposed |
+| [0028](0028-mcp-client-via-rmcp.md) | Cliente MCP via `rmcp` — só servidores locais (`stdio`) na v1 | Accepted |

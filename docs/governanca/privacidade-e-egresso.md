@@ -116,6 +116,38 @@ LiteLLM (opcional, um segundo provider de modelo), busca do artefato de `--init 
 (opcional, só configuração), e as duas tools de web acima (opcionais, cada uma com seu
 próprio *opt-in*).
 
+## MCP e egresso
+
+O `agentry` fala [MCP](https://modelcontextprotocol.io/) (*Model Context Protocol*) via
+[`mcpServers`](../usuario/configuracao.md#mcpservers) — cada servidor declarado adiciona
+tools novas ao agente. Para quem avalia a postura de egresso do produto, o ponto central é
+este ([ADR-0028](../adr/0028-mcp-client-via-rmcp.md)):
+
+- **Nesta versão, só servidores MCP locais são suportados** — cada servidor é um subprocesso
+  (`command`/`args`), falando o protocolo via `stdin`/`stdout`. A comunicação com o servidor
+  em si **nunca** é uma conexão de rede mediada pelo `agentry` — é um `pipe` local, mesmo
+  modelo de confiança já aceito para *language servers* locais (ADR-0013). `egressClass` é
+  **sempre obrigatória** na configuração e, hoje, só aceita `"local-only"` — declarar qualquer
+  outro valor é erro tratado antes mesmo de o servidor ser conectado, checado em dois pontos
+  independentes: no *parsing* do arquivo de configuração, e de novo — defesa em
+  profundidade — no próprio ponto de conexão, mesmo para um valor construído sem passar pelo
+  arquivo.
+- **Servidores MCP remotos (HTTP/SSE) ficam explicitamente fora de escopo até uma fase
+  dedicada.** Não é uma limitação técnica do protocolo MCP em si — é uma escolha deliberada de
+  arquitetura: o `agentry` mantém **um único ponto de rede** auditado (ver acima), e um
+  transporte HTTP nativo para MCP abriria uma segunda via de rede fora desse mecanismo, sem
+  `Allowlist` nem entrada de auditoria. Essa lacuna fica registrada como trabalho futuro
+  adiado, nunca como um `TODO` esquecido.
+- **O que o subprocesso do servidor faz por conta própria não é controlado pelo `agentry`** —
+  mesmo nível de confiança de qualquer comando rodado via `shell_exec`/`shell_background`: se
+  você configura um servidor MCP que, internamente, acessa a rede, essa chamada não passa pelo
+  `Transport`/`Allowlist` do `agentry` (não tem como passar — é um processo externo). A
+  decisão de quais servidores MCP configurar é, portanto, uma decisão de confiança no
+  **servidor** em si, da mesma forma que já é para qualquer comando de shell habilitado.
+- **Tools MCP não têm caminho de aprovação próprio** — cada uma passa pelo mesmo
+  `permissions` (`deny`/`ask`/`allow`) de qualquer outra tool, nome sempre prefixado pelo
+  servidor de origem para nunca ficar ambíguo de onde uma tool veio.
+
 ## O que audita e o que não sabe
 
 O `agentry` audita **tentativas de rede** (host, permitida ou não) — não decide sozinho o

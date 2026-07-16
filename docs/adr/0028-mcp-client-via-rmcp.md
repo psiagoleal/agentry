@@ -2,7 +2,7 @@
 
 # ADR 0028: Cliente MCP via `rmcp` — só servidores locais (stdio) na v1
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Data:** 2026-07-15
 - **Decisores:** Iago Leal (mantenedor)
 - **Tags:** dependências, MCP, tools, egresso, segurança

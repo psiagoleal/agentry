@@ -94,6 +94,13 @@ nunca cai silenciosamente no exemplo genérico. O mesmo comando existe dentro do
       "preset": { "temperature": 0.2 }
     }
   },
+  "mcpServers": {
+    "meu-servidor": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/caminho/do/projeto"],
+      "egressClass": "local-only"
+    }
+  },
   "tools": {
     "webFetch": { "enabled": false },
     "webSearch": {
@@ -325,6 +332,48 @@ Diferente de `web_fetch` (que mira qualquer host, por isso exige o perfil mais p
 o endpoint do SearXNG é **um host único e conhecido** — cabe no mesmo modelo de allowlist já
 usado por `providers.litellm`, sem precisar do perfil mais permissivo por si só (a classe
 exigida é a que você declarar em `searxngEgressClass`).
+
+### `mcpServers`
+
+Conecta a CLI a servidores [MCP](https://modelcontextprotocol.io/) (*Model Context
+Protocol*) — cada servidor declarado vira um conjunto de tools novas, disponíveis ao agente
+igual a qualquer tool própria do `agentry` (ver [MCP e
+egresso](../governanca/privacidade-e-egresso.md#mcp-e-egresso) para o que isso implica em
+termos de confiança/rede). **Vazio por padrão** — zero-config continua sem nenhum servidor
+MCP conectado.
+
+```json
+"mcpServers": {
+  "meu-servidor": {
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-filesystem", "/caminho/do/projeto"],
+    "egressClass": "local-only"
+  }
+}
+```
+
+- `command` / `args` — comando (e argumentos) rodado como **subprocesso local**, falando o
+  protocolo MCP via `stdin`/`stdout` — mesmo modelo de confiança de um *language server* local
+  ([`context.lspGrounding`](#context)): o `agentry` nunca abre uma conexão de rede para falar
+  com o servidor em si; o que o subprocesso *em si* faz depois (se ele mesmo acessa a rede)
+  está no mesmo nível de confiança de qualquer comando rodado via `shell_exec`.
+- `egressClass` — **sempre obrigatória** e, nesta versão, só aceita `"local-only"` —
+  servidores MCP remotos (HTTP/SSE) ainda não são suportados. Declarar qualquer outro valor é
+  erro tratado ao carregar a configuração (nunca um servidor conectado apesar de a
+  configuração pedir algo que o código não sabe fazer, nunca inferido do fato de o transporte
+  ser local).
+
+**Nome de tool sempre prefixado pelo servidor:** cada tool que um servidor MCP expõe é
+registrada como `"<nome-do-servidor>__<nome-da-tool>"` (dois *underscores*) — assim, dois
+servidores diferentes podem expor uma tool de mesmo nome sem colidir, e você sempre sabe, só
+pelo nome, de qual servidor uma tool veio. Tools MCP passam pelo **mesmo**
+[`permissions`](#permissions) (`deny`/`ask`/`allow`) de qualquer outra tool — nenhum mecanismo
+paralelo de confirmação/bloqueio.
+
+**Um servidor fora do ar não trava a CLI:** se a conexão com um servidor falhar (comando
+inexistente, processo encerra antes do *handshake*, etc.), a CLI imprime um aviso em `stderr`
+e segue normalmente — sem as tools daquele servidor, mas com o restante da sessão (e os
+demais servidores configurados) intacto.
 
 ## Convenção: todo bloco vem com exemplo
 

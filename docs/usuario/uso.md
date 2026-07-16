@@ -142,3 +142,9 @@ gera:
   [`tools.webFetch`](configuracao.md#toolswebfetch)/[`tools.webSearch`](configuracao.md#toolswebsearch)
   para como habilitar e o [Modelo de privacidade e
   egresso](../governanca/privacidade-e-egresso.md) para o que cada um implica.
+
+Além das tools acima, cada servidor MCP declarado em
+[`mcpServers`](configuracao.md#mcpservers) adiciona suas próprias tools dinamicamente, uma
+por tool exposta pelo servidor — nome sempre prefixado pelo servidor
+(`"<servidor>__<tool>"`), sob a mesma disciplina `ask`/`deny` de qualquer tool acima. Nenhuma
+vem habilitada por padrão (`mcpServers` é vazio até você declarar um).
