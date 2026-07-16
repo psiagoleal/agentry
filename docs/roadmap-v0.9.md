@@ -113,7 +113,7 @@ verificação de maturidade completa. Nenhuma outra dependência nova.
 - **Fora de escopo:** paleta de comandos, "stash" de mensagem — não fazem parte desta ticket.
 - **Depende de:** MT-72 (reaproveita o laço de eventos/`tokio::select!` já funcionando).
 
-### MT-75: Visualizador de diff (modal)
+### MT-75: Visualizador de diff (modal) ✅ concluído (ba11489)
 - **Objetivo:** para confirmações de `fs_write`/`fs_edit` (MT-12) sob `ask`, o `TuiConfirmer`
   (MT-74) mostra um modal com o diff de verdade (linhas removidas/adicionadas) em vez dos
   argumentos brutos da *tool-call*. **Nenhuma mudança** em `FsWriteTool`/`FsEditTool` — os

@@ -9,7 +9,7 @@
 
 - **Data:** 2026-07-15
 - **Branch:** `main`
-- **Commit:** `b4e9935`
+- **Commit:** `ba11489`
 - **Fase:** Roadmap v0.1..v0.4 **fechados/imutáveis**; **Fase 10 concluída** (LiteLLM).
   **Execução autônoma em andamento** (`/loop /implementar-roadmap`, modelo Sonnet 5) — ver
   `docs/decisoes-autonomas.md` para decisões tomadas sozinho (**2 decisões registradas**:
@@ -93,6 +93,20 @@
   defeito do código). A fiação `TuiConfirmer`→canal→`oneshot` é coberta por testes
   automatizados que simulam exatamente esse *handshake* (o mesmo papel que o laço de eventos
   real desempenharia do lado receptor).
+
+  **MT-75 concluído** — `crates/cli/src/tui/diff.rs` (novo): diff clássico por subsequência
+  comum máxima (LCS, implementação própria — sem dependência nova, mesma disciplina de
+  MT-06/ADR-0007/MT-60/MT-73). `tool_executor.rs::montar_diff_se_aplicavel` detecta
+  `fs_write`/`fs_edit` pelo nome da tool e monta o diff lendo o conteúdo atual do arquivo
+  (`fs::read_to_string`) — nenhuma mudança em `FsWriteTool`/`FsEditTool`; `TuiConfirmer` ganha
+  `workspace_root` só para resolver o caminho relativo. `PedidoHumano`/`SolicitacaoAtiva::Confirmacao`
+  carregam o diff pronto; o modal renderiza linhas `-`/`+` (vermelho/verde) quando presente,
+  caindo nos argumentos brutos para qualquer outra tool. 25 testes novos, incluindo 5 com
+  arquivos reais em disco (não só dublês).
+
+  Smoke-test manual: TUI renderiza/responde normalmente. Confirmação de `fs_write` via LLM real
+  não pôde ser demonstrada de ponta a ponta — mesmo achado documentado em
+  MT-61/64/65/66/67/68/74.
 
 ## Metas cumpridas / Em andamento / Próximo passo
 
@@ -1052,16 +1066,35 @@
   `TuiConfirmer`→canal→`oneshot` é coberta por testes automatizados que simulam exatamente esse
   *handshake*.
 
+- [x] **MT-75** — novo `crates/cli/src/tui/diff.rs`: `LinhaDiff`
+  (`Removida`/`Adicionada`/`Inalterada`) + `diff_linhas()` — diff clássico por subsequência
+  comum máxima (LCS, implementação própria via programação dinâmica; mesma disciplina de
+  MT-06/ADR-0007/MT-60/MT-73 contra dependência nova para problema estreito). 7 testes cobrindo
+  arquivo novo, conteúdo idêntico, adição/remoção no meio, substituição, dois vazios.
+  `tool_executor.rs::montar_diff_se_aplicavel` detecta `fs_write`/`fs_edit` pelo nome da tool e
+  monta o diff lendo o conteúdo atual do arquivo via `fs::read_to_string` — nenhuma mudança em
+  `FsWriteTool`/`FsEditTool`, só uma leitura adicional do lado da prévia; qualquer outra tool
+  devolve `None`. `TuiConfirmer` ganha `workspace_root` (só para resolver o *path* relativo).
+  `PedidoHumano`/`SolicitacaoAtiva::Confirmacao` carregam o diff pronto; o modal (agora 70×60%,
+  maior para caber diffs reais) renderiza linhas `-`/`+` (vermelho/verde) quando presente,
+  caindo nos argumentos brutos para qualquer outra tool ou diff vazio. 25 testes novos no
+  total, incluindo 5 com arquivos reais em disco.
+
+  Smoke-test manual: TUI renderiza/responde normalmente. Confirmação de `fs_write` via LLM real
+  não pôde ser demonstrada de ponta a ponta — mesmo achado documentado em
+  MT-61/64/65/66/67/68/74.
+
 **Em andamento:** nada pendente — árvore de trabalho limpa, tudo commitado.
 
-**Próximo passo:** **MT-75** (`docs/roadmap-v0.9.md`, novo `crates/cli/src/tui/diff.rs`,
-`crates/cli/src/tool_executor.rs`) — visualizador de diff (modal): para confirmações de
-`fs_write`/`fs_edit` sob `ask`, o `TuiConfirmer` (MT-74) passa a detectar essas duas tools e
-montar um diff de verdade (linhas removidas/adicionadas) em vez de mostrar os argumentos
-brutos — nenhuma mudança em `FsWriteTool`/`FsEditTool`, sexto ticket da Fase 15. Outros itens
-em aberto, sem ticket: deploy do site MkDocs (GitHub Pages) — decisão explícita do usuário de
-não fazer ainda; CI multi-SO ainda não observado verde (falta um push que dispare a matriz);
-backlog independente do `ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de reanálise de maturidade,
+**Próximo passo:** **MT-76** (`docs/roadmap-v0.9.md`, `docs/usuario/uso.md`,
+`docs/adr/0027-tui-via-ratatui.md`, `docs/adr/README.md`) — documentação (usuário): seção "Modo
+TUI" (`--tui`, *keybindings* *default*, como sair); ADR-0027 promovida a `Accepted` (MT-70..75
+concluídos) — **fecha a Fase 15 inteira**. Sétimo e último ticket da Fase 15; depois dele,
+próxima fase a preparar é a Fase 16 (`rmcp`, MCP client), já pré-autorizada pelo mantenedor.
+Outros itens em aberto, sem ticket: deploy do site MkDocs (GitHub Pages) — decisão explícita do
+usuário de não fazer ainda; CI multi-SO ainda não observado verde (falta um push que dispare a
+matriz); backlog independente do `ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF
+pendentes de reanálise de maturidade,
 perfis base+overlay/skills executáveis/config de serviços pendentes de validação de
 implementação).
 
@@ -1082,6 +1115,7 @@ implementação).
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-15 | `ba11489` | MT-75: visualizador de diff (modal) para fs_write/fs_edit sob ask | MT-75 |
 | 2026-07-15 | `b4e9935` | MT-74: widgets de permissão (TuiConfirmer) e pergunta (TuiPrompter) | MT-74 |
 | 2026-07-15 | `7d3da53` | MT-73: seletor de modelo/provider com busca difusa (Ctrl+P) | MT-73 |
 | 2026-07-15 | `04db36e` | MT-72: view de chat com streaming real (integração com Session/Router) | MT-72 |
