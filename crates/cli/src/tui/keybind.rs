@@ -31,8 +31,13 @@ pub enum Action {
     /// dele, sem efeito adicional).
     OpenModelPicker,
     /// Cancela um modo secundário aberto (ex.: fecha o seletor de modelo
-    /// sem escolher nada) — sem efeito no modo de chat normal.
+    /// sem escolher nada, recusa uma confirmação de tool pendente) — sem
+    /// efeito no modo de chat normal.
     Cancel,
+    /// Alterna o *toggle* `auto`/`normal` de confirmação de tool sob `ask`
+    /// (MT-74) — **nunca** afeta uma tool sob `deny` (invariante estrutural
+    /// de `RegistryToolExecutor::execute`, não desta tecla).
+    ToggleAuto,
 }
 
 /// Uma entrada da tabela de *keybindings*: ação, tecla *default* (com
@@ -92,7 +97,13 @@ pub const DEFINITIONS: &[KeyBinding] = &[
         action: Action::Cancel,
         code: KeyCode::Esc,
         modifiers: KeyModifiers::NONE,
-        description: "fecha o seletor de modelo",
+        description: "fecha o seletor/recusa a confirmação",
+    },
+    KeyBinding {
+        action: Action::ToggleAuto,
+        code: KeyCode::Char('a'),
+        modifiers: KeyModifiers::CONTROL,
+        description: "alterna confirmação automática de tools sob ask",
     },
 ];
 

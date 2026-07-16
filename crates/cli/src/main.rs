@@ -46,7 +46,7 @@ use agentry_core::provider::LlmProvider;
 use agentry_core::router::{CallPreset, RouteEntry, RouteTarget, Router, RuntimeOverride};
 use agentry_core::session::{Session, TokenBudget, ToolExecutor};
 use agentry_core::state_dir;
-use agentry_core::tools::ask_user::AskUserTool;
+use agentry_core::tools::ask_user::{AskUserTool, Prompter};
 use agentry_core::tools::code_search::{register_code_search_tool, CodeSearchSession};
 use agentry_core::tools::fs::{FsEditTool, FsReadTool, FsSearchTool, FsWriteTool};
 use agentry_core::tools::glob::GlobTool;
@@ -61,7 +61,7 @@ use agentry_core::tools::ToolRegistry;
 use agentry_core::transport::{host_from_url, AuditSink, Transport};
 
 use repl::parse_bool_toggle;
-use tool_executor::{InteractiveConfirmer, InteractivePrompter, RegistryToolExecutor};
+use tool_executor::{Confirmer, InteractiveConfirmer, InteractivePrompter, RegistryToolExecutor};
 
 /// Modelo Ollama usado quando `--model` não é informado.
 const DEFAULT_MODEL: &str = "llama3.1:8b";
@@ -761,6 +761,28 @@ async fn main() {
     let skills_descobertas =
         agentry_core::skills::discover_skills(&workspace_root, &context_ignore);
 
+    // Modo TUI (MT-74/ADR-0027): print!/read_line brigam com o modo bruto do
+    // terminal (achado do MT-72) — TuiConfirmer/TuiPrompter enviam o pedido
+    // por canal ao laço de eventos da TUI em vez de ler stdin diretamente.
+    // `rx_humano`/`auto_confirmacao` só são consumidos no ramo `--tui` do
+    // despacho abaixo; fora dele, o par simplesmente não é usado.
+    let auto_confirmacao = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let (tx_humano, rx_humano) = tokio::sync::mpsc::unbounded_channel();
+    let (prompter, confirmer): (Arc<dyn Prompter>, Arc<dyn Confirmer>) = if args.tui {
+        (
+            Arc::new(tui::TuiPrompter::new(tx_humano.clone())),
+            Arc::new(tool_executor::TuiConfirmer::new(
+                tx_humano.clone(),
+                Arc::clone(&auto_confirmacao),
+            )),
+        )
+    } else {
+        (
+            Arc::new(InteractivePrompter),
+            Arc::new(InteractiveConfirmer),
+        )
+    };
+
     let mut registry = ToolRegistry::new(PermissionGate::new(cfg.permissions.clone()));
     registry.register(Arc::new(FsReadTool::new(
         workspace_root.clone(),
@@ -787,7 +809,7 @@ async fn main() {
     registry.register(Arc::new(ShellTool::new(ShellPolicy::new(vec![]))));
     registry.register(Arc::new(ShellBackgroundTool::new(ShellPolicy::new(vec![]))));
     registry.register(Arc::new(SkillTool::new(skills_descobertas.clone())));
-    registry.register(Arc::new(AskUserTool::new(Arc::new(InteractivePrompter))));
+    registry.register(Arc::new(AskUserTool::new(prompter)));
     if let Some(web_fetch) = build_web_fetch_tool(&cfg, Arc::clone(&audit_sink)) {
         registry.register(Arc::new(web_fetch));
     }
@@ -808,10 +830,7 @@ async fn main() {
         &modelo_inicial,
     );
 
-    let executor: Arc<dyn ToolExecutor> = Arc::new(RegistryToolExecutor::new(
-        registry,
-        Arc::new(InteractiveConfirmer),
-    ));
+    let executor: Arc<dyn ToolExecutor> = Arc::new(RegistryToolExecutor::new(registry, confirmer));
 
     let budget = cfg
         .max_tokens
@@ -833,12 +852,19 @@ async fn main() {
     }
 
     if args.tui {
-        tui::run(session, router, task_class, overrides)
-            .await
-            .unwrap_or_else(|erro| {
-                eprintln!("erro: {erro}");
-                std::process::exit(1)
-            });
+        tui::run(
+            session,
+            router,
+            task_class,
+            overrides,
+            rx_humano,
+            auto_confirmacao,
+        )
+        .await
+        .unwrap_or_else(|erro| {
+            eprintln!("erro: {erro}");
+            std::process::exit(1)
+        });
     } else if let Some(tarefa) = args.tarefa {
         session.push_user_message(tarefa);
         streaming::stream_to_writer(&mut session, io::stdout(), &router)

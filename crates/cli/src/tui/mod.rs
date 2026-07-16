@@ -1,7 +1,8 @@
 // Caminho relativo: crates/cli/src/tui/mod.rs
 //! Modo TUI opt-in (`--tui`, ADR-0027) — laço de eventos: histórico de chat
 //! rolável (MT-70/71) ligado à `Session`/`Router` reais (MT-72), com
-//! seletor de modelo/*provider* por busca difusa (MT-73).
+//! seletor de modelo/*provider* por busca difusa (MT-73) e widgets de
+//! confirmação de tool/pergunta ao usuário (MT-74).
 //!
 //! `Session::run_streaming` roda numa *task* separada (`tokio::spawn`); o
 //! *callback* (já genérico desde o MT-10) envia cada [`StreamEvent`] (já
@@ -16,16 +17,22 @@
 //! terminal antes de propagar, exatamente o padrão recomendado pela própria
 //! documentação do `ratatui` para não deixar o terminal do usuário quebrado.
 //!
-//! Fora de escopo desta ticket: confirmação de tool via widget (MT-74 — sob
-//! `ask`, a `Session` ainda usa o `Confirmer`/`Prompter` de texto simples já
-//! injetados por `main()`, o que pode brigar com o modo bruto do terminal;
-//! aceito por ora, só para não travar).
+//! `TuiConfirmer`/`TuiPrompter` (`crates/cli/src/tool_executor.rs`,
+//! `crates/cli/src/tui/ask_user.rs`, MT-74) rodam dentro da *task* de
+//! streaming (não no laço de eventos, que possui o terminal) — pedidos de
+//! confirmação/pergunta chegam aqui por
+//! [`crate::tool_executor::PedidoHumano`], mesma disciplina de canal +
+//! `oneshot` do restante do módulo.
 
+mod ask_user;
 mod chat;
 mod keybind;
 mod model_picker;
 
+pub use ask_user::TuiPrompter;
+
 use std::io;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
@@ -35,10 +42,11 @@ use ratatui::widgets::{Block, Clear, Paragraph};
 use ratatui::{DefaultTerminal, Frame};
 use tokio::sync::mpsc;
 
-use agentry_core::model::StreamEvent;
+use agentry_core::model::{StreamEvent, ToolCall};
 use agentry_core::router::{RouteTarget, Router, RuntimeOverride};
 use agentry_core::session::{Session, SessionError, SessionOutcome};
 
+use crate::tool_executor::PedidoHumano;
 use chat::{Autor, ChatState};
 use keybind::Action;
 use model_picker::CandidatoExibicao;
@@ -56,6 +64,27 @@ enum EventoAgente {
 struct TurnoConcluido {
     sessao: Session,
     resultado: Result<SessionOutcome, SessionError>,
+}
+
+/// Pedido de interação humana em aberto (MT-74) — só existe enquanto o
+/// laço de eventos espera uma resposta do usuário para repassar pelo
+/// `oneshot` do [`PedidoHumano`] original; tem prioridade sobre o seletor
+/// de modelo e o chat normal (só uma dessas três coisas fica em primeiro
+/// plano por vez).
+enum SolicitacaoAtiva {
+    /// Confirmação de uma tool-call pendente sob `ask` (`TuiConfirmer`).
+    Confirmacao {
+        call: ToolCall,
+        responder: tokio::sync::oneshot::Sender<bool>,
+    },
+    /// Pergunta de texto livre da tool `ask_user` (`TuiPrompter`,
+    /// ADR-0024) — `entrada` é a resposta sendo digitada.
+    Pergunta {
+        question: String,
+        options: Vec<String>,
+        entrada: String,
+        responder: tokio::sync::oneshot::Sender<String>,
+    },
 }
 
 /// Estado do seletor de modelo/*provider* (MT-73) — só existe enquanto o
@@ -136,10 +165,19 @@ struct Estado {
     /// atualizado quando o seletor confirma uma escolha; mesmo campo que
     /// `session_override` no REPL de texto (MT-14/MT-33).
     overrides: RuntimeOverride,
+    /// `Some` só enquanto há um pedido de confirmação/pergunta pendente do
+    /// `TuiConfirmer`/`TuiPrompter` (MT-74) — mesmo padrão de `seletor`,
+    /// tem prioridade sobre ele e sobre o chat normal.
+    solicitacao: Option<SolicitacaoAtiva>,
+    /// *Toggle* `auto`/`normal` de confirmação de tool sob `ask` (MT-74) —
+    /// `Arc` compartilhado com o `TuiConfirmer` injetado na `Session`
+    /// (construído em `main()`); alternado por [`Action::ToggleAuto`].
+    /// **Nunca** afeta uma tool sob `deny` — ver a doc de `TuiConfirmer`.
+    auto: Arc<AtomicBool>,
 }
 
 impl Estado {
-    fn new(overrides: RuntimeOverride) -> Self {
+    fn new(overrides: RuntimeOverride, auto: Arc<AtomicBool>) -> Self {
         Self {
             chat: ChatState::new(),
             entrada: String::new(),
@@ -147,6 +185,8 @@ impl Estado {
             enviando: false,
             seletor: None,
             overrides,
+            solicitacao: None,
+            auto,
         }
     }
 
@@ -229,10 +269,15 @@ fn draw(frame: &mut Frame<'_>, estado: &Estado) {
         .scroll((estado.scroll, 0));
     frame.render_widget(historico, areas[0]);
 
-    let titulo_entrada = if estado.enviando {
-        " aguardando resposta... "
+    let modo_auto = if estado.auto.load(Ordering::Relaxed) {
+        " [auto]"
     } else {
-        " mensagem "
+        ""
+    };
+    let titulo_entrada = if estado.enviando {
+        format!(" aguardando resposta...{modo_auto} ")
+    } else {
+        format!(" mensagem{modo_auto} ")
     };
     let rodape = format!(" {} ", keybind::legenda());
     let caixa_de_entrada = Paragraph::new(estado.entrada.as_str()).block(
@@ -244,6 +289,57 @@ fn draw(frame: &mut Frame<'_>, estado: &Estado) {
 
     if let Some(seletor) = &estado.seletor {
         draw_seletor(frame, seletor);
+    }
+    if let Some(solicitacao) = &estado.solicitacao {
+        draw_solicitacao(frame, solicitacao);
+    }
+}
+
+/// Modal de confirmação de tool (`TuiConfirmer`) ou pergunta de texto livre
+/// (`TuiPrompter`, ADR-0024) — desenhado por cima de tudo (mesmo do
+/// seletor de modelo, embora os dois não coexistam na prática: um pedido
+/// de confirmação só existe com um turno em voo, quando o seletor já está
+/// bloqueado por falta de `Session` disponível).
+fn draw_solicitacao(frame: &mut Frame<'_>, solicitacao: &SolicitacaoAtiva) {
+    match solicitacao {
+        SolicitacaoAtiva::Confirmacao { call, .. } => {
+            let area = area_centralizada(60, 30, frame.area());
+            frame.render_widget(Clear, area);
+            let texto = vec![
+                Line::from(format!("tool: {}", call.name)),
+                Line::from(format!("argumentos: {}", call.arguments)),
+                Line::from(""),
+                Line::from("Enter aprova · Esc recusa"),
+            ];
+            let paragrafo = Paragraph::new(texto)
+                .block(Block::bordered().title(" confirmar execução de tool "));
+            frame.render_widget(paragrafo, area);
+        }
+        SolicitacaoAtiva::Pergunta {
+            question,
+            options,
+            entrada,
+            ..
+        } => {
+            let area = area_centralizada(60, 40, frame.area());
+            frame.render_widget(Clear, area);
+            let layout = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Min(2), Constraint::Length(3)])
+                .split(area);
+
+            let mut linhas = vec![Line::from(question.as_str())];
+            for (indice, opcao) in options.iter().enumerate() {
+                linhas.push(Line::from(format!("  {}. {opcao}", indice + 1)));
+            }
+            let pergunta =
+                Paragraph::new(linhas).block(Block::bordered().title(" pergunta do agente "));
+            frame.render_widget(pergunta, layout[0]);
+
+            let resposta = Paragraph::new(entrada.as_str())
+                .block(Block::bordered().title(" sua resposta (Enter envia, Esc cancela) "));
+            frame.render_widget(resposta, layout[1]);
+        }
     }
 }
 
@@ -310,8 +406,10 @@ fn draw_seletor(frame: &mut Frame<'_>, seletor: &SeletorDeModeloEstado) {
 
 /// Ponto de entrada do modo TUI (`--tui`) — recebe a mesma `Session`/
 /// `Router`/`task_class`/`overrides` já montados por `main()` (reaproveitados,
-/// nunca reconstruídos). O terminal é restaurado em qualquer caminho de
-/// saída (normal ou erro).
+/// nunca reconstruídos), mais o lado receptor de [`PedidoHumano`] e o
+/// *toggle* `auto` compartilhados com o `TuiConfirmer`/`TuiPrompter`
+/// injetados na `Session` (MT-74). O terminal é restaurado em qualquer
+/// caminho de saída (normal ou erro).
 ///
 /// # Errors
 ///
@@ -322,9 +420,20 @@ pub async fn run(
     router: Router,
     task_class: String,
     overrides: RuntimeOverride,
+    rx_humano: mpsc::UnboundedReceiver<PedidoHumano>,
+    auto: Arc<AtomicBool>,
 ) -> io::Result<()> {
     let mut terminal = ratatui::try_init()?;
-    let resultado = loop_eventos(&mut terminal, session, router, task_class, overrides).await;
+    let resultado = loop_eventos(
+        &mut terminal,
+        session,
+        router,
+        task_class,
+        overrides,
+        rx_humano,
+        auto,
+    )
+    .await;
     ratatui::restore();
     resultado
 }
@@ -384,9 +493,11 @@ async fn loop_eventos(
     router: Router,
     task_class: String,
     overrides: RuntimeOverride,
+    mut rx_humano: mpsc::UnboundedReceiver<PedidoHumano>,
+    auto: Arc<AtomicBool>,
 ) -> io::Result<()> {
     let router = Arc::new(router);
-    let mut estado = Estado::new(overrides);
+    let mut estado = Estado::new(overrides, auto);
     let mut sessao_atual = Some(sessao_inicial);
     let mut rx_terminal = iniciar_leitor_de_terminal();
     let (tx_agente, mut rx_agente) = mpsc::unbounded_channel::<EventoAgente>();
@@ -408,7 +519,68 @@ async fn loop_eventos(
                 }
                 let acao = keybind::resolve(key);
 
-                if estado.seletor.is_some() {
+                if let Some(solicitacao) = estado.solicitacao.take() {
+                    match solicitacao {
+                        SolicitacaoAtiva::Confirmacao { call, responder } => match acao {
+                            Some(Action::Quit) => {
+                                let _ = responder.send(false);
+                                return Ok(());
+                            }
+                            Some(Action::Send) => {
+                                let _ = responder.send(true);
+                            }
+                            Some(Action::Cancel) => {
+                                let _ = responder.send(false);
+                            }
+                            _ => {
+                                estado.solicitacao =
+                                    Some(SolicitacaoAtiva::Confirmacao { call, responder });
+                            }
+                        },
+                        SolicitacaoAtiva::Pergunta {
+                            question,
+                            options,
+                            mut entrada,
+                            responder,
+                        } => match acao {
+                            Some(Action::Quit) => {
+                                let _ = responder.send(String::new());
+                                return Ok(());
+                            }
+                            Some(Action::Send) => {
+                                let _ = responder.send(entrada);
+                            }
+                            Some(Action::Cancel) => {
+                                let _ = responder.send(String::new());
+                            }
+                            None => {
+                                match key.code {
+                                    KeyCode::Backspace => {
+                                        entrada.pop();
+                                    }
+                                    KeyCode::Char(c) if e_apenas_digitacao(key.modifiers) => {
+                                        entrada.push(c);
+                                    }
+                                    _ => {}
+                                }
+                                estado.solicitacao = Some(SolicitacaoAtiva::Pergunta {
+                                    question,
+                                    options,
+                                    entrada,
+                                    responder,
+                                });
+                            }
+                            _ => {
+                                estado.solicitacao = Some(SolicitacaoAtiva::Pergunta {
+                                    question,
+                                    options,
+                                    entrada,
+                                    responder,
+                                });
+                            }
+                        },
+                    }
+                } else if estado.seletor.is_some() {
                     match acao {
                         Some(Action::Quit) => return Ok(()),
                         Some(Action::Cancel) => estado.seletor = None,
@@ -441,7 +613,7 @@ async fn loop_eventos(
                                 }
                             }
                         }
-                        Some(Action::OpenModelPicker) | None => {
+                        Some(Action::OpenModelPicker) | Some(Action::ToggleAuto) | None => {
                             if let (None, Some(seletor)) = (acao, estado.seletor.as_mut()) {
                                 match key.code {
                                     KeyCode::Backspace => {
@@ -461,6 +633,9 @@ async fn loop_eventos(
                         Some(Action::ScrollUp) => estado.rolar_para_cima(),
                         Some(Action::ScrollDown) => estado.rolar_para_baixo(),
                         Some(Action::Cancel) => {}
+                        Some(Action::ToggleAuto) => {
+                            estado.auto.fetch_xor(true, Ordering::Relaxed);
+                        }
                         Some(Action::OpenModelPicker) => {
                             let candidatos = router
                                 .route_entry(&task_class)
@@ -505,6 +680,27 @@ async fn loop_eventos(
                     }
                 }
             }
+            Some(pedido) = rx_humano.recv() => {
+                // Chega da task de streaming (`TuiConfirmer`/`TuiPrompter`,
+                // rodando dentro de `Session::run_streaming`) — nunca do
+                // laço de eventos, então não há conflito com um
+                // `solicitacao` já em aberto (só um turno em voo por vez).
+                estado.solicitacao = Some(match pedido {
+                    PedidoHumano::Confirmacao { call, responder } => {
+                        SolicitacaoAtiva::Confirmacao { call, responder }
+                    }
+                    PedidoHumano::Pergunta {
+                        question,
+                        options,
+                        responder,
+                    } => SolicitacaoAtiva::Pergunta {
+                        question,
+                        options,
+                        entrada: String::new(),
+                        responder,
+                    },
+                });
+            }
         }
     }
 }
@@ -520,7 +716,7 @@ mod tests {
     use agentry_core::session::{TokenBudget, ToolExecutor};
 
     fn estado_vazio() -> Estado {
-        Estado::new(RuntimeOverride::default())
+        Estado::new(RuntimeOverride::default(), Arc::new(AtomicBool::new(false)))
     }
 
     #[test]
