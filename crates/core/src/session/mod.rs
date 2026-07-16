@@ -332,6 +332,13 @@ pub struct Session {
     /// `None` por padrão (nenhum arquivo lido/configurado). Concatenadas
     /// antes do `system_prompt` do preset em [`Self::ensure_system_prompt`].
     project_instructions: Option<String>,
+    /// Memória de projeto explícita (`/remember`/`--remember`, MT-94/
+    /// ADR-0032), já renderizada (`memory::render_memoria`) — `None` por
+    /// padrão (nenhum fato gravado ainda). Concatenada logo depois das
+    /// instruções de projeto em [`Self::ensure_system_prompt`] — mesma
+    /// categoria de contexto durável específico do projeto, mas curado
+    /// pelo usuário em vez de commitado no repositório.
+    memoria: Option<String>,
     /// Lista compacta de skills descobertas (`SKILL.md`, MT-60/ADR-0023),
     /// já renderizada (`skills::render_skills_list`) — `None` por padrão.
     /// Concatenada **por último** em [`Self::ensure_system_prompt`], depois
@@ -365,6 +372,7 @@ impl Session {
             review_retry_limit: 0,
             guardrails: None,
             project_instructions: None,
+            memoria: None,
             skills_list: None,
             usage_total: Usage::default(),
         }
@@ -410,6 +418,17 @@ impl Session {
     #[must_use]
     pub fn with_project_instructions(mut self, texto: impl Into<String>) -> Self {
         self.project_instructions = Some(texto.into());
+        self
+    }
+
+    /// Define a memória de projeto explícita (`/remember`/`--remember`,
+    /// MT-94/ADR-0032) desta sessão — *default* nenhuma. Já deve vir
+    /// renderizada (`memory::render_memoria`); concatenada logo depois das
+    /// instruções de projeto na mensagem de sistema (ver
+    /// [`Self::ensure_system_prompt`]).
+    #[must_use]
+    pub fn with_memoria(mut self, texto: impl Into<String>) -> Self {
+        self.memoria = Some(texto.into());
         self
     }
 
@@ -518,16 +537,19 @@ impl Session {
     /// insere só uma vez; chamadas seguintes (novos turnos, ou novas
     /// mensagens de usuário) não duplicam. Concatena, nesta ordem: as
     /// instruções de projeto (`AGENTS.md`/`CLAUDE.md`, MT-59/ADR-0023 — mais
-    /// gerais), o `system_prompt` do preset da `task-class` ativa (mais
-    /// específico) e, por último, a lista compacta de skills descobertas
-    /// (MT-60/ADR-0023) — separados por uma linha em branco entre os
-    /// presentes; uma única mensagem de sistema, nunca mais de uma.
+    /// gerais), a memória de projeto explícita (`/remember`/`--remember`,
+    /// MT-94/ADR-0032 — mesma categoria de contexto durável, mas curado
+    /// pelo usuário), o `system_prompt` do preset da `task-class` ativa
+    /// (mais específico) e, por último, a lista compacta de skills
+    /// descobertas (MT-60/ADR-0023) — separados por uma linha em branco
+    /// entre os presentes; uma única mensagem de sistema, nunca mais de uma.
     fn ensure_system_prompt(&mut self) {
         if self.messages.iter().any(|m| m.role == Role::System) {
             return;
         }
         let combinado = [
             self.project_instructions.as_deref(),
+            self.memoria.as_deref(),
             self.preset.system_prompt.as_deref(),
             self.skills_list.as_deref(),
         ]
@@ -1578,6 +1600,58 @@ mod tests {
             Message::system(
                 "Regras do projeto.\n\nInstrução da task-class.\n\n- adr-writer: cria ADRs."
             )
+        );
+    }
+
+    #[tokio::test]
+    async fn memoria_e_concatenada_logo_apos_instrucoes_de_projeto_antes_do_preset() {
+        let mock = Arc::new(MockProvider::new("mock"));
+        mock.enqueue_chat(Ok(resposta_final("ok", Usage::default())));
+        let executor = Arc::new(CountingExecutor::default());
+        let preset = CallPreset {
+            system_prompt: Some("Instrução da task-class.".into()),
+            ..CallPreset::default()
+        };
+        let mut session = Session::new(
+            ResolvedRoute::new(mock.clone(), "modelo-x", preset),
+            executor,
+            TokenBudget::new(10_000),
+        )
+        .with_project_instructions("Regras do projeto.")
+        .with_memoria("- o usuário prefere respostas em português")
+        .with_skills_list("- adr-writer: cria ADRs.");
+        session.push_user_message("oi");
+
+        session.run(&router_vazio()).await.expect("deve completar");
+
+        assert_eq!(
+            mock.chat_requests()[0].messages[0],
+            Message::system(
+                "Regras do projeto.\n\n- o usuário prefere respostas em português\n\n\
+                 Instrução da task-class.\n\n- adr-writer: cria ADRs."
+            )
+        );
+    }
+
+    #[tokio::test]
+    async fn sem_memoria_gravada_nenhum_bloco_vazio_e_inserido() {
+        let mock = Arc::new(MockProvider::new("mock"));
+        mock.enqueue_chat(Ok(resposta_final("ok", Usage::default())));
+        let executor = Arc::new(CountingExecutor::default());
+        let mut session = Session::new(
+            ResolvedRoute::new(mock.clone(), "modelo-x", CallPreset::default()),
+            executor,
+            TokenBudget::new(10_000),
+        )
+        .with_project_instructions("Regras do projeto.");
+        session.push_user_message("oi");
+
+        session.run(&router_vazio()).await.expect("deve completar");
+
+        assert_eq!(
+            mock.chat_requests()[0].messages[0],
+            Message::system("Regras do projeto."),
+            "sem with_memoria, nada extra deve ser concatenado"
         );
     }
 

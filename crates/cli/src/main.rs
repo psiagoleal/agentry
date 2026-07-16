@@ -267,6 +267,15 @@ struct Args {
     /// **qualquer** invocação anterior, não só desta sessão.
     #[arg(long, conflicts_with_all = ["init", "tarefa", "tui"])]
     undo: bool,
+
+    /// Grava `<fato>` como memória de projeto explícita (MT-94, ADR-0032)
+    /// em `.agentry/memory.json` e sai, sem rodar nenhuma tarefa — fica
+    /// disponível para sessões futuras (carregado no *system prompt* de
+    /// toda invocação seguinte). Deliberadamente **não** existe uma tool
+    /// que o agente possa chamar sozinho para isso — sempre um ato
+    /// explícito do usuário.
+    #[arg(long, conflicts_with_all = ["init", "tarefa", "tui"])]
+    remember: Option<String>,
 }
 
 /// Resultado de [`run_init_local`] — usado tanto por `--init` quanto por
@@ -815,6 +824,22 @@ async fn main() {
         return;
     }
 
+    if let Some(fato) = &args.remember {
+        let workspace_root = std::env::current_dir().unwrap_or_else(|erro| {
+            eprintln!("erro ao ler diretório de trabalho: {erro}");
+            std::process::exit(1)
+        });
+        let store = agentry_core::memory::MemoryStore::new(&workspace_root);
+        match store.remember(fato.clone()) {
+            Ok(()) => println!("lembrado: {fato}"),
+            Err(erro) => {
+                eprintln!("erro: {erro}");
+                std::process::exit(1)
+            }
+        }
+        return;
+    }
+
     let overrides = overrides_from_args(&args).unwrap_or_else(|erro| {
         eprintln!("erro: {erro}");
         std::process::exit(2)
@@ -1046,6 +1071,18 @@ async fn main() {
         ) {
             session = session.with_project_instructions(instrucoes);
         }
+    }
+    // Memória de projeto explícita (MT-94, ADR-0032) — carregada sempre que
+    // houver algum fato já gravado por `/remember`/`--remember` em
+    // invocações anteriores; sem *opt-out* próprio (mesma disciplina de
+    // `agentsFile`, ADR-0023 — quem não quiser nada aqui simplesmente nunca
+    // usa o comando).
+    let fatos_lembrados = agentry_core::memory::MemoryStore::new(&workspace_root)
+        .load()
+        .unwrap_or_default();
+    let memoria = agentry_core::memory::render_memoria(&fatos_lembrados);
+    if !memoria.is_empty() {
+        session = session.with_memoria(memoria);
     }
     let lista_de_skills = agentry_core::skills::render_skills_list(&skills_descobertas);
     if !lista_de_skills.is_empty() {
@@ -1615,6 +1652,47 @@ mod tests {
             formatar_undo(&outcome),
             "'novo.txt' removido (não existia antes da mudança desfeita)"
         );
+    }
+
+    // --- MT-94: flag --remember, Session::with_memoria carregada no arranque ---
+
+    #[test]
+    fn flag_remember_e_reconhecida_com_o_fato() {
+        let args = Args::parse_from(["agentry", "--remember", "um fato qualquer"]);
+        assert_eq!(args.remember.as_deref(), Some("um fato qualquer"));
+        assert!(args.tarefa.is_none());
+    }
+
+    #[test]
+    fn flag_remember_conflita_com_tarefa() {
+        let resultado = Args::try_parse_from(["agentry", "--remember", "fato", "tarefa"]);
+        assert!(
+            resultado.is_err(),
+            "--remember e uma tarefa one-shot juntos devem ser erro de parsing"
+        );
+    }
+
+    #[test]
+    fn flag_remember_ausente_preserva_none() {
+        let args = Args::parse_from(["agentry", "tarefa"]);
+        assert!(args.remember.is_none());
+    }
+
+    #[test]
+    fn memory_store_grava_e_render_memoria_reflete_o_fato_gravado() {
+        // Prova a mesma sequência que main() executa ao montar a sessão
+        // real: MemoryStore::new(workspace_root).load() seguido de
+        // render_memoria — sem precisar rodar main() inteiro.
+        let dir = TempDir::new();
+        let store = agentry_core::memory::MemoryStore::new(dir.path());
+        store
+            .remember("fato gravado numa invocação anterior")
+            .expect("remember deve funcionar");
+
+        let fatos = store.load().expect("load deve funcionar");
+        let memoria = agentry_core::memory::render_memoria(&fatos);
+
+        assert!(memoria.contains("fato gravado numa invocação anterior"));
     }
 
     // --- MT-49: consumo real do provider LiteLLM na CLI ---

@@ -12,7 +12,11 @@
 //! resumo do modo *one-shot*, sem *side-effect* na conversa. `/undo`
 //! (MT-87, ADR-0030) desfaz o checkpoint mais recente de `fs_write`/
 //! `fs_edit` via [`agentry_core::checkpoint::CheckpointStore::undo`] —
-//! mesma lógica da flag `--undo` do modo *one-shot*.
+//! mesma lógica da flag `--undo` do modo *one-shot*. `/remember <fato>`
+//! (MT-94, ADR-0032) grava um fato de memória de projeto explícita via
+//! [`agentry_core::memory::MemoryStore::remember`] — mesma lógica da
+//! flag `--remember` do modo *one-shot*; fica disponível para sessões
+//! futuras (nunca a sessão atual, que já resolveu seu *system prompt*).
 //!
 //! Genérico sobre `Read`/`Write` (não amarrado a `stdin`/`stdout` reais) para
 //! ser testável com buffers em memória.
@@ -241,6 +245,21 @@ pub async fn run_repl<R: BufRead, W: Write>(
             match store.undo() {
                 Ok(outcome) => writeln!(output, "{}", crate::formatar_undo(&outcome))
                     .map_err(|e| e.to_string())?,
+                Err(erro) => writeln!(output, "erro: {erro}").map_err(|e| e.to_string())?,
+            }
+            continue;
+        }
+        if linha == "/remember" || linha.starts_with("/remember ") {
+            let fato = linha.strip_prefix("/remember").unwrap_or("").trim();
+            if fato.is_empty() {
+                writeln!(output, "uso: /remember <fato>").map_err(|e| e.to_string())?;
+                continue;
+            }
+            let store = agentry_core::memory::MemoryStore::new(workspace_root);
+            match store.remember(fato) {
+                Ok(()) => {
+                    writeln!(output, "lembrado: {fato}").map_err(|e| e.to_string())?;
+                }
                 Err(erro) => writeln!(output, "erro: {erro}").map_err(|e| e.to_string())?,
             }
             continue;
@@ -843,12 +862,85 @@ mod tests {
         assert!(saida_texto.contains("erro:"));
     }
 
+    #[tokio::test]
+    async fn comando_remember_grava_o_fato_em_agentry_memory_json() {
+        let dir = TempDir::new();
+        let mock = Arc::new(MockProvider::new(PROVIDER));
+        let mut router = router_com_ollama(mock.clone(), "modelo-x");
+        let rota = router.resolve(TASK_CLASS).expect("deve resolver");
+        let mut session = Session::new(rota, Arc::new(NoopExecutor), TokenBudget::new(100_000));
+
+        let entrada = "/remember o usuário prefere respostas em português\n/exit\n";
+        let mut saida = Vec::new();
+
+        run_repl(
+            Cursor::new(entrada.as_bytes()),
+            &mut saida,
+            &mut session,
+            &mut router,
+            RuntimeOverride::default(),
+            TASK_CLASS.to_string(),
+            &ReplConfig {
+                workspace_root: dir.path(),
+                preset_base: &CallPreset::default(),
+                candidato_extra: None,
+            },
+        )
+        .await
+        .expect("repl deve rodar sem erro");
+
+        let fatos = agentry_core::memory::MemoryStore::new(dir.path())
+            .load()
+            .expect("load deve funcionar");
+        assert_eq!(
+            fatos,
+            vec!["o usuário prefere respostas em português".to_string()]
+        );
+        let saida_texto = String::from_utf8(saida).unwrap();
+        assert!(saida_texto.contains("lembrado: o usuário prefere respostas em português"));
+    }
+
+    #[tokio::test]
+    async fn comando_remember_sem_fato_mostra_uso_sem_gravar_nada() {
+        let dir = TempDir::new();
+        let mock = Arc::new(MockProvider::new(PROVIDER));
+        let mut router = router_com_ollama(mock.clone(), "modelo-x");
+        let rota = router.resolve(TASK_CLASS).expect("deve resolver");
+        let mut session = Session::new(rota, Arc::new(NoopExecutor), TokenBudget::new(100_000));
+
+        let entrada = "/remember\n/exit\n";
+        let mut saida = Vec::new();
+
+        run_repl(
+            Cursor::new(entrada.as_bytes()),
+            &mut saida,
+            &mut session,
+            &mut router,
+            RuntimeOverride::default(),
+            TASK_CLASS.to_string(),
+            &ReplConfig {
+                workspace_root: dir.path(),
+                preset_base: &CallPreset::default(),
+                candidato_extra: None,
+            },
+        )
+        .await
+        .expect("repl deve rodar sem erro");
+
+        let fatos = agentry_core::memory::MemoryStore::new(dir.path())
+            .load()
+            .expect("load deve funcionar");
+        assert!(fatos.is_empty(), "/remember sem fato não deve gravar nada");
+        let saida_texto = String::from_utf8(saida).unwrap();
+        assert!(saida_texto.contains("uso: /remember <fato>"));
+    }
+
     /// Diretório temporário de teste, removido automaticamente ao sair de
     /// escopo (mesma disciplina de `state_dir`/`config`/`main::tests`,
-    /// MT-38/39/41) — usado pelos testes de `/init` e `/undo` (MT-87), que
-    /// de fato escrevem em disco (os demais testes deste módulo passam
-    /// `std::env::temp_dir()` compartilhado porque nunca tocam o disco de
-    /// verdade).
+    /// MT-38/39/41) — usado pelos testes de `/init`/`/undo` (MT-87)/
+    /// `/remember` (MT-94), que de fato escrevem em disco (os demais
+    /// testes deste módulo passam `std::env::temp_dir()` compartilhado
+    /// porque nunca tocam o disco de verdade).
     struct TempDir(std::path::PathBuf);
 
     impl TempDir {
