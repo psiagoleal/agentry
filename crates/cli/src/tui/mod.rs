@@ -271,6 +271,24 @@ fn rodape_da_entrada(estado: &Estado) -> String {
     )
 }
 
+/// Texto da mensagem de sistema mostrada no histórico de chat após
+/// `Ctrl+Z`/*undo* (MT-88, ADR-0030) — função pura, separada do laço de
+/// eventos para ser testável sem terminal real; usa
+/// [`crate::formatar_undo`] em sucesso (mesma formatação da flag
+/// `--undo`/comando `/undo`), o `Display` de
+/// [`agentry_core::checkpoint::CheckpointError`] em erro.
+fn mensagem_de_undo(
+    resultado: Result<
+        agentry_core::checkpoint::UndoOutcome,
+        agentry_core::checkpoint::CheckpointError,
+    >,
+) -> String {
+    match resultado {
+        Ok(outcome) => format!("[undo] {}", crate::formatar_undo(&outcome)),
+        Err(erro) => format!("[undo] erro: {erro}"),
+    }
+}
+
 /// Tela: histórico de chat (área rolável) em cima, caixa de entrada fixa
 /// embaixo — rodapé da caixa de entrada mostra [`rodape_da_entrada`]. Com o
 /// seletor de modelo aberto, um modal centralizado é desenhado por cima.
@@ -474,6 +492,7 @@ pub async fn run(
     overrides: RuntimeOverride,
     rx_humano: mpsc::UnboundedReceiver<PedidoHumano>,
     auto: Arc<AtomicBool>,
+    workspace_root: std::path::PathBuf,
 ) -> io::Result<()> {
     let mut terminal = ratatui::try_init()?;
     let resultado = loop_eventos(
@@ -484,6 +503,7 @@ pub async fn run(
         overrides,
         rx_humano,
         auto,
+        workspace_root,
     )
     .await;
     ratatui::restore();
@@ -539,6 +559,11 @@ fn e_apenas_digitacao(modifiers: KeyModifiers) -> bool {
     modifiers.difference(KeyModifiers::SHIFT).is_empty()
 }
 
+// `workspace_root` (MT-88/ADR-0030, para o `CheckpointStore` de `Ctrl+Z`)
+// leva a contagem a 8 — cada parâmetro já é uma peça distinta montada por
+// `main()`/`run()` (terminal, sessão, roteador, ...), sem par natural para
+// agrupar num `struct` de config só por isso.
+#[allow(clippy::too_many_arguments)]
 async fn loop_eventos(
     terminal: &mut DefaultTerminal,
     sessao_inicial: Session,
@@ -547,8 +572,10 @@ async fn loop_eventos(
     overrides: RuntimeOverride,
     mut rx_humano: mpsc::UnboundedReceiver<PedidoHumano>,
     auto: Arc<AtomicBool>,
+    workspace_root: std::path::PathBuf,
 ) -> io::Result<()> {
     let router = Arc::new(router);
+    let checkpoint_store = agentry_core::checkpoint::CheckpointStore::new(workspace_root);
     let mut estado = Estado::new(overrides, auto);
     let mut sessao_atual = Some(sessao_inicial);
     let mut rx_terminal = iniciar_leitor_de_terminal();
@@ -672,7 +699,10 @@ async fn loop_eventos(
                                 }
                             }
                         }
-                        Some(Action::OpenModelPicker) | Some(Action::ToggleAuto) | None => {
+                        Some(Action::OpenModelPicker)
+                        | Some(Action::ToggleAuto)
+                        | Some(Action::Undo)
+                        | None => {
                             if let (None, Some(seletor)) = (acao, estado.seletor.as_mut()) {
                                 match key.code {
                                     KeyCode::Backspace => {
@@ -694,6 +724,11 @@ async fn loop_eventos(
                         Some(Action::Cancel) => {}
                         Some(Action::ToggleAuto) => {
                             estado.auto.fetch_xor(true, Ordering::Relaxed);
+                        }
+                        Some(Action::Undo) => {
+                            estado
+                                .chat
+                                .registrar_mensagem_sistema(mensagem_de_undo(checkpoint_store.undo()));
                         }
                         Some(Action::OpenModelPicker) => {
                             let candidatos = router
@@ -780,6 +815,7 @@ mod tests {
     use agentry_core::provider::ChatResponse;
     use agentry_core::router::{CallPreset, ResolvedRoute, RouteEntry};
     use agentry_core::session::{TokenBudget, ToolExecutor};
+    use ratatui::crossterm::event::KeyEvent;
 
     fn estado_vazio() -> Estado {
         Estado::new(RuntimeOverride::default(), Arc::new(AtomicBool::new(false)))
@@ -875,6 +911,33 @@ mod tests {
             rodape.contains(&keybind::legenda()),
             "rodapé continua incluindo a legenda de keybindings, não só o uso"
         );
+    }
+
+    #[test]
+    fn mensagem_de_undo_de_sucesso_usa_a_mesma_formatacao_do_undo_do_repl_e_one_shot() {
+        let outcome = agentry_core::checkpoint::UndoOutcome {
+            path: "a.txt".to_string(),
+            acao: agentry_core::checkpoint::UndoAcao::Restaurado,
+        };
+        assert_eq!(
+            mensagem_de_undo(Ok(outcome)),
+            "[undo] 'a.txt' restaurado ao conteúdo anterior"
+        );
+    }
+
+    #[test]
+    fn mensagem_de_undo_de_erro_reporta_o_erro_sem_panic() {
+        let mensagem = mensagem_de_undo(Err(agentry_core::checkpoint::CheckpointError::Vazio));
+        assert_eq!(
+            mensagem,
+            "[undo] erro: nenhum checkpoint disponível para desfazer"
+        );
+    }
+
+    #[test]
+    fn ctrl_z_resolve_para_action_undo_sem_colidir_com_nenhuma_tecla_ja_mapeada() {
+        let evento = KeyEvent::new(KeyCode::Char('z'), KeyModifiers::CONTROL);
+        assert_eq!(keybind::resolve(evento), Some(Action::Undo));
     }
 
     #[test]

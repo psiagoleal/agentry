@@ -91,6 +91,19 @@ impl ChatState {
         ultima.texto.push_str(mensagem);
         ultima.concluida = true;
     }
+
+    /// Acrescenta uma mensagem independente ao histórico, já concluída —
+    /// usada por eventos que não são um turno de chat (MT-88, ADR-0030:
+    /// resultado de `Ctrl+Z`/*undo*), diferente de [`Self::marcar_erro`],
+    /// que anexa ao turno **já aberto** em vez de criar um novo. Pode ser
+    /// chamada a qualquer momento (histórico vazio ou não).
+    pub fn registrar_mensagem_sistema(&mut self, texto: String) {
+        self.mensagens.push(Mensagem {
+            autor: Autor::Agente,
+            texto,
+            concluida: true,
+        });
+    }
 }
 
 #[cfg(test)]
@@ -187,5 +200,41 @@ mod tests {
         estado.marcar_erro("erro do provider: timeout");
 
         assert!(estado.mensagens().is_empty());
+    }
+
+    #[test]
+    fn registrar_mensagem_sistema_acrescenta_uma_mensagem_concluida_independente_do_turno() {
+        let mut estado = ChatState::new();
+
+        // Sem nenhum turno aberto (histórico vazio) — diferente de
+        // `marcar_erro`, que exige um turno já em aberto.
+        estado.registrar_mensagem_sistema("[undo] 'a.txt' restaurado".into());
+
+        assert_eq!(estado.mensagens().len(), 1);
+        assert_eq!(estado.mensagens()[0].texto, "[undo] 'a.txt' restaurado");
+        assert!(estado.mensagens()[0].concluida);
+    }
+
+    #[test]
+    fn registrar_mensagem_sistema_nao_altera_um_turno_ja_em_aberto() {
+        let mut estado = ChatState::new();
+        estado.registrar_mensagem_usuario("oi".into());
+        estado.aplicar_evento(&StreamEvent::TextDelta {
+            text: "respondendo...".into(),
+        });
+
+        estado.registrar_mensagem_sistema("[undo] 'a.txt' restaurado".into());
+
+        assert_eq!(
+            estado.mensagens().len(),
+            3,
+            "mensagem de sistema é um turno novo, não anexado ao turno do agente em voo"
+        );
+        assert_eq!(estado.mensagens()[1].texto, "respondendo...");
+        assert!(
+            !estado.mensagens()[1].concluida,
+            "o turno do agente em voo continua em aberto, intocado"
+        );
+        assert_eq!(estado.mensagens()[2].texto, "[undo] 'a.txt' restaurado");
     }
 }

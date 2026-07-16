@@ -977,6 +977,7 @@ async fn main() {
             overrides,
             rx_humano,
             auto_confirmacao,
+            workspace_root.clone(),
         )
         .await
         .unwrap_or_else(|erro| {

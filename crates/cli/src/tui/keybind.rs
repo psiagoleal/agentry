@@ -38,6 +38,10 @@ pub enum Action {
     /// (MT-74) — **nunca** afeta uma tool sob `deny` (invariante estrutural
     /// de `RegistryToolExecutor::execute`, não desta tecla).
     ToggleAuto,
+    /// Desfaz o checkpoint mais recente de `fs_write`/`fs_edit` (MT-88,
+    /// ADR-0030) — mesma `CheckpointStore::undo()` da flag `--undo`
+    /// (*one-shot*) e do comando `/undo` (REPL).
+    Undo,
 }
 
 /// Uma entrada da tabela de *keybindings*: ação, tecla *default* (com
@@ -104,6 +108,12 @@ pub const DEFINITIONS: &[KeyBinding] = &[
         code: KeyCode::Char('a'),
         modifiers: KeyModifiers::CONTROL,
         description: "alterna confirmação automática de tools sob ask",
+    },
+    KeyBinding {
+        action: Action::Undo,
+        code: KeyCode::Char('z'),
+        modifiers: KeyModifiers::CONTROL,
+        description: "desfaz o último fs_write/fs_edit (checkpoint)",
     },
 ];
 
