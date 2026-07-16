@@ -9,7 +9,7 @@
 
 - **Data:** 2026-07-16
 - **Branch:** `main`
-- **Commit:** `6caadae`
+- **Commit:** `cbf975b`
 - **Fase:** Roadmap v0.1..v0.4 **fechados/imutáveis**; **Fase 10 concluída** (LiteLLM).
   **Execução autônoma em andamento** (`/loop /implementar-roadmap`, modelo Sonnet 5) — ver
   `docs/decisoes-autonomas.md` para decisões tomadas sozinho (**5 decisões registradas** até a
@@ -154,6 +154,21 @@
   **preparar a Fase 17+** (`docs/roadmap-longo-prazo.md` §Fase 17+: memória entre sessões,
   subagentes/orquestração, multimodal, checkpoints/*undo*, custo/uso visível — nenhuma tem ADR
   nem detalhamento de tickets ainda).
+
+  **Fase 17 preparada** — decisão de qual das cinco frentes de "segunda onda" preparar
+  primeiro registrada em `docs/decisoes-autonomas.md` (2026-07-16): **custo/uso visível**,
+  escolhida por ser a única sem nenhuma pergunta de segurança/confidencialidade/egresso em
+  aberto (as outras quatro passam a viver na **Fase 18+**, `docs/roadmap-longo-prazo.md`
+  §Fase 18+ — nome do bloco renomeado ao nascer esta decisão; note-se acima que o parágrafo
+  anterior ainda usa "Fase 17+" para o bloco genérico, texto histórico anterior a esta
+  divisão). ADR-0029 (`Proposed`, `docs/adr/0029-uso-de-tokens-visivel-na-sessao.md`) decide:
+  `Session` acumula `Usage` por sessão (nenhum tipo novo, só soma o que `Session` já calcula
+  por turno); exposto em três pontos — resumo em `stderr` no modo *one-shot*, comando
+  `/usage` no REPL, rodapé da TUI; contador **não persiste entre sessões** (fica para a frente
+  "memória entre sessões", Fase 18+); custo em dinheiro fica deliberadamente fora de escopo
+  (exigiria tabela de preço configurável, não é dado intrínseco ao provider como tokens são).
+  `docs/roadmap-v0.11.md` detalha os 4 tickets (MT-82..85). Pronta para começar a
+  implementação a partir do MT-82.
 
   **MT-70 concluído** — primeiro ticket de implementação da Fase 15: `ratatui` (feature
   `crossterm`, `default-features = false` para árvore de dependências mínima) adicionada a
@@ -1335,22 +1350,28 @@
   Fase 16 `✅ concluída`. `mkdocs build --strict` limpo, *anchors* conferidos no HTML gerado.
   Nenhuma mudança de código.
 
-**Em andamento:** nada pendente — árvore de trabalho limpa, tudo commitado. **Fase 16
-concluída inteira (MT-77..81)** — última fase que já tinha tickets detalhados no roadmap de
-longo prazo.
+- [x] **Preparação da Fase 17** — decisão de qual das cinco frentes de "segunda onda"
+  preparar primeiro registrada em `docs/decisoes-autonomas.md` (2026-07-16): **custo/uso
+  visível** (as outras quatro — memória entre sessões, subagentes/orquestração, multimodal,
+  checkpoints/*undo* — passam a viver na Fase 18+, sem ordem decidida entre elas ainda).
+  **ADR-0029** (`Proposed`, `docs/adr/0029-uso-de-tokens-visivel-na-sessao.md`): `Session`
+  acumula `Usage` por sessão; exposto via resumo em `stderr` no modo *one-shot*, comando
+  `/usage` no REPL, rodapé da TUI; sem persistência entre sessões; custo em dinheiro fora de
+  escopo. `docs/roadmap-v0.11.md` detalha MT-82..85. `docs/adr/README.md`/`mkdocs.yml`
+  atualizados (novo ADR + novo roadmap na `nav`). `mkdocs build --strict` limpo. Nenhuma
+  mudança de código — esta iteração só prepara a fase (skill `adr-writer`/
+  `micro-ticket-planner`), não implementa.
 
-**Próximo passo:** **preparar a Fase 17+** (`docs/roadmap-longo-prazo.md` §Fase 17+) — nenhuma
-das cinco frentes enumeradas ali (memória entre sessões, subagentes/orquestração, multimodal,
-checkpoints/*undo*, custo/uso visível) tem ADR nem detalhamento de tickets ainda. Seguindo a
-disciplina do comando `/loop /implementar-roadmap` §1 ("fase sem tickets detalhados"): a
-próxima unidade de trabalho é **preparar** a próxima frente escolhida (ADR `Proposed` +
-quebra em micro-tickets num novo `docs/roadmap-vX.Y.md`), não implementar código ainda. A
-escolha de qual das cinco frentes vem primeiro, e sua ordem relativa, ainda não foi decidida
-— decisão a tomar na próxima iteração (candidata natural: registrar como decisão-sob-dúvida
-em `docs/decisoes-autonomas.md`, já que o roadmap não define uma ordem explícita para a
-"segunda onda", só a enumera). Outros itens em aberto, sem ticket: deploy do site MkDocs
-(GitHub Pages) — decisão explícita do usuário de não fazer ainda; CI multi-SO ainda não
-observado verde (falta um push que dispare a matriz); backlog independente do
+**Em andamento:** nada pendente — árvore de trabalho limpa, tudo commitado. **Fase 16
+concluída inteira (MT-77..81)**; **Fase 17 preparada** (ADR-0029 `Proposed`,
+`docs/roadmap-v0.11.md`, MT-82..85).
+
+**Próximo passo:** **MT-82** (`docs/roadmap-v0.11.md`, `crates/core/src/session/mod.rs`) —
+`Session` acumula `Usage` ao longo da sessão: campo interno somado a cada turno concluído +
+método de leitura do total acumulado; `/compact` não zera o contador. Primeiro ticket de
+implementação da Fase 17. Outros itens em aberto, sem ticket: deploy do site MkDocs (GitHub
+Pages) — decisão explícita do usuário de não fazer ainda; CI multi-SO ainda não observado
+verde (falta um push que dispare a matriz); backlog independente do
 `ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de reanálise de maturidade,
 perfis base+overlay/skills executáveis/config de serviços pendentes de validação de
 implementação).
