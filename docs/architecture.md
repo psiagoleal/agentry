@@ -96,7 +96,8 @@ configuração completa de task-class + convenção autoexplicativa (ADR-0021/00
 memória de projeto AGENTS.md + Skills (ADR-0023, fecha ADR-0003) · **Fase 14** tools
 essenciais — AskUser, web/SearXNG, Glob, shell background (ADR-0024..0026) · **Fase 15** TUI
 `ratatui` (ADR-0027) · **Fase 16** MCP client `rmcp` (ADR-0028) · **Fase 17** uso de tokens
-visível na sessão (ADR-0029) · **Fase 18+** restante da segunda onda (memória entre sessões,
-subagentes, multimodal, checkpoints).
+visível na sessão (ADR-0029) · **Fase 18** checkpoints e *undo* de mudanças de arquivo
+(ADR-0030) · **Fase 19+** restante da segunda onda (memória entre sessões, subagentes,
+multimodal).
 
 O detalhamento de cada fase vira **micro-tickets** (skill `micro-ticket-planner`) ao iniciar.

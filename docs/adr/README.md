@@ -36,3 +36,4 @@ Registros de decisões estruturais (ver skill `adr-writer`). Use
 | [0027](0027-tui-via-ratatui.md) | TUI via `ratatui` — modo interativo opt-in, sem substituir o REPL | Accepted |
 | [0028](0028-mcp-client-via-rmcp.md) | Cliente MCP via `rmcp` — só servidores locais (`stdio`) na v1 | Accepted |
 | [0029](0029-uso-de-tokens-visivel-na-sessao.md) | Uso de tokens visível durante a sessão (`Session::usage_total`) | Accepted |
+| [0030](0030-checkpoints-e-undo-de-mudancas-de-arquivo.md) | Checkpoints e *undo* de mudanças de arquivo (`fs_write`/`fs_edit`) | Proposed |

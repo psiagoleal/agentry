@@ -27,6 +27,37 @@ escolha feita sozinho.
 
 ## Entradas (mais recente no topo)
 
+### 2026-07-16 — Preparação da Fase 18 — qual frente restante da "segunda onda" preparar
+- **Contexto:** a Fase 17 (uso de tokens visível) fechou inteira (MT-82..85). Restam quatro
+  frentes de "segunda onda" em `docs/roadmap-longo-prazo.md` §Fase 18+ (à época), sem ordem
+  declarada: memória entre sessões, subagentes/orquestração, multimodal, checkpoints/*undo*.
+- **Opções consideradas:** (a) **checkpoints/*undo*** de mudanças de arquivo — escopo
+  autocontido (só o workspace local, nenhum caminho de rede/egresso), local de
+  armazenamento já resolvido pela ADR-0017 (`.agentry/`, auto-excluído do git), design
+  mínimo claro (snapshot do conteúdo **antes** de `fs_write`/`fs_edit` escrever, pilha
+  *LIFO* com teto, `/undo` no REPL); (b) **multimodal** (`ContentBlock::Image`) — levanta uma
+  pergunta de confidencialidade real (imagem pode conter informação sensível que os
+  *guardrails* de texto atuais não enxergam — precisa de decisão de design própria antes de
+  implementar, não só uma extensão mecânica do tipo); (c) **memória entre sessões**
+  (LLM-Wiki/OKF) — maior escopo entre as quatro, persistir conteúdo de conversa **entre**
+  sessões levanta pergunta de retenção/confidencialidade que a compactação intra-sessão
+  (ADR-0016) nunca precisou responder; (d) **subagentes/orquestração** — o próprio roadmap já
+  sinaliza uma "decisão-chave" com implicação direta na ADR-0002 (egresso), mais alinhada a
+  uma escalada ao mantenedor do que a uma decisão autônoma (mesmo motivo já registrado na
+  entrada de preparação da Fase 17, abaixo).
+- **Escolha (recomendada):** (a) **checkpoints/*undo*** de mudanças de arquivo.
+- **Justificativa:** é a única das quatro sem nenhuma pergunta de segurança/confidencialidade/
+  egresso em aberto — puramente local ao workspace, reaproveita a decisão de diretório de
+  estado já tomada (ADR-0017), sem exigir decisão de design nova sobre dado sensível
+  (diferente de multimodal/memória entre sessões) nem sobre modelo de privacidade
+  (diferente de subagentes). Design mínimo: sem dependência nova, sem novo caminho de rede.
+  As outras três ficam para as próximas preparações de fase; multimodal e memória entre
+  sessões precisam de mais reflexão de design antes de virarem ADR (registrado aqui para a
+  próxima iteração não repetir a análise do zero); subagentes continua a candidata mais
+  provável a exigir escalar ao mantenedor.
+- **Commit:** preparação da Fase 18 nesta mesma iteração (ver `docs/adr/0030-*.md` e
+  `docs/roadmap-v0.12.md`).
+
 ### 2026-07-16 — Preparação da Fase 17 — qual frente da "segunda onda" preparar primeiro
 - **Contexto:** a Fase 16 (MCP) fechou inteira (MT-77..81). `docs/roadmap-longo-prazo.md`
   §Fase 17+ (nome do bloco antes desta decisão — hoje dividido em Fase 17, esta escolha, e
