@@ -30,6 +30,38 @@ modelo alterado para: llama3.1:70b
 > /exit
 ```
 
+## Modo TUI
+
+```bash
+agentry --tui
+```
+
+Terceiro modo de invocação, opcional (*opt-in* — sem `--tui`, o comportamento *one-shot*/REPL
+de texto acima continua idêntico, byte a byte). Roda sobre a **mesma** `Session`/`Router` do
+REPL de texto — histórico de chat rolável numa área própria, com uma caixa de entrada de
+mensagem fixa embaixo, em vez de um prompt linear.
+
+*Keybindings* padrão (não customizáveis nesta versão):
+
+| Tecla | Ação |
+|---|---|
+| `Enter` | Envia a mensagem digitada (ou confirma um modal aberto — seletor de modelo, confirmação de tool, pergunta do agente). |
+| `↑` / `↓` | Rola o histórico de mensagens (ou navega a lista do seletor de modelo, quando aberto). |
+| `Ctrl+P` | Abre o seletor de modelo/*provider* — busca difusa sobre os candidatos já declarados na *task-class* ativa (nunca introduz um candidato novo, mesma disciplina de `/model`/`/provider` do REPL). |
+| `Ctrl+A` | Alterna confirmação automática (`auto`/`normal`) de tools sob `ask` — só acelera a aprovação; nunca aprova uma tool em `deny`. |
+| `Esc` | Fecha o seletor de modelo aberto, ou recusa/cancela uma confirmação/pergunta pendente. |
+| `Ctrl+C` | Sai do modo TUI a qualquer momento (mesmo com um modal aberto). |
+
+Tools sob `ask` ([`permissions`](configuracao.md#permissions)) abrem um modal de confirmação —
+para `fs_write`/`fs_edit`, o modal mostra o **diff** de verdade (linhas removidas/adicionadas)
+em vez dos argumentos brutos da chamada. A tool `ask_user` (ver
+[Ferramentas do agente](#ferramentas-do-agente) abaixo) também abre um modal, com a pergunta
+(e sugestões, se houver) e uma caixa de resposta em texto livre.
+
+A trilha de governança não muda com o modo TUI: nenhum caminho de rede/egresso novo é
+introduzido — é só uma apresentação diferente sobre a mesma `Session`/`Router`/`ToolRegistry`
+já documentados no restante deste guia.
+
 ## Flags de invocação (one-shot)
 
 | Flag | Efeito |
@@ -43,6 +75,7 @@ modelo alterado para: llama3.1:70b
 | `--reasoning on\|off` | Raciocínio estendido, se o modelo suportar. |
 | `--task-class <nome>` | Task-class a usar nesta invocação — ver [`taskClasses`](configuracao.md#taskclasses). *Default*: `chat`. |
 | `--ollama-host <host:porta>` | Servidor Ollama a usar (*default*: `127.0.0.1:11434`). |
+| `--tui` | Entra no [modo TUI](#modo-tui) em vez do REPL de texto. Incompatível com `--init` e com uma tarefa *one-shot*. |
 | `--init` | Cria `.agentry/agentry.settings.json` e sai (ver [Configuração](configuracao.md)). |
 | `--profile <nome>` | Com `--init`: busca a configuração real daquele perfil. |
 

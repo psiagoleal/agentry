@@ -2,7 +2,7 @@
 
 # ADR 0027: TUI via `ratatui` — modo interativo opt-in, sem substituir o REPL
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Data:** 2026-07-15
 - **Decisores:** Iago Leal (mantenedor)
 - **Tags:** dependências, TUI, UX, arquitetura
