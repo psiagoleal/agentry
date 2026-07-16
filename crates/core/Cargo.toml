@@ -32,6 +32,7 @@ lancedb = { workspace = true }
 arrow-array = { workspace = true }
 arrow-schema = { workspace = true }
 futures = { workspace = true }
+rmcp = { workspace = true }
 
 [dev-dependencies]
 # "net"/"io-util": servidor HTTP mínimo de teste do MT-07 (sem lib de mock nova).

@@ -168,6 +168,14 @@ const GENERIC_SETTINGS_EXAMPLE: &str = r#"{
         { "provider": "ollama", "model": "llama3.1:8b", "egressClass": "local-only" }
       ]
     }
+  },
+  "mcpServers": {
+    "exemplo": {
+      "_comentario": "Servidores MCP (Model Context Protocol) locais (Fase 16/ADR-0028): cada nome mapeia para um comando (+ argumentos) rodado como subprocesso, falando o protocolo MCP via stdin/stdout — mesmo modelo de confiança de um language server local (ADR-0013), nunca uma chamada de rede mediada pelo agentry. egressClass é sempre obrigatória e, nesta versão, só aceita 'local-only' — servidores remotos (HTTP/SSE) ainda não são suportados, declarar qualquer outra classe é erro tratado ao carregar a configuração. Este 'exemplo' usa 'echo' (sempre presente, sem efeito colateral) só para ilustrar o formato — não é um servidor MCP de verdade (não fala o protocolo; uma tentativa de conexão falharia de forma tratada, não silenciosa). Troque por um comando real, ex.: \"command\": \"npx\", \"args\": [\"-y\", \"@modelcontextprotocol/server-filesystem\", \"/caminho/do/projeto\"]. Guia: docs/usuario/configuracao.md.",
+      "command": "echo",
+      "args": ["configure um servidor MCP real aqui"],
+      "egressClass": "local-only"
+    }
   }
 }
 "#;
@@ -1002,6 +1010,21 @@ mod tests {
         // sintetiza é `register_declared_task_classes` (MT-56), não `Config`.
         assert!(!cfg.task_classes.contains_key("compact"));
         assert!(!cfg.task_classes.contains_key("guardrail-compliance"));
+
+        // MT-77: 'mcpServers' do exemplo — o servidor 'exemplo' usa 'echo'
+        // (sem efeito colateral, não fala MCP de verdade) só para ilustrar
+        // o formato; fica presente no mapa resolvido, mas nada neste ticket
+        // ainda conecta a ele (conectar de fato é o MT-78).
+        assert_eq!(cfg.mcp_servers.len(), 1);
+        let exemplo = cfg
+            .mcp_servers
+            .get("exemplo")
+            .expect("'exemplo' deve estar declarado no exemplo");
+        assert_eq!(exemplo.command, "echo");
+        assert_eq!(
+            exemplo.egress_class,
+            agentry_core::config::privacy::EgressClass::LocalOnly
+        );
     }
 
     #[test]
@@ -1059,6 +1082,7 @@ mod tests {
             task_classes: std::collections::HashMap::new(),
             web_fetch_enabled: false,
             web_search: None,
+            mcp_servers: std::collections::HashMap::new(),
         }
     }
 

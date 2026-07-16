@@ -53,6 +53,18 @@ pub enum ConfigError {
     },
     /// Conteúdo malformado (JSON inválido ou campo com tipo errado).
     Parse(String),
+    /// Um servidor MCP (`mcpServers.<nome>`) declara `egressClass` diferente
+    /// de `local-only` — servidores remotos (HTTP/SSE) ainda não são
+    /// suportados nesta versão (ADR-0028): só subprocessos locais (`stdio`)
+    /// são spawnados. Nunca conectado, nunca inferido — rejeitado já na
+    /// resolução da camada, com mensagem explicando o motivo, para não
+    /// parecer um `TODO` esquecido nem um erro silencioso.
+    McpServerEgressNotSupported {
+        /// Nome do servidor declarado em `mcpServers`.
+        server: String,
+        /// Classe de egresso encontrada (qualquer uma exceto `local-only`).
+        found: EgressClass,
+    },
 }
 
 impl core::fmt::Display for ConfigError {
@@ -64,6 +76,12 @@ impl core::fmt::Display for ConfigError {
                  settings-schema:{supported}); abortando por fail-closed (ADR-0003)"
             ),
             Self::Parse(msg) => write!(f, "configuração malformada: {msg}"),
+            Self::McpServerEgressNotSupported { server, found } => write!(
+                f,
+                "servidor MCP '{server}' declara egressClass '{found}', mas esta versão só \
+                 suporta servidores MCP locais (egressClass 'local-only'); servidores remotos \
+                 ainda não são suportados (ADR-0028)"
+            ),
         }
     }
 }
@@ -462,11 +480,19 @@ pub struct Settings {
     /// natureza (diferente de `context.*`, onde só `gitignore` é opt-in).
     #[serde(default)]
     pub tools: ToolsSettings,
+    /// Bloco `mcpServers` (Fase 16/ADR-0028) — servidores MCP configuráveis
+    /// por nome. Vazio por padrão (zero-config = zero servidores
+    /// conectados, mesmo padrão de `providers.litellm`/`tools.webSearch`).
+    #[serde(default, rename = "mcpServers")]
+    pub mcp_servers: HashMap<String, McpServerSettings>,
 }
 
 impl Settings {
     /// Interpreta uma camada a partir de JSON (`.claude/settings.json`),
-    /// validando a versão de schema (fail-closed).
+    /// validando a versão de schema (fail-closed) e a `egressClass` de todo
+    /// servidor MCP declarado (`mcpServers`, ADR-0028 — só `local-only` é
+    /// suportado nesta versão; qualquer outra classe é rejeitada aqui,
+    /// antes mesmo do merge entre camadas, nunca conectada).
     pub fn from_json_str(json: &str) -> Result<Self, ConfigError> {
         let settings: Self =
             serde_json::from_str(json).map_err(|e| ConfigError::Parse(e.to_string()))?;
@@ -475,6 +501,14 @@ impl Settings {
                 return Err(ConfigError::UnsupportedSchema {
                     found,
                     supported: SUPPORTED_SETTINGS_SCHEMA,
+                });
+            }
+        }
+        for (nome, servidor) in &settings.mcp_servers {
+            if servidor.egress_class != EgressClass::LocalOnly {
+                return Err(ConfigError::McpServerEgressNotSupported {
+                    server: nome.clone(),
+                    found: servidor.egress_class,
                 });
             }
         }
@@ -550,8 +584,47 @@ impl Settings {
             guardrails: self.guardrails.merged_over(base.guardrails),
             task_classes: merge_task_classes(base.task_classes, self.task_classes),
             tools: self.tools.merged_over(base.tools),
+            mcp_servers: merge_mcp_servers(base.mcp_servers, self.mcp_servers),
         }
     }
+}
+
+/// Um servidor MCP configurável (`mcpServers.<nome>`, ADR-0028): comando +
+/// argumentos para spawnar o subprocesso local, mais a classe de egresso —
+/// **sempre explícita, nunca inferida** do fato do transporte ser local
+/// (mesma disciplina de nunca inferir egresso, ADR-0002), e validada como
+/// `local-only` já em [`Settings::from_json_str`] (servidores remotos
+/// ainda não são suportados nesta versão). Os três campos são obrigatórios
+/// — um servidor sem `command`/`egressClass` não é utilizável, mesmo
+/// espírito fail-closed de [`TaskClassCandidateSettings`]; `args` tem
+/// *default* de lista vazia (muitos comandos não precisam de argumentos
+/// extras, isso não é uma decisão de segurança).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct McpServerSettings {
+    pub command: String,
+    #[serde(default)]
+    pub args: Vec<String>,
+    #[serde(rename = "egressClass")]
+    pub egress_class: EgressClass,
+}
+
+/// Une dois mapas de servidores MCP por nome (ADR-0028): um servidor
+/// declarado na camada mais específica **substitui por inteiro** o mesmo
+/// nome herdado — diferente da mescla campo a campo de `taskClasses`
+/// (`merge_task_classes`), porque aqui não há uma noção de "lista de
+/// candidatos" a unir, só "como spawnar este servidor", que não tem
+/// semântica clara de mesclar parcialmente (ex.: herdar `command` mas
+/// trocar só `args` seria ambíguo sobre qual comando os novos argumentos
+/// pertencem).
+fn merge_mcp_servers(
+    base: HashMap<String, McpServerSettings>,
+    overlay: HashMap<String, McpServerSettings>,
+) -> HashMap<String, McpServerSettings> {
+    let mut resultado = base;
+    for (nome, config_nova) in overlay {
+        resultado.insert(nome, config_nova);
+    }
+    resultado
 }
 
 /// Bloco `tools.*` (ADR-0025) — capacidades de risco real, com *opt-in*
@@ -687,6 +760,13 @@ pub struct Config {
     /// `None` quando `searxngUrl` não está declarado (`WebSearch`
     /// simplesmente não está configurada, não é um erro).
     pub web_search: Option<WebSearchConfig>,
+    /// Servidores MCP declarados (`mcpServers`, Fase 16/ADR-0028) — mapa
+    /// vazio quando nada é declarado (zero servidores conectados). Cada
+    /// entrada já teve sua `egressClass` validada como `local-only` em
+    /// [`Settings::from_json_str`] — conectar de fato (`McpClient`) e
+    /// registrar tools no `ToolRegistry` ficam para tickets futuros
+    /// (MT-78/79).
+    pub mcp_servers: HashMap<String, McpServerSettings>,
 }
 
 impl Config {
@@ -748,6 +828,7 @@ impl Config {
                         .searxng_egress_class
                         .unwrap_or(EgressClass::CloudOk),
                 }),
+            mcp_servers: merged.mcp_servers,
         }
     }
 }
@@ -1497,6 +1578,120 @@ mod tests {
         assert_eq!(
             cfg.task_classes.get("chat").unwrap().candidates[0].egress_class,
             EgressClass::LocalOnly
+        );
+    }
+
+    // --- MT-77 (Fase 16, ADR-0028): schema `mcpServers` ---
+
+    #[test]
+    fn ausencia_de_mcp_servers_resolve_mapa_vazio() {
+        let cfg = Config::resolve(vec![Settings::default()]);
+        assert!(cfg.mcp_servers.is_empty());
+    }
+
+    #[test]
+    fn mcp_servers_completo_e_interpretado_corretamente() {
+        let camada = Settings::from_json_str(
+            r#"{ "mcpServers": { "meu-servidor": {
+                "command": "npx",
+                "args": ["-y", "@exemplo/servidor-mcp"],
+                "egressClass": "local-only"
+            } } }"#,
+        )
+        .expect("arquivo válido deve resolver");
+
+        let cfg = Config::resolve(vec![camada]);
+
+        let servidor = cfg
+            .mcp_servers
+            .get("meu-servidor")
+            .expect("servidor declarado deve estar presente");
+        assert_eq!(servidor.command, "npx");
+        assert_eq!(
+            servidor.args,
+            vec!["-y".to_string(), "@exemplo/servidor-mcp".to_string()]
+        );
+        assert_eq!(servidor.egress_class, EgressClass::LocalOnly);
+    }
+
+    #[test]
+    fn mcp_server_sem_args_usa_lista_vazia() {
+        let camada = Settings::from_json_str(
+            r#"{ "mcpServers": { "servidor": {
+                "command": "meu-servidor-mcp",
+                "egressClass": "local-only"
+            } } }"#,
+        )
+        .expect("args é opcional, deve resolver");
+
+        let cfg = Config::resolve(vec![camada]);
+
+        assert_eq!(
+            cfg.mcp_servers.get("servidor").unwrap().args,
+            Vec::<String>::new()
+        );
+    }
+
+    #[test]
+    fn mcp_server_com_egress_class_diferente_de_local_only_e_erro_tratado() {
+        for classe in ["cloud-opt-out", "cloud-ok"] {
+            let json = format!(
+                r#"{{ "mcpServers": {{ "remoto": {{
+                    "command": "algum-comando",
+                    "egressClass": "{classe}"
+                }} }} }}"#
+            );
+
+            let erro = Settings::from_json_str(&json)
+                .expect_err("egressClass fora de local-only deve ser rejeitada");
+
+            assert!(matches!(
+                erro,
+                ConfigError::McpServerEgressNotSupported { ref server, .. } if server == "remoto"
+            ));
+            let mensagem = erro.to_string();
+            assert!(mensagem.contains("remoto"));
+            assert!(mensagem.contains("local-only"));
+        }
+    }
+
+    #[test]
+    fn mcp_server_sem_egress_class_e_erro_de_parsing_nao_um_default_silencioso() {
+        // egressClass é obrigatório (mesma disciplina de nunca inferir
+        // classe de egresso, ADR-0002) — ausente é erro de parsing, não
+        // resolve para um default qualquer.
+        let json = r#"{ "mcpServers": { "servidor": { "command": "algo" } } }"#;
+
+        let erro = Settings::from_json_str(json).expect_err("egressClass ausente deve falhar");
+
+        assert!(matches!(erro, ConfigError::Parse(_)));
+    }
+
+    #[test]
+    fn mcp_servers_camada_mais_especifica_substitui_por_inteiro_a_herdada() {
+        let base = Settings::from_json_str(
+            r#"{ "mcpServers": { "servidor": {
+                "command": "comando-antigo",
+                "args": ["--velho"],
+                "egressClass": "local-only"
+            } } }"#,
+        )
+        .expect("base válida");
+        let overlay = Settings::from_json_str(
+            r#"{ "mcpServers": { "servidor": {
+                "command": "comando-novo",
+                "egressClass": "local-only"
+            } } }"#,
+        )
+        .expect("overlay válido");
+
+        let cfg = Config::resolve(vec![base, overlay]);
+
+        let servidor = cfg.mcp_servers.get("servidor").unwrap();
+        assert_eq!(servidor.command, "comando-novo");
+        assert!(
+            servidor.args.is_empty(),
+            "substituição é por inteiro — args antigo não sobrevive"
         );
     }
 }

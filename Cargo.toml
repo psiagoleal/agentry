@@ -67,6 +67,19 @@ futures = "0.3"
 # Maturidade verificada (ADR-0027): MIT, 37,9M downloads, ativo desde 2023,
 # autorizada pelo mantenedor em 2026-07-15.
 ratatui = { version = "0.30", default-features = false, features = ["crossterm"] }
+# Cliente MCP (Fase 16/ADR-0028), em crates/core (mesmo lugar de
+# lsp-types/lsp-server, ADR-0013 — lógica de domínio, não apresentação da
+# CLI). Só as features client + transport-child-process: v1 só suporta
+# servidores MCP locais (subprocesso, stdio) — nunca "server" (o agentry
+# não expõe a si mesmo como servidor MCP) nem "reqwest"/transporte HTTP
+# (faria chamadas de rede fora do Transport único do projeto, ADR-0001,
+# sem Allowlist/auditoria — servidores remotos ficam explicitamente fora
+# de escopo até uma fase dedicada resolver essa integração).
+# Maturidade verificada (ADR-0028): Apache-2.0, 15,9M downloads totais/
+# 8,1M em 90 dias, repositório oficial modelcontextprotocol/rust-sdk
+# (organização do próprio protocolo, não pessoal), autorizado pelo
+# mantenedor em 2026-07-15.
+rmcp = { version = "2", default-features = false, features = ["client", "transport-child-process"] }
 
 # Lints compartilhados do workspace (qualidade desde o bootstrap).
 [workspace.lints.clippy]
