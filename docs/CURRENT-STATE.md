@@ -9,7 +9,7 @@
 
 - **Data:** 2026-07-16
 - **Branch:** `main`
-- **Commit:** `e41f72d`
+- **Commit:** `7e7f608`
 - **Fase:** Roadmap v0.1..v0.4 **fechados/imutáveis**; **Fase 10 concluída** (LiteLLM).
   **Execução autônoma em andamento** (`/loop /implementar-roadmap`, modelo Sonnet 5) — ver
   `docs/decisoes-autonomas.md` para decisões tomadas sozinho (**5 decisões registradas** até a
@@ -236,6 +236,19 @@
   vez; teto fixo de checkpoints, sem configuração nova. `docs/roadmap-v0.12.md` detalha os 4
   tickets (MT-86..89). `docs/adr/README.md`/`mkdocs.yml` atualizados. `mkdocs build --strict`
   limpo. Nenhuma mudança de código — esta iteração só prepara a fase.
+
+  **MT-86 concluído** — `crates/core/src/checkpoint/mod.rs` (novo): `CheckpointStore`
+  persiste uma pilha *LIFO* em `.agentry/checkpoints.json` (via
+  `state_dir::ensure_state_dir`, ADR-0017 — auto-excluído do git pelo `.gitignore` que o
+  próprio `ensure_state_dir` já garante). `record(path, conteudo_antes)` acrescenta um
+  checkpoint (`None` = arquivo não existia antes); `undo()` desempilha o mais recente,
+  restaura o conteúdo anterior ou remove o arquivo, e devolve o que foi desfeito. Teto fixo
+  de 50 checkpoints — descarta o mais antigo ao exceder, sem configuração nova (YAGNI).
+  `resolve_within_root` (`crates/core/src/tools/fs.rs`) ganha visibilidade `pub(crate)` —
+  será reaproveitada pelo `CheckpointingTool` (MT-87) para validar o mesmo argumento `path`
+  antes de ler o conteúdo "antes", mesma checagem de segurança da escrita de verdade. 6
+  testes novos, 378 testes em `agentry-core` (+6), 107 em `agentry`, `cargo build --release`
+  limpo. Nenhuma mudança de comportamento observável da CLI ainda.
 
   **MT-70 concluído** — primeiro ticket de implementação da Fase 15: `ratatui` (feature
   `crossterm`, `default-features = false` para árvore de dependências mínima) adicionada a
@@ -1468,18 +1481,24 @@
   `docs/adr/README.md`/`mkdocs.yml` atualizados. `mkdocs build --strict` limpo. Nenhuma
   mudança de código — esta iteração só prepara a fase.
 
+- [x] **MT-86** — `crates/core/src/checkpoint/mod.rs` (novo): `CheckpointStore` persiste uma
+  pilha *LIFO* em `.agentry/checkpoints.json`; `record`/`undo`; teto fixo de 50, descarta o
+  mais antigo ao exceder. `resolve_within_root` ganha `pub(crate)` para reuso pelo MT-87. 6
+  testes novos. 378 testes em `agentry-core` (+6), 107 em `agentry`, `cargo build --release`
+  limpo. Nenhuma mudança de comportamento observável da CLI ainda.
+
 **Em andamento:** nada pendente — árvore de trabalho limpa, tudo commitado. **Fase 17
 concluída inteira (MT-82..85)**; **Fase 18 preparada** (ADR-0030 `Proposed`,
-`docs/roadmap-v0.12.md`, MT-86..89).
+`docs/roadmap-v0.12.md`, MT-86..89); **MT-86 concluído**.
 
-**Próximo passo:** **MT-86** (`docs/roadmap-v0.12.md`, `crates/core/src/checkpoint/mod.rs`) —
-`CheckpointStore` (novo): `record`/`undo` sobre uma pilha *LIFO* persistida em
-`.agentry/checkpoints.json` (`state_dir::ensure_state_dir`, ADR-0017); teto fixo descarta o
-checkpoint mais antigo quando excedido. Primeiro ticket de implementação da Fase 18. Outros
-itens em aberto, sem ticket: deploy do site MkDocs (GitHub Pages) — decisão explícita do
-usuário de não fazer ainda; CI multi-SO ainda não observado verde (falta um push que dispare
-a matriz); backlog independente do `ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF
-pendentes de reanálise de maturidade,
+**Próximo passo:** **MT-87** (`docs/roadmap-v0.12.md`, `crates/core/src/tools/checkpoint.rs`,
+`crates/cli/src/main.rs`, `crates/cli/src/repl.rs`) — `CheckpointingTool` decora
+`fs_write`/`fs_edit`, gravando um checkpoint só em chamada bem-sucedida; nova flag `--undo`
+(*one-shot*) e comando `/undo` (REPL), ambos chamando `CheckpointStore::undo()`. Segundo
+ticket de implementação da Fase 18. Outros itens em aberto, sem ticket: deploy do site
+MkDocs (GitHub Pages) — decisão explícita do usuário de não fazer ainda; CI multi-SO ainda
+não observado verde (falta um push que dispare a matriz); backlog independente do
+`ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de reanálise de maturidade,
 perfis base+overlay/skills executáveis/config de serviços pendentes de validação de
 implementação).
 

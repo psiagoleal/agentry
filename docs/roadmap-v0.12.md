@@ -20,7 +20,7 @@ persistência via `serde_json` + `std::fs` (já dependências existentes), mesmo
 
 ## Fase 18 — Checkpoints e *undo* de mudanças de arquivo (ADR-0030)
 
-### MT-86: `CheckpointStore` — registra e desfaz checkpoints
+### MT-86: `CheckpointStore` — registra e desfaz checkpoints ✅ concluído (7e7f608)
 - **Objetivo:** novo `crates/core/src/checkpoint/mod.rs`: `CheckpointStore` persiste uma
   pilha *LIFO* de checkpoints em `.agentry/checkpoints.json` (via `state_dir::ensure_state_dir`,
   ADR-0017) — `record(path, conteudo_antes)` acrescenta uma entrada (descarta a mais antiga se
