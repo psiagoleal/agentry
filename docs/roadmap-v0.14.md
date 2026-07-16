@@ -65,7 +65,7 @@ persistência via `serde_json` + `std::fs` (já dependências existentes), mesmo
   um dado que muda a cada turno).
 - **Depende de:** MT-93.
 
-### MT-95: Documentação
+### MT-95: Documentação ✅ concluído (eb8e368) — fecha a Fase 20
 - **Objetivo:** `docs/usuario/uso.md` ganha uma seção sobre `/remember`/`--remember` — o que
   fica gravado, onde (`.agentry/memory.json`), que fica disponível em sessões futuras, que
   não existe `/forget` nesta versão (editar o arquivo é o caminho).

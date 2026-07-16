@@ -9,7 +9,7 @@
 
 - **Data:** 2026-07-16
 - **Branch:** `main`
-- **Commit:** `b6c4e22`
+- **Commit:** `eb8e368`
 - **Fase:** Roadmap v0.1..v0.4 **fechados/imutáveis**; **Fase 10 concluída** (LiteLLM).
   **Execução autônoma em andamento** (`/loop /implementar-roadmap`, modelo Sonnet 5) — ver
   `docs/decisoes-autonomas.md` para decisões tomadas sozinho (**5 decisões registradas** até a
@@ -418,6 +418,27 @@
   **separada** (processo novo) responde corretamente uma pergunta sobre o fato gravado,
   confirmando que a memória atravessa invocações de verdade; `/remember` no REPL acumula sem
   sobrescrever fatos anteriores.
+
+  **MT-95 concluído — fecha a Fase 20 inteira (MT-93..95).** `docs/usuario/uso.md` ganha a
+  seção "Memória de projeto (`/remember`)": tabelas de flags/comandos, explicação de que é
+  sempre um ato explícito (nenhuma tool que o agente chama sozinho), onde persiste (sem
+  teto), sem `/forget` nesta versão. `docs/governanca/privacidade-e-egresso.md` ganha a
+  seção "Memória de projeto e confidencialidade" para o público de *compliance*: por que só
+  memória explícita, e que essa escolha descartou deliberadamente o padrão LLM-Wiki/OKF
+  original cogitado no roadmap por causa da pergunta de retenção. **ADR-0032 promovida de
+  `Proposed` para `Accepted`**; `docs/adr/README.md`/`docs/roadmap-longo-prazo.md`
+  atualizados — Fase 20 marcada concluída, mesmo padrão usado para fechar as Fases 15-19.
+  `mkdocs build --strict` limpo. Nenhuma mudança de código.
+
+  **Fase 20 fecha a última fase detalhada do roadmap de longo prazo (mais uma vez)** —
+  próximo passo é **preparar a Fase 21+** (`docs/roadmap-longo-prazo.md` §Fase 21+:
+  multimodal). Diferente de todas as fases anteriores, essa **não está pronta para
+  preparar** — a própria resposta do mantenedor a bloqueia até existir um *guardrail* de
+  imagem (OCR ou equivalente), pré-requisito ainda não construído e que provavelmente
+  precisa de uma dependência nova (escalar ao mantenedor quando chegar a vez, ADR-0004). O
+  roadmap de longo prazo original está, portanto, **inteiramente concluído ou bloqueado**
+  neste ponto — não há mais nenhuma fase pronta para o loop autônomo preparar sozinho sem
+  primeiro resolver o pré-requisito de multimodal.
 
   **MT-70 concluído** — primeiro ticket de implementação da Fase 15: `ratatui` (feature
   `crossterm`, `default-features = false` para árvore de dependências mínima) adicionada a
@@ -1733,22 +1754,31 @@
   manual: `--remember` grava; uma tarefa *one-shot* **separada** (processo novo) responde
   corretamente sobre o fato gravado; `/remember` no REPL acumula sem sobrescrever.
 
-**Em andamento:** nada pendente — árvore de trabalho limpa, tudo commitado. **Fase 19
-concluída inteira (MT-90..92)**; **Fase 20 preparada** (ADR-0032 `Proposed`,
-`docs/roadmap-v0.14.md`, MT-93..95); **MT-93/94 concluídos**.
+- [x] **MT-95** — documentação (`docs/usuario/uso.md`: seção "Memória de projeto (/remember)";
+  `docs/governanca/privacidade-e-egresso.md`: seção "Memória de projeto e
+  confidencialidade"), **fecha a Fase 20 inteira**. **ADR-0032 promovida de `Proposed` para
+  `Accepted`**; `docs/adr/README.md`/`docs/roadmap-longo-prazo.md` atualizados — Fase 20
+  marcada concluída. `mkdocs build --strict` limpo. Nenhuma mudança de código.
 
-**Próximo passo:** **MT-95** (`docs/roadmap-v0.14.md`, `docs/usuario/uso.md`,
-`docs/governanca/privacidade-e-egresso.md`, `docs/adr/0032-memoria-de-projeto-explicita.md`,
-`docs/adr/README.md`, `docs/roadmap-longo-prazo.md`) — documentação: seção sobre
-`/remember`/`--remember` em `docs/usuario/uso.md`; nota sobre memória de projeto ser sempre
-um ato explícito do usuário em `docs/governanca/privacidade-e-egresso.md`; ADR-0032
-promovida de `Proposed` para `Accepted`; `docs/adr/README.md`/`docs/roadmap-longo-prazo.md`
-atualizados — Fase 20 marcada concluída. Último ticket da Fase 20 — fecha a fase inteira.
-Outros itens em aberto, sem ticket: **multimodal** (Fase 21+) continua bloqueada por um
-*guardrail* de imagem ainda não construído; deploy do site MkDocs (GitHub Pages) — decisão
-explícita do usuário de não fazer ainda; CI multi-SO ainda não observado verde (falta um
-push que dispare a matriz); backlog independente do `ai-coding-agent-profiles` (ADRs
-0001-0005 — RTK/OKF pendentes de reanálise de maturidade,
+**Em andamento:** nada pendente — árvore de trabalho limpa, tudo commitado. **Fase 20
+concluída inteira (MT-93..95)** — todas as cinco frentes de "segunda onda" originalmente
+enumeradas (uso de tokens, checkpoints, subagentes, memória, multimodal) estão agora
+**concluídas ou bloqueadas por pré-requisito**.
+
+**Próximo passo:** **loop autônomo parado — não há mais fase pronta para preparar sozinho**
+(ver "Impedimentos abertos" abaixo). Diferente de toda parada anterior nesta sessão, isso
+não é uma pergunta de design sem resposta — é a ausência de qualquer candidata **pronta**:
+a única fase restante do roadmap de longo prazo (multimodal, Fase 21+) está explicitamente
+bloqueada pela própria resposta do mantenedor até existir um *guardrail* de imagem (OCR ou
+equivalente), que por sua vez provavelmente exige uma dependência nova — as duas coisas são
+decisões que cabem ao mantenedor, não ao loop autônomo (regras §6 do comando
+`/loop /implementar-roadmap`: dependência nova sempre escala). Retomar exige o mantenedor
+decidir como endereçar esse pré-requisito (biblioteca de OCR? outra abordagem de
+*guardrail* de imagem? adiar multimodal indefinidamente?) — ou apontar uma nova frente de
+trabalho fora do roadmap de longo prazo original. Outros itens em aberto, sem ticket: deploy
+do site MkDocs (GitHub Pages) — decisão explícita do usuário de não fazer ainda; CI multi-SO
+ainda não observado verde (falta um push que dispare a matriz); backlog independente do
+`ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de reanálise de maturidade,
 perfis base+overlay/skills executáveis/config de serviços pendentes de validação de
 implementação).
 
@@ -1758,6 +1788,20 @@ implementação).
 
 ## Impedimentos abertos
 
+- **Roadmap de longo prazo original esgotado — só resta multimodal, bloqueada.** As Fases
+  11 a 20 estão todas concluídas. A última fase (21+, multimodal —
+  `docs/roadmap-longo-prazo.md` §Fase 21+) está explicitamente bloqueada pela própria
+  resposta do mantenedor (2026-07-16, `docs/decisoes-autonomas.md`): adiada até existir um
+  *guardrail* de imagem (ex.: OCR alimentando as regras de texto já existentes,
+  `crates/core/src/guardrail/`) — os *guardrails* de conteúdo hoje só inspecionam texto, e
+  multimodal sem esse pré-requisito abriria um canal de conteúdo não auditado. Esse
+  pré-requisito provavelmente exige uma **dependência nova** (biblioteca de OCR), o que já é
+  uma parada dura por si só (regra §6 do comando `/loop /implementar-roadmap`). **Decisão que
+  o mantenedor precisa tomar:** como endereçar o *guardrail* de imagem (qual biblioteca de
+  OCR, se for esse o caminho, ou uma abordagem alternativa), ou se prefere apontar uma nova
+  frente de trabalho fora das cinco originalmente enumeradas no roadmap de longo prazo. O
+  loop autônomo parou aqui, com a árvore de trabalho limpa e as Fases 11-20 inteiras
+  concluídas.
 - **ADR-0004 pendente de dado:** maturidade real de `rtk`/`caveman`/`ponytail` não verificada via `gh repo view`. Verificar antes de qualquer adoção como dependência.
 - **Copilot/GitHub Enterprise:** caminho oficial (GitHub Models vs. API Enterprise) indefinido pela empresa; adapter adiado.
 - **CI multi-SO ainda não observado verde:** a matriz do ADR-0005 (`2feed85`) precisa de um push ao GitHub para confirmar Windows/macOS verdes.
