@@ -2,7 +2,7 @@
 
 # ADR 0030: Checkpoints e *undo* de mudanças de arquivo feitas pelo agente
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Data:** 2026-07-16
 - **Decisores:** Iago Leal (mantenedor)
 - **Tags:** ferramentas, persistência, UX

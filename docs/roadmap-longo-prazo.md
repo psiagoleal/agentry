@@ -11,19 +11,17 @@ Cada fase abaixo lista **objetivo**, **ADR(s) necessária(s)** e a **primeira le
 micro-tickets** (título + objetivo de uma linha). Seguindo a disciplina do projeto
 (`skill adr-writer` / `micro-ticket-planner`): a **ADR completa e os tickets detalhados de
 cada fase são escritos quando a fase começa**, promovidos para um `roadmap-vX.Y.md`
-versionado. **Fases 12, 13, 14, 15, 16 e 17** estão concluídas (`docs/roadmap-v0.6.md`,
+versionado. **Fases 12, 13, 14, 15, 16, 17 e 18** estão concluídas (`docs/roadmap-v0.6.md`,
 `docs/roadmap-v0.7.md`, `docs/roadmap-v0.8.md`, `docs/roadmap-v0.9.md` — `ratatui` autorizado
 pelo mantenedor em 2026-07-15, após a parada dura do comando de loop por dependência nova;
 ADR-0027 `Accepted` — `docs/roadmap-v0.10.md`, `rmcp` pré-autorizado pelo mantenedor junto de
-`ratatui`; ADR-0028 `Accepted`, escopo v1 restrito a servidores MCP locais — e
-`docs/roadmap-v0.11.md`, ADR-0029 `Accepted`: uso de tokens visível durante a sessão,
-primeira das cinco frentes de "segunda onda", ordem escolhida e registrada em
-`docs/decisoes-autonomas.md`, 2026-07-16). **Fase 18** já está detalhada — ver
-`docs/roadmap-v0.12.md` (ADR-0030, `Proposed`: checkpoints e *undo* de mudanças de arquivo,
-segunda das cinco frentes de "segunda onda", ordem escolhida e registrada em
-`docs/decisoes-autonomas.md`, 2026-07-16). Pronta para começar a implementação a partir do
-MT-86. As outras três frentes de "segunda onda" seguem sem tickets detalhados (ver Fase 19+
-abaixo).
+`ratatui`; ADR-0028 `Accepted`, escopo v1 restrito a servidores MCP locais — `docs/roadmap-v0.11.md`,
+ADR-0029 `Accepted`: uso de tokens visível durante a sessão, primeira das cinco frentes de
+"segunda onda" — e `docs/roadmap-v0.12.md`, ADR-0030 `Accepted`: checkpoints e *undo* de
+mudanças de arquivo, segunda das cinco frentes de "segunda onda", ordens escolhidas e
+registradas em `docs/decisoes-autonomas.md`, 2026-07-16). Próxima fase sem tickets
+detalhados ainda: Fase 19+ (ver seção própria abaixo) — as outras três frentes de "segunda
+onda".
 
 > Convenções de DoD, granularidade e "dependência nova exige ADR (ADR-0004)": iguais às dos
 > roadmaps versionados (`docs/roadmap-v0.1.md` §Convenções).
@@ -182,7 +180,7 @@ ao provider como tokens são).
 pontos de exposição sem nenhuma divergência entre eles; documentação de usuário fechando a
 fase.
 
-## Fase 18 — Checkpoints e *undo* de mudanças de arquivo (ADR-0030)
+## Fase 18 — Checkpoints e *undo* de mudanças de arquivo (ADR-0030) ✅ concluída
 
 **Objetivo:** tornar reversível uma mudança de `fs_write`/`fs_edit` feita pelo agente
 (equivalente ao "rewind" do Claude Code CLI/OpenCode) — segunda das cinco frentes de "segunda
@@ -190,7 +188,7 @@ onda" a ser preparada (ordem escolhida e registrada em `docs/decisoes-autonomas.
 2026-07-16, por ser a única, entre as quatro restantes, sem pergunta de segurança/
 confidencialidade/egresso em aberto).
 
-**ADR:** ADR-0030 — **escrita**, `Proposed`. Decisão central: `CheckpointStore` persiste uma
+**ADR:** ADR-0030 — **escrita**, `Accepted`. Decisão central: `CheckpointStore` persiste uma
 pilha *LIFO* de checkpoints em `.agentry/checkpoints.json` (mesmo diretório de estado local da
 ADR-0017); só `fs_write`/`fs_edit` geram checkpoint (nunca `shell_exec`/`shell_background` —
 efeito colateral de comando fica fora de escopo, mesmo nível de confiança já aceito,
@@ -199,8 +197,11 @@ ADR-0026); exposto em três pontos — flag `--undo` (*one-shot*), comando `/und
 de desfazer por vez (pilha, sem seleção de checkpoint específico); teto fixo de checkpoints
 retidos, sem configuração nova (YAGNI).
 
-**Detalhamento completo:** `docs/roadmap-v0.12.md` (MT-86..89). Pronta para começar a
-implementação a partir do MT-86.
+**Detalhamento completo:** `docs/roadmap-v0.12.md` (MT-86..89, **concluídos**).
+`CheckpointStore` (`crates/core/src/checkpoint/`) + `CheckpointingTool`
+(`crates/core/src/tools/checkpoint.rs`) decorando `fs_write`/`fs_edit`; `formatar_undo()`
+como única fonte de formatação, reaproveitada pelos três pontos de exposição; documentação de
+usuário fechando a fase.
 
 ## Fase 19+ — Segunda onda, restante (ADRs 0031+ quando alcançadas)
 
@@ -228,5 +229,5 @@ Ordem entre essas três ainda não decidida — fica para quando a Fase 18 concl
 
 ADR-0021 e ADR-0022 **escritas** (Fase 12). ADR-0023..0028 **reservadas** (números fixados
 aqui; arquivo de cada uma escrito ao iniciar sua fase, com contexto fresco). ADR-0029
-**escrita** (Fase 17, `Accepted`). ADR-0030 **escrita** (Fase 18, `Proposed`). ADR-0031+ para
+**escrita** (Fase 17, `Accepted`). ADR-0030 **escrita** (Fase 18, `Accepted`). ADR-0031+ para
 o restante da segunda onda (Fase 19+), sem número fixado ainda.

@@ -52,6 +52,7 @@ mensagem fixa embaixo, em vez de um prompt linear.
 | `↑` / `↓` | Rola o histórico de mensagens (ou navega a lista do seletor de modelo, quando aberto). |
 | `Ctrl+P` | Abre o seletor de modelo/*provider* — busca difusa sobre os candidatos já declarados na *task-class* ativa (nunca introduz um candidato novo, mesma disciplina de `/model`/`/provider` do REPL). |
 | `Ctrl+A` | Alterna confirmação automática (`auto`/`normal`) de tools sob `ask` — só acelera a aprovação; nunca aprova uma tool em `deny`. |
+| `Ctrl+Z` | Desfaz o checkpoint mais recente de `fs_write`/`fs_edit` (ver [Checkpoints e *undo*](#checkpoints-e-undo-de-mudancas-de-arquivo) abaixo) — resultado aparece como uma mensagem no histórico de chat. |
 | `Esc` | Fecha o seletor de modelo aberto, ou recusa/cancela uma confirmação/pergunta pendente. |
 | `Ctrl+C` | Sai do modo TUI a qualquer momento (mesmo com um modal aberto). |
 
@@ -85,6 +86,7 @@ e do comando `/usage` do REPL, atualizado automaticamente a cada resposta.
 | `--tui` | Entra no [modo TUI](#modo-tui) em vez do REPL de texto. Incompatível com `--init` e com uma tarefa *one-shot*. |
 | `--init` | Cria `.agentry/agentry.settings.json` e sai (ver [Configuração](configuracao.md)). |
 | `--profile <nome>` | Com `--init`: busca a configuração real daquele perfil. |
+| `--undo` | Desfaz o checkpoint mais recente de `fs_write`/`fs_edit` (ver [Checkpoints e *undo*](#checkpoints-e-undo-de-mudancas-de-arquivo) abaixo) e sai, sem rodar tarefa. Incompatível com `--init`/`--tui`/tarefa. |
 
 ```bash
 agentry --model llama3.1:70b --temperature 0.2 "revise este diff"
@@ -109,6 +111,7 @@ seguintes, até ser trocado de novo:
 | `/task-class <nome>` | Troca a task-class ativa (rota + preset) a partir da próxima mensagem — ver [`taskClasses`](configuracao.md#taskclasses). |
 | `/compact` | Resume o histórico da sessão numa única mensagem — reduz o consumo de tokens em conversas longas. |
 | `/usage` | Mostra o total de tokens consumidos pela sessão até aquele ponto — sem *side-effect* na conversa. |
+| `/undo` | Desfaz o checkpoint mais recente de `fs_write`/`fs_edit` (ver [Checkpoints e *undo*](#checkpoints-e-undo-de-mudancas-de-arquivo) abaixo). |
 | `/init` (ou `/init <perfil>`) | Cria `.agentry/agentry.settings.json` sem sair do REPL. |
 | `/exit` (ou `/quit`) | Encerra o REPL. |
 
@@ -123,6 +126,35 @@ quer voltar a ajustar o modelo Ollama, use `/task-class chat` primeiro.
 **`/usage` não zera com `/compact`:** o total de tokens mostrado é o consumo real desde o
 início da sessão, incluindo a própria chamada de compactação — resumir o histórico reduz o
 que vai para o modelo nas próximas mensagens, mas não desfaz o que já foi consumido até ali.
+
+## Checkpoints e *undo* de mudanças de arquivo
+
+Toda chamada bem-sucedida de `fs_write`/`fs_edit` grava um checkpoint (conteúdo do arquivo
+**antes** da mudança) numa pilha — `--undo` (*one-shot*), `/undo` (REPL) e `Ctrl+Z` (TUI)
+desfazem o **mais recente**, restaurando o conteúdo anterior (ou removendo o arquivo, se ele
+não existia antes da mudança desfeita). Chamar de novo desfaz o passo anterior a esse — sem
+seleção de checkpoint específico nesta versão, sempre o topo da pilha.
+
+```bash
+agentry --undo
+```
+
+```
+> /undo
+'src/main.rs' restaurado ao conteúdo anterior
+```
+
+**Importante — só `fs_write`/`fs_edit` são desfazíveis.** Mudanças feitas por `shell_exec`/
+`shell_background` (ex.: um comando que sobrescreve um arquivo) **não** geram checkpoint e
+**não** podem ser desfeitas pelo `agentry` — o efeito de um comando de shell não é
+determinável de antemão da mesma forma que uma escrita de arquivo pela própria tool. Não
+assuma que "existe *undo*" significa "toda mudança é reversível".
+
+Checkpoints persistem em `.agentry/checkpoints.json` (mesmo diretório de estado local que
+guarda índices e configuração — auto-excluído do git por padrão), então `--undo` desfaz o
+mais recente de **qualquer** invocação anterior, não só da sessão atual. Um teto fixo (não
+configurável nesta versão) limita quantos checkpoints ficam retidos — o mais antigo é
+descartado silenciosamente ao ultrapassar.
 
 ## O que esperar da resposta
 
