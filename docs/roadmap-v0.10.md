@@ -86,7 +86,7 @@ retoma a partir dele, sem deixar o número como lacuna permanente.
   cobrem na configuração.
 - **Depende de:** MT-78.
 
-### MT-80: Classe de egresso declarada por servidor MCP (ADR-0002)
+### MT-80: Classe de egresso declarada por servidor MCP (ADR-0002) ✅ concluído (6f3b9b5)
 - **Objetivo:** formaliza e testa de ponta a ponta o que o MT-77 já começou no *parsing*: um
   servidor MCP só é spawnado/conectado (`McpClient`, MT-78) se sua `egressClass` declarada for
   `local-only` — qualquer outro valor já falhou antes, na resolução da configuração (MT-77),

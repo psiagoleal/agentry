@@ -9,7 +9,7 @@
 
 - **Data:** 2026-07-15
 - **Branch:** `main`
-- **Commit:** `f758b2d`
+- **Commit:** `6f3b9b5`
 - **Fase:** Roadmap v0.1..v0.4 **fechados/imutáveis**; **Fase 10 concluída** (LiteLLM).
   **Execução autônoma em andamento** (`/loop /implementar-roadmap`, modelo Sonnet 5) — ver
   `docs/decisoes-autonomas.md` para decisões tomadas sozinho (**5 decisões registradas** até a
@@ -107,6 +107,21 @@
   desconhecido em vez de ignorar em silêncio. 8 testes novos (3 unitários + 5 de integração),
   `cargo build --release` limpo, smoke-test manual confirma que um servidor MCP fora do ar não
   impede a CLI de completar uma tarefa.
+
+  **MT-80 concluído** — `McpClient::start_from_settings` (novo, `crates/core/src/mcp/mod.rs`):
+  defesa em profundidade além do `Settings::from_json_str` (MT-77) — checa
+  `egress_class == LocalOnly` **antes** de tocar em `Command`/`TokioChildProcess`, devolvendo
+  `McpError::EgressNotSupported` sem spawnar nenhum subprocesso caso contrário. Garante que
+  nenhum caminho de código, inclusive um `McpServerSettings` montado direto em Rust sem passar
+  pelo parser, chega a conectar um servidor com classe de egresso diferente de `local-only`.
+  `register_mcp_tools` (`crates/cli/src/main.rs`) passa a usar esse ponto de entrada em vez de
+  extrair `command`/`args` manualmente; `McpClient::start` continua existindo à parte só
+  porque a suíte de testes (`fake_mcp_server`) não passa por `McpServerSettings`. 2 testes
+  novos (egresso remoto rejeitado sem spawnar; `local-only` com comando inexistente ainda
+  falha ao spawnar, comportamento preservado). 368 testes em `agentry-core`, 104 em `agentry`,
+  `cargo build --release` limpo. Nenhuma mudança de comportamento observável da CLI (o
+  `Settings::from_json_str` já bloqueava esse caso antes de chegar aqui) — sem smoke-test
+  manual adicional além do já feito no MT-79.
 
   **MT-70 concluído** — primeiro ticket de implementação da Fase 15: `ratatui` (feature
   `crossterm`, `default-features = false` para árvore de dependências mínima) adicionada a
@@ -1265,17 +1280,30 @@
   `erro ao conectar ao servidor MCP 'exemplo': ...` em `stderr` e segue normalmente até
   completar a tarefa — confirma que uma falha de conexão de um servidor nunca trava a CLI.
 
+- [x] **MT-80** — `McpClient::start_from_settings` (novo, `crates/core/src/mcp/mod.rs`):
+  defesa em profundidade além do `Settings::from_json_str` (MT-77) — checa
+  `egress_class == LocalOnly` **antes** de tocar em `Command`/`TokioChildProcess`, devolvendo
+  `McpError::EgressNotSupported` sem spawnar nenhum subprocesso caso contrário. Garante que
+  nenhum caminho de código, inclusive um `McpServerSettings` montado direto em Rust sem passar
+  pelo parser, chega a conectar um servidor com classe de egresso diferente de `local-only`.
+  `register_mcp_tools` (`crates/cli/src/main.rs`) passa a usar esse ponto de entrada em vez de
+  extrair `command`/`args` manualmente. 2 testes novos (egresso remoto rejeitado sem spawnar;
+  `local-only` com comando inexistente ainda falha ao spawnar, comportamento preservado). 368
+  testes em `agentry-core`, 104 em `agentry`, `cargo build --release` limpo. Nenhuma mudança de
+  comportamento observável — o `Settings::from_json_str` já bloqueava esse caso antes de
+  chegar aqui.
+
 **Em andamento:** nada pendente — árvore de trabalho limpa, tudo commitado.
 
-**Próximo passo:** **MT-80** (`docs/roadmap-v0.10.md`, `crates/core/src/config/mod.rs`,
-`crates/core/src/mcp/mod.rs`) — classe de egresso declarada por servidor MCP (ADR-0002):
-formaliza e testa de ponta a ponta o que o MT-77 já começou no *parsing* — garante que
-**nenhum caminho** (inclusive um `mcpServers` montado manualmente por código, contornando o
-*parsing* do MT-77) chega a spawnar/conectar um servidor com `egressClass` diferente de
-`local-only`; quarto ticket da Fase 16. Outros itens em aberto, sem ticket: deploy do site
-MkDocs (GitHub Pages) — decisão explícita do usuário de não fazer ainda; CI multi-SO ainda não
-observado verde (falta um push que dispare a matriz); backlog independente do
-`ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de reanálise de maturidade,
+**Próximo passo:** **MT-81** (`docs/roadmap-v0.10.md`, `docs/usuario/configuracao.md`,
+`docs/usuario/uso.md`, `docs/governanca/privacidade-e-egresso.md`,
+`docs/adr/0028-mcp-client-via-rmcp.md`, `docs/adr/README.md`) — documentação de usuário e
+governança da Fase 16 (schema `mcpServers`, tools MCP aparecendo dinamicamente, seção "MCP e
+egresso" para o público de *compliance*); promove ADR-0028 de `Proposed` para `Accepted`
+(MT-77..80 concluídos) — **fecha a Fase 16 inteira**. Outros itens em aberto, sem ticket:
+deploy do site MkDocs (GitHub Pages) — decisão explícita do usuário de não fazer ainda; CI
+multi-SO ainda não observado verde (falta um push que dispare a matriz); backlog independente
+do `ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de reanálise de maturidade,
 perfis base+overlay/skills executáveis/config de serviços pendentes de validação de
 implementação).
 
