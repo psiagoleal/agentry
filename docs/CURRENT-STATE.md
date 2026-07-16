@@ -9,12 +9,14 @@
 
 - **Data:** 2026-07-15
 - **Branch:** `main`
-- **Commit:** `eeae714`
+- **Commit:** `82c4785`
 - **Fase:** Roadmap v0.1..v0.4 **fechados/imutáveis**; **Fase 10 concluída** (LiteLLM).
   **Execução autônoma em andamento** (`/loop /implementar-roadmap`, modelo Sonnet 5) — ver
-  `docs/decisoes-autonomas.md` para decisões tomadas sozinho (**2 decisões registradas**:
-  MT-55 síntese de defaults de task-class deferida à CLI; ADR-0023 parser de frontmatter de
-  `SKILL.md` próprio em vez de dependência YAML). **Fase 11 concluída inteira** (ADR-0020,
+  `docs/decisoes-autonomas.md` para decisões tomadas sozinho (**5 decisões registradas** até a
+  Fase 15: MT-55 síntese de defaults de task-class deferida à CLI; ADR-0023 parser de
+  frontmatter de `SKILL.md` próprio em vez de dependência YAML; revisão dos *keybindings* de
+  letra do MT-71 no MT-72; `NoopAuditSink` sob `--tui` no MT-72; extensão de escopo com
+  `Router::route_entry` no MT-73). **Fase 11 concluída inteira** (ADR-0020,
   `.agentryignore`, MT-52..54, `roadmap-v0.5.md`). **Fase 12 concluída inteira** (ADR-0021/0022,
   config de task-class de ponta a ponta, MT-55..58, `roadmap-v0.6.md`) — o tema mais enfatizado
   pelo usuário no planejamento original. **Fase 13 concluída inteira** (ADR-0023 `Accepted`,
@@ -31,8 +33,34 @@
   histórico abaixo). **Fase 15 preparada** (ADR-0027 `Proposed`, `docs/roadmap-v0.9.md`,
   MT-70..76) — maturidade de `ratatui` verificada de fato via `crates.io/api/v1/crates/ratatui`
   antes de fechar a ADR (MIT, 37,9M *downloads*, ativo desde 2023). Pronta para começar a
-  implementação a partir do MT-70. **Fase 16** (`rmcp`) segue autorizada, mas ainda não
-  preparada (ADR-0028 + micro-tickets) — próxima fase a preparar depois que a Fase 15 terminar.
+  implementação a partir do MT-70.
+
+  **Fase 15 concluída inteira em 2026-07-15** (ADR-0027 `Accepted`, `docs/roadmap-v0.9.md`,
+  MT-70..76) — *scaffold* `ratatui`/`crossterm`, tabela de *keybindings*, *streaming* real
+  (`Session::run_streaming` numa *task* separada + canal, zero mudança em `crates/core`),
+  seletor de modelo/*provider* por busca difusa, `TuiConfirmer`/`TuiPrompter` (com a
+  invariante estrutural "`auto` nunca aprova sob `deny`"), visualizador de diff (LCS
+  implementado do zero) e documentação de usuário. Três achados corrigidos durante a
+  implementação, todos registrados em `docs/decisoes-autonomas.md`: revisão dos *keybindings*
+  de letra do MT-71 (colidiam com a digitação real do MT-72); `NoopAuditSink` sob `--tui`
+  (`eprintln!` corrompia a tela alternativa do `crossterm`); extensão do escopo de arquivos do
+  MT-73 com `Router::route_entry` (acessor de leitura, não lógica nova). Confirmação de tool
+  via LLM real não pôde ser demonstrada de ponta a ponta em nenhum dos smoke-tests manuais
+  (MT-74/75) — mesmo achado de confiabilidade de tool-calling local já documentado desde o
+  MT-61, não um defeito do código; a fiação em si tem cobertura automatizada completa.
+
+  **Fase 16 preparada** — ADR-0028 (`Proposed`) decide: `rmcp` só com as *features*
+  `client`+`transport-child-process` em produção (maturidade verificada via
+  `crates.io/api/v1/crates/rmcp`: Apache-2.0, 15,9M *downloads*, repositório oficial
+  `modelcontextprotocol/rust-sdk`); **v1 só suporta servidores MCP locais** (subprocesso,
+  `stdio`) — servidores remotos exigiriam o cliente HTTP embutido do `rmcp`, que bypassaria o
+  `Transport` único do projeto (ADR-0001) sem `Allowlist`/auditoria, uma questão de
+  *fail-closed* (ADR-0002) explicitamente adiada para uma fase dedicada, nunca resolvida via
+  atalho. `rmcp` vive em `crates/core` (mesmo lugar de `lsp-types`, ADR-0013); tools MCP
+  entram no `ToolRegistry` com nome prefixado pelo servidor (`"<servidor>__<tool>"`), sob o
+  mesmo `PermissionGate` de sempre. `docs/roadmap-v0.10.md` detalha os 5 tickets (MT-77..81 —
+  numeração retoma do MT-77, livre desde que o *widget* de lista de tarefas foi descartado na
+  preparação da Fase 15). Pronta para começar a implementação a partir do MT-77.
 
   **MT-70 concluído** — primeiro ticket de implementação da Fase 15: `ratatui` (feature
   `crossterm`, `default-features = false` para árvore de dependências mínima) adicionada a
@@ -1101,19 +1129,31 @@
   *anchors* conferidos no HTML gerado. Nenhuma mudança de código — fmt/clippy/test rodados como
   checagem de sanidade (104+356 testes, tudo verde).
 
+- [x] **Preparação da Fase 16** — ADR-0028 (`Proposed`) decide: `rmcp` só com as *features*
+  `client`+`transport-child-process` em produção (maturidade verificada via
+  `crates.io/api/v1/crates/rmcp`: Apache-2.0, 15,9M *downloads* totais/8,1M em 90 dias,
+  repositório oficial `modelcontextprotocol/rust-sdk`, atualizado em 2026-07-08); **v1 só
+  suporta servidores MCP locais** (subprocesso, `stdio`) — servidores remotos exigiriam o
+  cliente HTTP embutido do `rmcp`, que bypassaria o `Transport` único do projeto (ADR-0001)
+  sem `Allowlist`/auditoria, uma questão de *fail-closed* (ADR-0002) explicitamente adiada
+  para uma fase dedicada, nunca resolvida via atalho; `rmcp` vive em `crates/core` (mesmo
+  lugar de `lsp-types`, ADR-0013); tools MCP entram no `ToolRegistry` com nome prefixado pelo
+  servidor (`"<servidor>__<tool>"`), sob o mesmo `PermissionGate` de sempre. `docs/roadmap-v0.10.md`
+  detalha os 5 tickets (MT-77..81 — numeração retoma do MT-77, livre desde que o *widget* de
+  lista de tarefas foi descartado na preparação da Fase 15). `mkdocs build --strict` limpo.
+  Nenhuma mudança de código.
+
 **Em andamento:** nada pendente — árvore de trabalho limpa, tudo commitado.
 
-**Próximo passo:** **preparar a Fase 16** (MCP client via `rmcp`) — já pré-autorizada pelo
-mantenedor junto de `ratatui` (mensagem de 2026-07-15: "Vamos seguir para a fase 15 e depois a
-16. Pode confirmar ratatui e rmcp."). Sem tickets detalhados ainda: a próxima iteração escreve
-ADR-0028 (adoção de `rmcp`, verificação de maturidade via `crates.io/api/v1/crates/rmcp`,
-arquitetura do cliente MCP — servidores configuráveis, tools MCP sob o mesmo gate de
-permissão/classe de egresso, *progressive disclosure*) e quebra a fase em micro-tickets num
-novo `docs/roadmap-v0.10.md` (skill `micro-ticket-planner`), mesma disciplina usada para
-preparar a Fase 15. Outros itens em aberto, sem ticket: deploy do site MkDocs (GitHub Pages) —
-decisão explícita do usuário de não fazer ainda; CI multi-SO ainda não observado verde (falta
-um push que dispare a matriz); backlog independente do `ai-coding-agent-profiles` (ADRs
-0001-0005 — RTK/OKF pendentes de reanálise de maturidade,
+**Próximo passo:** **MT-77** (`docs/roadmap-v0.10.md`, `Cargo.toml`, `crates/core/Cargo.toml`,
+`crates/core/src/config/mod.rs`, `crates/cli/src/main.rs`) — adoção `rmcp` (só *features*
+`client`+`transport-child-process`) + novo schema `mcpServers` em `agentry.settings.json`
+(mapa nome→`{command, args, egressClass}`, vazio por padrão; `egressClass` diferente de
+`local-only` é `ConfigError` tratado), primeiro ticket da Fase 16. Outros itens em aberto, sem
+ticket: deploy do site MkDocs (GitHub Pages) — decisão explícita do usuário de não fazer
+ainda; CI multi-SO ainda não observado verde (falta um push que dispare a matriz); backlog
+independente do `ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de reanálise de
+maturidade,
 perfis base+overlay/skills executáveis/config de serviços pendentes de validação de
 implementação).
 
@@ -1134,6 +1174,7 @@ implementação).
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-15 | `82c4785` | ADR-0028: cliente MCP via rmcp (autorizado pelo mantenedor); prepara a Fase 16 | — |
 | 2026-07-15 | `eeae714` | MT-76: documentação (usuário) — ADR-0027 -> Accepted (fecha a Fase 15) | MT-76 |
 | 2026-07-15 | `ba11489` | MT-75: visualizador de diff (modal) para fs_write/fs_edit sob ask | MT-75 |
 | 2026-07-15 | `b4e9935` | MT-74: widgets de permissão (TuiConfirmer) e pergunta (TuiPrompter) | MT-74 |
