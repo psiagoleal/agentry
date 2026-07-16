@@ -15,6 +15,7 @@
 //! correspondência determinística de conteúdo na entrada/saída de uma
 //! chamada de LLM, MT-43, ADR-0007).
 
+pub mod checkpoint;
 pub mod config;
 pub mod context;
 pub mod egress;

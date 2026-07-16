@@ -21,7 +21,13 @@ use crate::tools::{resolve_ignore_file_name, Tool, ToolOutput};
 
 /// Resolve `relative` dentro de `root`, rejeitando caminho absoluto ou que
 /// contenha `..` — lógica pura, sem tocar o filesystem.
-fn resolve_within_root(root: &Path, relative: &str) -> Result<PathBuf, String> {
+///
+/// `pub(crate)` (MT-86/ADR-0030): reaproveitada por
+/// [`crate::tools::checkpoint::CheckpointingTool`] para validar o mesmo
+/// `path` do argumento antes de ler o conteúdo "antes" de um checkpoint —
+/// mesma checagem de segurança usada pela escrita de verdade, nunca uma
+/// segunda implementação divergente.
+pub(crate) fn resolve_within_root(root: &Path, relative: &str) -> Result<PathBuf, String> {
     let rel_path = Path::new(relative);
     if rel_path.is_absolute() {
         return Err(format!("caminho absoluto não permitido: '{relative}'"));
