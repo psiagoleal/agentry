@@ -50,7 +50,7 @@ retoma a partir dele, sem deixar o número como lacuna permanente.
   `ToolRegistry` (MT-79).
 - **Depende de:** ADR-0028.
 
-### MT-78: Cliente MCP — conecta, *handshake*, descobre tools
+### MT-78: Cliente MCP — conecta, *handshake*, descobre tools ✅ concluído (7a68941)
 - **Objetivo:** novo `crates/core/src/mcp/mod.rs`: `McpClient` (ou nome equivalente) spawna
   cada servidor declarado em `mcpServers` via `rmcp::transport::child_process::
   TokioChildProcess` (subprocesso local, `stdio`), completa o *handshake* MCP

@@ -9,7 +9,7 @@
 
 - **Data:** 2026-07-15
 - **Branch:** `main`
-- **Commit:** `9fcbaaf`
+- **Commit:** `7a68941`
 - **Fase:** Roadmap v0.1..v0.4 **fechados/imutáveis**; **Fase 10 concluída** (LiteLLM).
   **Execução autônoma em andamento** (`/loop /implementar-roadmap`, modelo Sonnet 5) — ver
   `docs/decisoes-autonomas.md` para decisões tomadas sozinho (**5 decisões registradas** até a
@@ -75,6 +75,24 @@
   explícita que torna os exemplos reais de `taskClasses` seguros). 6 testes novos + teste do
   exemplo `--init` estendido. Smoke-test manual: `--init` gera o bloco corretamente, JSON
   válido; carregar a config gerada e rodar uma tarefa real não falha.
+
+  **MT-78 concluído** — `crates/core/src/mcp/mod.rs` (novo): `McpClient` spawna um servidor
+  MCP via `rmcp::transport::child_process::TokioChildProcess`, completa o *handshake*
+  (`ServiceExt::serve`) e lista as tools via `list_all_tools()`. Nenhum `Drop` manual
+  necessário — o próprio `TokioChildProcess` do `rmcp` mata o subprocesso quando descartado
+  (`ChildWithCleanup::drop`), validado empiricamente pelo teste de integração. **Achado
+  técnico registrado em `docs/decisoes-autonomas.md`:** a primeira tentativa de fixture de
+  teste usou a *feature* `server` do `rmcp` em `[dev-dependencies]` — compilou com `cargo
+  build --bins --tests`, mas falhou em `cargo build --release` real, porque um alvo `[[bin]]`
+  de `crates/core` (como `fake_mcp_server`) só recebe *features* de `[dependencies]`, nunca as
+  de `[dev-dependencies]` (Cargo só estende `dev-dependencies` para `tests`/`examples`).
+  Resolvido implementando o protocolo MCP na mão em `fake_mcp_server.rs` (JSON-RPC 2.0
+  *newline-delimited* — mais simples que o `Content-Length` do LSP), usando os tipos de
+  `rmcp::model` (sem *feature gate*, disponíveis só com `client`) para respostas corretas sem
+  hand-typing nomes de campo. 3 testes de integração (`ciclo_de_vida_completo`, `Drop` sem
+  `shutdown` não deixa processo órfão, comando inexistente é erro tratado) + 1 unitário.
+  `cargo build --release` limpo — confirma que a superfície de produção do `rmcp` continua só
+  `client`+`transport-child-process`.
 
   **MT-70 concluído** — primeiro ticket de implementação da Fase 15: `ratatui` (feature
   `crossterm`, `default-features = false` para árvore de dependências mínima) adicionada a
@@ -1176,16 +1194,45 @@
   (JSON válido, `echo` como comando de exemplo); carregar a config gerada e rodar uma tarefa
   real não falha (bloco presente mas inerte, nada ainda o consome).
 
+- [x] **MT-78** — `crates/core/src/mcp/mod.rs` (novo): `McpClient` spawna um servidor MCP via
+  `rmcp::transport::child_process::TokioChildProcess` (subprocesso local, `stdio`), completa o
+  *handshake* (`ServiceExt::serve`) e lista as tools via `list_all_tools()` (paginação
+  resolvida pelo próprio `rmcp`). Nenhum `Drop` manual necessário — o `TokioChildProcess` do
+  `rmcp` já mata o subprocesso quando descartado (`ChildWithCleanup::drop`, dentro do próprio
+  SDK), validado empiricamente pelo teste de integração. Mesmo modelo de confiança do
+  `LspClient` (ADR-0013): subprocesso local, IPC via `pipe`, nunca uma chamada de rede mediada
+  pelo `agentry`.
+
+  **Achado técnico registrado em `docs/decisoes-autonomas.md`:** a primeira tentativa de
+  fixture de teste (`fake_mcp_server`) usou a *feature* `server` do `rmcp` em
+  `[dev-dependencies]` — compilou e passou com `cargo build -p agentry-core --bins --tests`,
+  mas falhou em `cargo build --release` real: um alvo `[[bin]]` de `crates/core` (descoberto
+  em `src/bin/`) só recebe *features* de `[dependencies]`, nunca as de `[dev-dependencies]`
+  (Cargo só estende `dev-dependencies` para alvos `tests`/`examples`, não `[[bin]]`). Resolvido
+  implementando o protocolo MCP na mão em `fake_mcp_server.rs` — JSON-RPC 2.0
+  *newline-delimited* sobre `stdio` (mais simples que o `Content-Length` do LSP, confirmado no
+  código-fonte do `rmcp`), usando os tipos de `rmcp::model` (módulo sem *feature gate*,
+  disponível só com `client`) para montar respostas corretas sem hand-typing nomes de campo.
+  Isso evita o problema pela raiz sem violar a proibição da própria ADR-0028 contra habilitar
+  `server` em produção.
+
+  3 testes de integração (`crates/core/tests/mcp_client.rs`: ciclo de vida completo
+  *handshake*→`list_tools`→`shutdown`; `Drop` sem `shutdown()` explícito não deixa processo
+  órfão, mesmo teste já existente para `LspClient`; comando inexistente é erro tratado) + 1
+  teste unitário. `cargo build --release` limpo — confirma que a superfície de produção do
+  `rmcp` continua só `client`+`transport-child-process`, sem vazamento de `server`/`macros`.
+
 **Em andamento:** nada pendente — árvore de trabalho limpa, tudo commitado.
 
-**Próximo passo:** **MT-78** (`docs/roadmap-v0.10.md`, novo `crates/core/src/mcp/mod.rs`) —
-cliente MCP: spawna cada servidor declarado via `rmcp::transport::child_process::
-TokioChildProcess`, completa o *handshake* (`ServiceExt::serve`) e lista as tools
-(`list_tools()`); mesmo padrão de ciclo de vida de `LspClient` (`Drop` mata o subprocesso como
-rede de segurança), segundo ticket da Fase 16. Outros itens em aberto, sem ticket: deploy do
-site MkDocs (GitHub Pages) — decisão explícita do usuário de não fazer ainda; CI multi-SO
-ainda não observado verde (falta um push que dispare a matriz); backlog independente do
-`ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de reanálise de maturidade,
+**Próximo passo:** **MT-79** (`docs/roadmap-v0.10.md`, novo `crates/core/src/tools/mcp.rs`,
+`crates/cli/src/main.rs`) — tools MCP no `ToolRegistry`: cada tool descoberta por `McpClient`
+vira uma entrada implementando a *trait* `Tool` (MT-11), nome prefixado pelo servidor
+(`"<servidor>__<tool>"`), `execute()` encaminha para `peer.call_tool(...)` — sob o mesmo
+`PermissionGate` de qualquer outra tool, terceiro ticket da Fase 16. Outros itens em aberto,
+sem ticket: deploy do site MkDocs (GitHub Pages) — decisão explícita do usuário de não fazer
+ainda; CI multi-SO ainda não observado verde (falta um push que dispare a matriz); backlog
+independente do `ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de reanálise de
+maturidade,
 perfis base+overlay/skills executáveis/config de serviços pendentes de validação de
 implementação).
 
@@ -1206,6 +1253,7 @@ implementação).
 
 | Data | Commit | Resumo | MT |
 |------|--------|--------|----|
+| 2026-07-15 | `7a68941` | MT-78: cliente MCP -- conecta, handshake, descobre tools | MT-78 |
 | 2026-07-15 | `9fcbaaf` | MT-77: adoção rmcp + schema mcpServers na configuração | MT-77 |
 | 2026-07-15 | `82c4785` | ADR-0028: cliente MCP via rmcp (autorizado pelo mantenedor); prepara a Fase 16 | — |
 | 2026-07-15 | `eeae714` | MT-76: documentação (usuário) — ADR-0027 -> Accepted (fecha a Fase 15) | MT-76 |

@@ -27,6 +27,50 @@ escolha feita sozinho.
 
 ## Entradas (mais recente no topo)
 
+### 2026-07-15 — MT-78 (Fase 16, MCP) — `fake_mcp_server` implementa o protocolo MCP na mão, sem a *feature* `server` do `rmcp`
+- **Contexto:** o MT-78 (`docs/roadmap-v0.10.md`) previa, como uma das opções, reaproveitar a
+  *feature* `server` do `rmcp` (só em `[dev-dependencies]`) para montar o `fake_mcp_server` —
+  mesmo espírito do `fake_lsp_server` (MT-23), mas usando as macros de servidor do próprio SDK
+  em vez de implementar o protocolo na mão. Essa abordagem foi tentada primeiro (`rmcp = {
+  workspace = true, features = ["server", "macros", "transport-io"] }` em
+  `[dev-dependencies]`) e **compilou e passou nos testes** com `cargo build -p agentry-core
+  --bins --tests` — mas falhou em `cargo build --release` (o comando real de release do
+  projeto): um alvo `[[bin]]` de `crates/core` (como `fake_mcp_server`, descoberto
+  automaticamente em `src/bin/`) só recebe as *features* declaradas em `[dependencies]`,
+  **nunca** as de `[dev-dependencies]` — Cargo só estende `dev-dependencies` para alvos
+  `tests`/`examples`/`benches`, não para `[[bin]]`. O comando combinado `--bins --tests` unifica
+  os dois conjuntos de *features* e mascarou o problema até o `cargo build --release` real
+  (sem `--tests`) revelar o erro de import.
+- **Opções consideradas:**
+  (a) mover `fake_mcp_server` de `src/bin/` para `examples/` (Cargo estende
+  `dev-dependencies` para alvos `examples` também) — mas perde a conveniência de
+  `env!("CARGO_BIN_EXE_fake_mcp_server")` (só definida para `[[bin]]`), exigindo descoberta
+  manual e frágil do caminho do binário compilado;
+  (b) promover `server`/`macros`/`transport-io` de `[dev-dependencies]` para `[dependencies]`
+  (produção) — mas a própria ADR-0028 proíbe explicitamente habilitar `server` em dependência
+  de produção (o `agentry` é consumidor de MCP, não expõe a si mesmo como servidor);
+  (c) implementar o protocolo MCP na mão no `fake_mcp_server` (JSON-RPC 2.0 delimitado por
+  linha sobre `stdio` — verificado no código-fonte do `rmcp`,
+  `transport/async_rw.rs::JsonRpcMessageCodec`: é *newline-delimited*, ao contrário do LSP, que
+  usa cabeçalhos `Content-Length`), usando os tipos de `rmcp::model` (módulo **sem** *feature
+  gate* — disponível só com `client`, já a dependência de produção) para montar respostas
+  corretas sem hand-typing os nomes de campo JSON.
+- **Escolha (recomendada):** (c).
+- **Justificativa:** (a) resolveria o problema de escopo de *feature*, mas trocaria uma
+  fragilidade por outra (descoberta manual de caminho de binário, em vez do mecanismo já
+  testado e usado por `fake_lsp_server`) sem necessidade. (b) violaria a própria ADR-0028 que
+  este ticket implementa — desviar da diretriz de conformidade que acabei de escrever exigiria
+  no mínimo revisar a ADR, não uma decisão silenciosa dentro de um ticket de implementação. (c)
+  resolve o problema na raiz sem abrir mão de nada: o formato de mensagem do MCP acabou sendo
+  **mais simples** que o do LSP (sem cabeçalho de tamanho), e os tipos de dados do `rmcp::model`
+  (já disponíveis com a *feature* `client` sozinha) eliminam o risco de errar nomes de campo à
+  mão — o resultado final não precisa de nenhuma *feature* extra do `rmcp` em nenhuma camada,
+  produção ou teste, mantendo a árvore de dependências exatamente como a ADR-0028 já
+  descrevia. Validado de ponta a ponta: os 3 testes de integração (*handshake* real,
+  `list_tools()` devolvendo a tool esperada, `Drop` sem `shutdown()` não deixa processo órfão)
+  passam contra o cliente `rmcp` real sem nenhuma modificação no cliente de produção.
+- **Commit:** `7a68941`.
+
 ### 2026-07-15 — MT-77 (Fase 16, MCP) — exemplo de `mcpServers` no `--init` usa `echo` como comando inerte
 - **Contexto:** o MT-77 (`docs/roadmap-v0.10.md`) pede que `GENERIC_SETTINGS_EXAMPLE`
   (`crates/cli/src/main.rs`) ganhe o bloco `mcpServers` com um exemplo comentado, mesma
