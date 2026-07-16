@@ -21,7 +21,7 @@ expor.
 
 ## Fase 17 — Uso de tokens visível durante a sessão (ADR-0029)
 
-### MT-82: `Session` acumula `Usage` ao longo da sessão
+### MT-82: `Session` acumula `Usage` ao longo da sessão ✅ concluído (60b1b41)
 - **Objetivo:** `Session` (`crates/core/src/session/mod.rs`) ganha um campo interno de uso
   acumulado (`Usage`), somado ao final de cada turno concluído (mesmo ponto onde o `Usage` do
   turno já é calculado hoje) — nunca influencia roteamento nem `TokenBudget` (responsabilidade

@@ -9,7 +9,7 @@
 
 - **Data:** 2026-07-16
 - **Branch:** `main`
-- **Commit:** `cbf975b`
+- **Commit:** `60b1b41`
 - **Fase:** Roadmap v0.1..v0.4 **fechados/imutáveis**; **Fase 10 concluída** (LiteLLM).
   **Execução autônoma em andamento** (`/loop /implementar-roadmap`, modelo Sonnet 5) — ver
   `docs/decisoes-autonomas.md` para decisões tomadas sozinho (**5 decisões registradas** até a
@@ -169,6 +169,20 @@
   (exigiria tabela de preço configurável, não é dado intrínseco ao provider como tokens são).
   `docs/roadmap-v0.11.md` detalha os 4 tickets (MT-82..85). Pronta para começar a
   implementação a partir do MT-82.
+
+  **MT-82 concluído** — `Session` (`crates/core/src/session/mod.rs`) ganha o campo
+  `usage_total` (`Usage`), somado a cada turno concluído (`after_response`, chamado por
+  `run`/`run_streaming`) e a cada `Session::compact` — distinto do `consumed` local já
+  existente, que só vive durante uma chamada a `run`/`run_streaming` (decide estouro de
+  `TokenBudget`). Novo método `usage_total()` expõe o total acumulado. `compact()` também
+  soma seu próprio uso ao total — decisão tomada durante a implementação: o texto do ticket
+  só exigia "não resetar o contador", mas a diretriz de conformidade da ADR-0029 pede que o
+  total reflita exatamente a soma dos `Usage` por turno já calculados por `Session`, e
+  `compact()` já calcula um `Usage` que antes era silenciosamente descartado. 4 testes novos
+  (sessão nova começa zerada; um turno soma; múltiplos turnos acumulam; `compact` soma e
+  nunca zera). 372 testes em `agentry-core` (+4), 104 em `agentry`, `cargo build --release`
+  limpo. Nenhuma mudança de comportamento observável da CLI ainda — `usage_total()` não é
+  consumido por nenhum modo de invocação nesta ticket (MT-83/84).
 
   **MT-70 concluído** — primeiro ticket de implementação da Fase 15: `ratatui` (feature
   `crossterm`, `default-features = false` para árvore de dependências mínima) adicionada a
@@ -1362,16 +1376,25 @@
   mudança de código — esta iteração só prepara a fase (skill `adr-writer`/
   `micro-ticket-planner`), não implementa.
 
+- [x] **MT-82** — `Session` (`crates/core/src/session/mod.rs`) ganha `usage_total` (`Usage`),
+  somado a cada turno concluído (`after_response`) e a cada `Session::compact` — distinto do
+  `consumed` local já existente (só vive durante uma chamada a `run`/`run_streaming`, decide
+  estouro de `TokenBudget`). Novo método `usage_total()` expõe o total acumulado; `compact()`
+  também soma seu próprio uso (decisão tomada durante a implementação, ver
+  `docs/CURRENT-STATE.md` acima para a justificativa). 4 testes novos. 372 testes em
+  `agentry-core` (+4), 104 em `agentry`, `cargo build --release` limpo. Nenhuma mudança de
+  comportamento observável da CLI ainda.
+
 **Em andamento:** nada pendente — árvore de trabalho limpa, tudo commitado. **Fase 16
 concluída inteira (MT-77..81)**; **Fase 17 preparada** (ADR-0029 `Proposed`,
-`docs/roadmap-v0.11.md`, MT-82..85).
+`docs/roadmap-v0.11.md`, MT-82..85); **MT-82 concluído**.
 
-**Próximo passo:** **MT-82** (`docs/roadmap-v0.11.md`, `crates/core/src/session/mod.rs`) —
-`Session` acumula `Usage` ao longo da sessão: campo interno somado a cada turno concluído +
-método de leitura do total acumulado; `/compact` não zera o contador. Primeiro ticket de
-implementação da Fase 17. Outros itens em aberto, sem ticket: deploy do site MkDocs (GitHub
-Pages) — decisão explícita do usuário de não fazer ainda; CI multi-SO ainda não observado
-verde (falta um push que dispare a matriz); backlog independente do
+**Próximo passo:** **MT-83** (`docs/roadmap-v0.11.md`, `crates/cli/src/main.rs`,
+`crates/cli/src/repl.rs`) — exposição do uso de tokens no modo *one-shot* (resumo em
+`stderr` ao final da tarefa) e comando `/usage` no REPL (mesmo padrão de `/compact`).
+Segundo ticket de implementação da Fase 17. Outros itens em aberto, sem ticket: deploy do
+site MkDocs (GitHub Pages) — decisão explícita do usuário de não fazer ainda; CI multi-SO
+ainda não observado verde (falta um push que dispare a matriz); backlog independente do
 `ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de reanálise de maturidade,
 perfis base+overlay/skills executáveis/config de serviços pendentes de validação de
 implementação).
