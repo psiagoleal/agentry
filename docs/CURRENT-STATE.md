@@ -9,7 +9,7 @@
 
 - **Data:** 2026-07-16
 - **Branch:** `main`
-- **Commit:** `958776b`
+- **Commit:** `f62bfe4`
 - **Fase:** Roadmap v0.1..v0.4 **fechados/imutáveis**; **Fase 10 concluída** (LiteLLM).
   **Execução autônoma em andamento** (`/loop /implementar-roadmap`, modelo Sonnet 5) — ver
   `docs/decisoes-autonomas.md` para decisões tomadas sozinho (**5 decisões registradas** até a
@@ -278,6 +278,22 @@
   `cargo build --release` limpo. Smoke-test manual via `tmux` (checkpoint semeado
   manualmente): rodapé mostra a legenda de `Ctrl+Z`, pressionar restaura o arquivo de fato e a
   mensagem de resultado aparece no histórico de chat.
+
+  **MT-89 concluído — fecha a Fase 18 inteira (MT-86..89).** `docs/usuario/uso.md` ganha a
+  seção "Checkpoints e undo de mudanças de arquivo": `--undo`/`/undo`/`Ctrl+Z` nas tabelas de
+  flags/comandos/*keybindings*, mais a seção dedicada explicando que só `fs_write`/`fs_edit`
+  geram checkpoint (nunca `shell_exec`/`shell_background`), que os checkpoints persistem em
+  `.agentry/checkpoints.json` entre invocações, e o teto fixo não configurável. **ADR-0030
+  promovida de `Proposed` para `Accepted`** (`docs/adr/README.md` atualizado);
+  `docs/roadmap-longo-prazo.md` marca a Fase 18 `✅ concluída`, mesmo padrão usado para
+  fechar as Fases 15/16/17. `mkdocs build --strict` limpo. Nenhuma mudança de código.
+
+  **Fase 18 fecha a última fase detalhada do roadmap de longo prazo (mais uma vez)** —
+  próximo passo é **preparar a Fase 19+** (`docs/roadmap-longo-prazo.md` §Fase 19+: memória
+  entre sessões, subagentes/orquestração, multimodal — nenhuma tem ADR nem detalhamento de
+  tickets ainda; ordem entre elas não decidida). **Subagentes**, em particular, provavelmente
+  merece escalar ao mantenedor quando chegar a vez — o próprio roadmap já assinala uma
+  "decisão-chave" com implicação direta na ADR-0002 (egresso).
 
   **MT-70 concluído** — primeiro ticket de implementação da Fase 15: `ratatui` (feature
   `crossterm`, `default-features = false` para árvore de dependências mínima) adicionada a
@@ -1530,21 +1546,33 @@
   em `agentry-core`, `cargo build --release` limpo. Smoke-test manual via `tmux` confirma
   `Ctrl+Z` restaurando um arquivo de verdade e a mensagem aparecendo no chat.
 
-**Em andamento:** nada pendente — árvore de trabalho limpa, tudo commitado. **Fase 17
-concluída inteira (MT-82..85)**; **Fase 18 preparada** (ADR-0030 `Proposed`,
-`docs/roadmap-v0.12.md`, MT-86..89); **MT-86/87/88 concluídos** — falta só o MT-89
-(documentação) para fechar a Fase 18 inteira.
+- [x] **MT-89** — documentação (`docs/usuario/uso.md`: seção "Checkpoints e undo de mudanças
+  de arquivo", tabelas de flags/comandos/*keybindings*), **fecha a Fase 18 inteira**.
+  **ADR-0030 promovida de `Proposed` para `Accepted`**; `docs/adr/README.md`/
+  `docs/roadmap-longo-prazo.md` atualizados — Fase 18 marcada concluída. `mkdocs build
+  --strict` limpo. Nenhuma mudança de código.
 
-**Próximo passo:** **MT-89** (`docs/roadmap-v0.12.md`, `docs/usuario/uso.md`,
-`docs/adr/0030-checkpoints-e-undo-de-mudancas-de-arquivo.md`, `docs/adr/README.md`,
-`docs/roadmap-longo-prazo.md`) — documentação: `docs/usuario/uso.md` ganha uma nota sobre
-`--undo`/`/undo`/`Ctrl+Z`, deixando explícito que só `fs_write`/`fs_edit` geram checkpoint
-(nunca `shell_exec`/`shell_background`); ADR-0030 promovida de `Proposed` para `Accepted`;
-`docs/adr/README.md`/`docs/roadmap-longo-prazo.md` atualizados — Fase 18 marcada concluída.
-Último ticket da Fase 18 — fecha a fase inteira. Outros itens em aberto, sem ticket: deploy
-do site MkDocs (GitHub Pages) — decisão explícita do usuário de não fazer ainda; CI multi-SO
-ainda não observado verde (falta um push que dispare a matriz); backlog independente do
-`ai-coding-agent-profiles` (ADRs 0001-0005 — RTK/OKF pendentes de reanálise de maturidade,
+**Em andamento:** nada pendente — árvore de trabalho limpa, tudo commitado. **Fase 18
+concluída inteira (MT-86..89)** — última fase que já tinha tickets detalhados no roadmap de
+longo prazo.
+
+**Próximo passo:** **preparar a Fase 19+** (`docs/roadmap-longo-prazo.md` §Fase 19+) —
+nenhuma das três frentes restantes (memória entre sessões, subagentes/orquestração,
+multimodal) tem ADR nem detalhamento de tickets ainda; ordem entre elas não decidida.
+Seguindo a disciplina do comando `/loop /implementar-roadmap` §1 ("fase sem tickets
+detalhados"): a próxima unidade de trabalho é **preparar** a próxima frente escolhida (ADR
+`Proposed` + quebra em micro-tickets num novo `docs/roadmap-vX.Y.md`), não implementar
+código ainda. **Subagentes**, em particular, provavelmente merece escalar ao mantenedor
+quando chegar a vez — o próprio roadmap já assinala uma "decisão-chave" com implicação
+direta na ADR-0002 (egresso), mais alinhada a uma escalada que a uma decisão autônoma (ver
+`docs/decisoes-autonomas.md`, entradas de 2026-07-16). Entre **memória entre sessões** e
+**multimodal**, ambas levantam pergunta de confidencialidade própria (registrado nas
+entradas de decisão anteriores) — a próxima iteração precisa avaliar qual delas tem a
+pergunta mais tratável sem virar uma escalada, ou considerar se ambas merecem escalar.
+Outros itens em aberto, sem ticket: deploy do site MkDocs (GitHub Pages) — decisão explícita
+do usuário de não fazer ainda; CI multi-SO ainda não observado verde (falta um push que
+dispare a matriz); backlog independente do `ai-coding-agent-profiles` (ADRs 0001-0005 —
+RTK/OKF pendentes de reanálise de maturidade,
 perfis base+overlay/skills executáveis/config de serviços pendentes de validação de
 implementação).
 

@@ -69,7 +69,7 @@ persistência via `serde_json` + `std::fs` (já dependências existentes), mesmo
   mesmo espírito de `/compact` no REPL).
 - **Depende de:** MT-87.
 
-### MT-89: Documentação
+### MT-89: Documentação ✅ concluído (f62bfe4) — fecha a Fase 18
 - **Objetivo:** `docs/usuario/uso.md` ganha uma nota sobre `--undo`/`/undo`/`Ctrl+Z` — deixando
   explícito que só `fs_write`/`fs_edit` geram checkpoint (mudanças de `shell_exec`/
   `shell_background` não são desfeitas pelo `agentry`, para não criar expectativa equivocada,
