@@ -186,6 +186,13 @@ gera:
   [`tools.webFetch`](configuracao.md#toolswebfetch)/[`tools.webSearch`](configuracao.md#toolswebsearch)
   para como habilitar e o [Modelo de privacidade e
   egresso](../governanca/privacidade-e-egresso.md) para o que cada um implica.
+- **`subagent`** — o agente pode delegar uma subtarefa a uma sessão interna (um "subagente"),
+  que roda até completar e devolve só a resposta final — sem aparecer incrementalmente na
+  conversa principal, como uma resposta normal apareceria. Um subagente **nunca pode criar
+  outro subagente** (sem aninhamento). A classe de egresso do subagente **nunca é mais
+  permissiva** que a da sessão principal — reaproveita a mesma configuração de
+  *providers*/*task-classes* resolvida no início da CLI (ver [Subagentes e
+  egresso](../governanca/privacidade-e-egresso.md#subagentes-e-egresso) para o detalhe).
 
 Além das tools acima, cada servidor MCP declarado em
 [`mcpServers`](configuracao.md#mcpservers) adiciona suas próprias tools dinamicamente, uma

@@ -2,10 +2,22 @@
 
 # ADR 0031: Subagentes com classe de egresso restrita à sessão-mãe
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Data:** 2026-07-16
 - **Decisores:** Iago Leal (mantenedor)
 - **Tags:** ferramentas, egresso, arquitetura
+
+> **Nota de implementação (MT-91, 2026-07-16):** o texto original desta ADR (ver "Classe de
+> egresso" abaixo) previa o subagente usando literalmente o **mesmo** objeto `Arc<Router>` da
+> sessão-mãe. Na fiação real, isso esbarrou num obstáculo concreto: `Router` não implementa
+> `Clone` e é **mutável em tempo de execução** (`/model`/`/task-class`), então compartilhar o
+> objeto exigiria `Arc<Mutex<Router>>` tocando três pontos de entrada da CLI. Implementado, em
+> vez disso, com **duas instâncias de `Router` construídas de forma idêntica** (mesmos
+> providers, mesmas *task-classes* declaradas, mesma classe de egresso) a partir dos mesmos
+> insumos — decisão registrada em `docs/decisoes-autonomas.md`. A garantia de egresso desta
+> ADR continua **integralmente válida** (a classe de egresso nunca muda em tempo de execução,
+> só as rotas declaradas podem); a única consequência é que o subagente não reflete uma troca
+> de modelo/task-class feita **depois** que a CLI já inicializou.
 
 ## Contexto
 

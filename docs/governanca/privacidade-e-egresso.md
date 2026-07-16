@@ -148,6 +148,31 @@ este ([ADR-0028](../adr/0028-mcp-client-via-rmcp.md)):
   `permissions` (`deny`/`ask`/`allow`) de qualquer outra tool, nome sempre prefixado pelo
   servidor de origem para nunca ficar ambíguo de onde uma tool veio.
 
+## Subagentes e egresso
+
+O `agentry` pode delegar uma subtarefa a um "subagente" — uma sessão interna que o agente
+principal dispara via tool ([ADR-0031](../adr/0031-subagentes-com-egresso-restrito.md)). Para
+quem avalia a postura de egresso do produto, o ponto central é este:
+
+- **Um subagente nunca resolve um candidato de `provider`/`model` mais permissivo que o teto
+  de egresso do perfil ativo** — a mesma restrição que já vale para a sessão principal. Isso
+  não é uma checagem adicional que poderia ser esquecida: o subagente é construído com a
+  **mesma configuração de providers/*task-classes*** já resolvida no início da CLI, sob o
+  mesmo teto — ele estrutural e literalmente não tem acesso a nenhum candidato que a sessão
+  principal também não pudesse alcançar.
+- **Um subagente nunca pode criar outro subagente.** O mecanismo interno que ele usa para
+  chamar tools nunca inclui a própria tool `subagent` no seu registro — o modelo dentro do
+  subagente nem enxerga essa tool existir, muito menos consegue chamá-la. Sem aninhamento,
+  sem recursão descontrolada.
+- **Mesmo `permissions`/*guardrails* da sessão principal, sem exceção** — uma tool sob `ask`
+  chamada de dentro de um subagente aciona a mesma confirmação interativa de qualquer outra
+  chamada; o mesmo `GuardrailGate` (bloqueio/mascaramento de conteúdo) se aplica.
+- **O subagente não reflete uma troca de modelo/*task-class* feita via `/model`/`/task-class`
+  depois que a CLI já inicializou** — ele usa a configuração resolvida no arranque, uma
+  limitação de implementação documentada (`docs/decisoes-autonomas.md`), não uma questão de
+  egresso: o teto de privacidade em si nunca muda em tempo de execução, só a rota escolhida
+  dentro dele.
+
 ## O que audita e o que não sabe
 
 O `agentry` audita **tentativas de rede** (host, permitida ou não) — não decide sozinho o

@@ -11,20 +11,19 @@ Cada fase abaixo lista **objetivo**, **ADR(s) necessária(s)** e a **primeira le
 micro-tickets** (título + objetivo de uma linha). Seguindo a disciplina do projeto
 (`skill adr-writer` / `micro-ticket-planner`): a **ADR completa e os tickets detalhados de
 cada fase são escritos quando a fase começa**, promovidos para um `roadmap-vX.Y.md`
-versionado. **Fases 12, 13, 14, 15, 16, 17 e 18** estão concluídas (`docs/roadmap-v0.6.md`,
+versionado. **Fases 12, 13, 14, 15, 16, 17, 18 e 19** estão concluídas (`docs/roadmap-v0.6.md`,
 `docs/roadmap-v0.7.md`, `docs/roadmap-v0.8.md`, `docs/roadmap-v0.9.md` — `ratatui` autorizado
 pelo mantenedor em 2026-07-15, após a parada dura do comando de loop por dependência nova;
 ADR-0027 `Accepted` — `docs/roadmap-v0.10.md`, `rmcp` pré-autorizado pelo mantenedor junto de
 `ratatui`; ADR-0028 `Accepted`, escopo v1 restrito a servidores MCP locais — `docs/roadmap-v0.11.md`,
 ADR-0029 `Accepted`: uso de tokens visível durante a sessão, primeira das cinco frentes de
-"segunda onda" — e `docs/roadmap-v0.12.md`, ADR-0030 `Accepted`: checkpoints e *undo* de
-mudanças de arquivo, segunda das cinco frentes de "segunda onda"). Das três frentes
-restantes, todas levantavam pergunta de design/segurança sem opção recomendada óbvia — o
-mantenedor foi consultado diretamente (2026-07-16, ver `docs/decisoes-autonomas.md`) e
-escolheu **subagentes/orquestração** para vir primeiro. **Fase 19** já está detalhada — ver
-`docs/roadmap-v0.13.md` (ADR-0031, `Proposed`). Pronta para começar a implementação a partir
-do MT-90. As outras duas frentes (memória entre sessões, multimodal) seguem sem tickets
-detalhados, mas já com a pergunta de design de cada uma respondida (ver Fase 20+ abaixo).
+"segunda onda" — `docs/roadmap-v0.12.md`, ADR-0030 `Accepted`: checkpoints e *undo* de
+mudanças de arquivo, segunda das cinco frentes de "segunda onda" — e `docs/roadmap-v0.13.md`,
+ADR-0031 `Accepted`: subagentes/orquestração, terceira das cinco frentes, escolhida pelo
+mantenedor entre as três restantes depois de responder diretamente às perguntas de design de
+cada uma, 2026-07-16, ver `docs/decisoes-autonomas.md`). Próxima fase sem tickets detalhados
+ainda: Fase 20+ (ver seção própria abaixo) — as outras duas frentes (memória entre sessões,
+multimodal), já com a pergunta de design de cada uma respondida.
 
 > Convenções de DoD, granularidade e "dependência nova exige ADR (ADR-0004)": iguais às dos
 > roadmaps versionados (`docs/roadmap-v0.1.md` §Convenções).
@@ -206,7 +205,7 @@ retidos, sem configuração nova (YAGNI).
 como única fonte de formatação, reaproveitada pelos três pontos de exposição; documentação de
 usuário fechando a fase.
 
-## Fase 19 — Subagentes/orquestração (ADR-0031)
+## Fase 19 — Subagentes/orquestração (ADR-0031) ✅ concluída
 
 **Objetivo:** delegar subtarefas a uma `Session` interna (equivalente ao `Task` do Claude
 Code / árvore de sessão do OpenCode) — escolhida pelo mantenedor entre as três frentes
@@ -214,19 +213,24 @@ restantes de "segunda onda" (`docs/decisoes-autonomas.md`, 2026-07-16), depois d
 diretamente à decisão-chave de design: **um subagente pode declarar sua própria classe de
 egresso, mas só igual ou mais restrita que a da sessão-mãe** — nunca mais permissiva.
 
-**ADR:** ADR-0031 — **escrita**, `Proposed`. Decisão central: o subagente usa o **mesmo**
-`Arc<Router>` da sessão-mãe — como `Router::resolve` já recusa qualquer candidato mais
-permissivo que o teto de egresso do perfil ativo, para **qualquer** chamador, essa garantia
-vale automaticamente, sem nenhum código novo de imposição. Recursão (subagente criando
-subagente) é impossível **estruturalmente**: o executor interno do subagente nunca registra
-a própria tool `subagent`, em vez de uma checagem em tempo de execução. Reaproveita 100% da
-infraestrutura existente — mesmo `PermissionGate`/`Confirmer`/`GuardrailGate` da sessão-mãe,
-nenhum mecanismo paralelo. Fora de escopo (v1): uso do subagente não soma automaticamente ao
-`usage_total` da sessão-mãe (aparece no próprio texto de resposta); sem `AGENTS.md`/skills no
-contexto do subagente; um nível de aninhamento só, sequencial, sem *streaming*.
+**ADR:** ADR-0031 — **escrita**, `Accepted`. Decisão central: o subagente compartilha a
+configuração de *providers*/*task-classes* da sessão-mãe (na prática, uma segunda instância
+de `Router` construída de forma idêntica — `Router` não é `Clone`/compartilhável sob mutação
+concorrente, nota de implementação registrada na própria ADR) — como `Router::resolve` já
+recusa qualquer candidato mais permissivo que o teto de egresso do perfil ativo, para
+**qualquer** chamador, essa garantia vale automaticamente, sem nenhum código novo de
+imposição. Recursão (subagente criando subagente) é impossível **estruturalmente**: o
+executor interno do subagente nunca registra a própria tool `subagent`, em vez de uma
+checagem em tempo de execução. Reaproveita 100% da infraestrutura existente — mesmo
+`PermissionGate`/`Confirmer`/`GuardrailGate` da sessão-mãe, nenhum mecanismo paralelo. Fora de
+escopo (v1): uso do subagente não soma automaticamente ao `usage_total` da sessão-mãe (aparece
+no próprio texto de resposta); sem `AGENTS.md`/skills no contexto do subagente; um nível de
+aninhamento só, sequencial, sem *streaming*; subagente não reflete `/model`/`/task-class`
+trocados depois que a CLI já inicializou.
 
-**Detalhamento completo:** `docs/roadmap-v0.13.md` (MT-90..92). Pronta para começar a
-implementação a partir do MT-90.
+**Detalhamento completo:** `docs/roadmap-v0.13.md` (MT-90..92, **concluídos**). `SubagentTool`
+(`crates/core/src/tools/subagent.rs`), fiação com dois `ToolRegistry` em
+`crates/cli/src/main.rs`, documentação de usuário e governança fechando a fase.
 
 ## Fase 20+ — Segunda onda, restante (ADRs 0032+ quando alcançadas)
 
@@ -256,5 +260,5 @@ Ordem entre essas duas ainda não decidida — fica para quando a Fase 19 conclu
 ADR-0021 e ADR-0022 **escritas** (Fase 12). ADR-0023..0028 **reservadas** (números fixados
 aqui; arquivo de cada uma escrito ao iniciar sua fase, com contexto fresco). ADR-0029
 **escrita** (Fase 17, `Accepted`). ADR-0030 **escrita** (Fase 18, `Accepted`). ADR-0031
-**escrita** (Fase 19, `Proposed`). ADR-0032+ para o restante da segunda onda (Fase 20+), sem
+**escrita** (Fase 19, `Accepted`). ADR-0032+ para o restante da segunda onda (Fase 20+), sem
 número fixado ainda.
