@@ -1056,6 +1056,13 @@ async fn main() {
         )),
     );
 
+    // Capturado antes do `registry` ser consumido por `RegistryToolExecutor`
+    // logo abaixo — sem isto, `Session::with_tools` nunca era chamado e o
+    // modelo nunca recebia nenhuma definição de tool (achado durante teste
+    // manual de usabilidade: o modelo respondia com blocos de código Python
+    // soltos em vez de chamar `fs_write`/etc., porque a requisição real
+    // nunca incluía `tools`).
+    let especificacoes_das_tools = registry.specs();
     let executor: Arc<dyn ToolExecutor> = Arc::new(RegistryToolExecutor::new(registry, confirmer));
 
     let budget = cfg
@@ -1063,6 +1070,7 @@ async fn main() {
         .map(u64::from)
         .unwrap_or(DEFAULT_TOKEN_BUDGET);
     let mut session = Session::new(rota, executor, TokenBudget::new(budget))
+        .with_tools(especificacoes_das_tools)
         .with_guardrails(guardrail_gate, guardrail_audit_sink);
     if cfg.agents_file_enabled {
         if let Some(instrucoes) = agentry_core::project_instructions::load_project_instructions(
@@ -1483,6 +1491,56 @@ mod tests {
         ));
         Session::new(route, executor, TokenBudget::new(10_000))
             .with_guardrails(Arc::new(cfg.guardrails.clone()), Arc::new(StderrAuditSink))
+    }
+
+    /// Regressão: achado num teste manual de usabilidade (build real,
+    /// gateway LiteLLM real) — o modelo respondia com texto/código Python
+    /// solto em vez de chamar `fs_write`/etc. Causa raiz: `main()` nunca
+    /// chamava `Session::with_tools`, então a requisição real ao provider
+    /// nunca incluía nenhuma tool, com nenhum provider, em nenhum modo. Este
+    /// teste reproduz a sequência exata de `main()` (captura
+    /// `registry.specs()` **antes** do `registry` ser consumido por
+    /// `RegistryToolExecutor`, só então chama `with_tools`) e observa, via
+    /// `MockProvider::chat_requests`, que a tool registrada chega de fato na
+    /// requisição — não bastaria inspecionar `ToolRegistry`/`Session`
+    /// isoladamente, o bug estava especificamente na fiação entre os dois.
+    #[tokio::test]
+    async fn sessao_real_leva_as_specs_das_tools_registradas_ao_provider() {
+        let dir = TempDir::new();
+        let mut registry = ToolRegistry::new(PermissionGate::new(Permissions::default()));
+        registry.register(Arc::new(FsReadTool::new(dir.path().to_path_buf(), false)));
+        let especificacoes_das_tools = registry.specs();
+        let executor: Arc<dyn ToolExecutor> = Arc::new(RegistryToolExecutor::new(
+            registry,
+            Arc::new(InteractiveConfirmer),
+        ));
+
+        let mock = Arc::new(MockProvider::new("mock"));
+        mock.enqueue_chat(Ok(agentry_core::provider::ChatResponse {
+            message: agentry_core::model::Message::assistant("ok"),
+            usage: agentry_core::model::Usage::default(),
+        }));
+        let route = ResolvedRoute::new(mock.clone(), "modelo-teste", CallPreset::default());
+        let mut session = Session::new(route, executor, TokenBudget::new(10_000))
+            .with_tools(especificacoes_das_tools);
+        session.push_user_message("oi");
+
+        session
+            .run(&router_vazio())
+            .await
+            .expect("turno simples não deve falhar");
+
+        let requisicoes = mock.chat_requests();
+        assert_eq!(requisicoes.len(), 1);
+        assert!(
+            requisicoes[0].tools.iter().any(|t| t.name == "fs_read"),
+            "esperava a tool fs_read na requisição enviada ao provider; tools recebidas: {:?}",
+            requisicoes[0]
+                .tools
+                .iter()
+                .map(|t| &t.name)
+                .collect::<Vec<_>>()
+        );
     }
 
     fn router_vazio() -> agentry_core::router::Router {
