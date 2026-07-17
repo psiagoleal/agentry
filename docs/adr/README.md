@@ -39,3 +39,4 @@ Registros de decisões estruturais (ver skill `adr-writer`). Use
 | [0030](0030-checkpoints-e-undo-de-mudancas-de-arquivo.md) | Checkpoints e *undo* de mudanças de arquivo (`fs_write`/`fs_edit`) | Accepted |
 | [0031](0031-subagentes-com-egresso-restrito.md) | Subagentes com classe de egresso restrita à sessão-mãe | Accepted |
 | [0032](0032-memoria-de-projeto-explicita.md) | Memória de projeto explícita entre sessões (`/remember`) | Accepted |
+| [0033](0033-teto-de-turnos-consecutivos-com-tool-call.md) | Teto de turnos consecutivos com tool-call, independente do orçamento de tokens | Proposed |

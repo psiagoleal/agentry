@@ -116,6 +116,7 @@ nav:
           - "0030 — Checkpoints e undo de mudanças de arquivo": adr/0030-checkpoints-e-undo-de-mudancas-de-arquivo.md
           - "0031 — Subagentes com egresso restrito": adr/0031-subagentes-com-egresso-restrito.md
           - "0032 — Memória de projeto explícita": adr/0032-memoria-de-projeto-explicita.md
+          - "0033 — Teto de turnos consecutivos com tool-call": adr/0033-teto-de-turnos-consecutivos-com-tool-call.md
       - Roadmap:
           - Mapa de longo prazo: roadmap-longo-prazo.md
           - v0.1: roadmap-v0.1.md
@@ -132,6 +133,7 @@ nav:
           - v0.12: roadmap-v0.12.md
           - v0.13: roadmap-v0.13.md
           - v0.14: roadmap-v0.14.md
+          - v0.15: roadmap-v0.15.md
       - Interoperabilidade com ai-coding-agent-profiles:
           - Visão geral: interop/README.md
           - Exchange log: interop/exchange-log.md

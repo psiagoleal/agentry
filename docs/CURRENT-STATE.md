@@ -108,6 +108,31 @@ mensagem certa; `/exit` digitado como texto encerra a TUI.
 **Ainda não pushado nem incluído em nenhum build/release** — mesmo estado das rodadas 1/2 antes
 de terem sido publicadas.
 
+### Rodada 4 — em andamento (`docs/roadmap-v0.15.md`, MT-96..103)
+
+Quarta rodada de teste manual (Windows+LiteLLM, Linux+Ollama, `temperature=0.2`) trouxe achados
+novos. Planejamento completo em `docs/roadmap-v0.15.md` + ADR-0033 (`Proposed`). Investigação
+prévia (agente Explore) confirmou: a inconsistência de `ask_user` respondido por número
+("1"/"2") e o loop de mensagens repetidas após a pergunta **não são bugs de código** — o
+`AskUserTool`/`TuiPrompter` já repassam a resposta digitada byte-a-byte pro modelo sem
+normalização, e `Session::run`/`run_streaming` só param por `StopReason::Done` ou
+`BudgetExceeded` (nenhum teto independente de turnos) — mas a UX pode reduzir a ambiguidade
+(MT-98) e o loop merece uma rede de segurança de qualquer forma (MT-100..102, ADR-0033).
+
+Tickets desta rodada (ver `docs/roadmap-v0.15.md` para detalhe completo):
+- MT-96: ancorar histórico no fim quando a conversa cabe na tela inteira.
+- MT-97: caixa de entrada com wrap, altura dinâmica (com teto) e cursor real do terminal.
+- MT-98: seleção por seta nas opções do `ask_user` + sentinela de cancelamento no `Esc`.
+- MT-99: nota de documentação sobre comportamento dependente do modelo.
+- MT-100/101/102: teto de turnos consecutivos com tool-call, independente do orçamento de
+  tokens (ADR-0033).
+- MT-103 (próxima rodada): pesquisa profunda de UX/TUI — Claude Code CLI, OpenCode, Aider,
+  Gemini CLI, Codex CLI — primeira etapa de um aprimoramento mais amplo da TUI pedido pelo
+  mantenedor, informado por boas práticas de design ao invés de decisões ad-hoc.
+
+**Máquina de teste:** o mantenedor criou uma pasta `usage-test/` neste próprio Linux para
+testar com Ollama — sem acesso à VPN necessária para LiteLLM aqui (só no notebook Windows).
+
 ## Último turno
 
 - **Data:** 2026-07-16
