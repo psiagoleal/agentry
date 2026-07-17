@@ -50,7 +50,7 @@ tudo com `ratatui`/`std` já presentes.
 - **Fora de escopo:** navegação de cursor no meio do texto (setas esquerda/direita, Home/End).
 - **Depende de:** `quebrar_em_linhas` (já existe).
 
-### MT-98: Seleção por seta nas opções do `ask_user` + sentinela de cancelamento no Esc
+### MT-98: Seleção por seta nas opções do `ask_user` + sentinela de cancelamento no Esc ✅ concluído (be02822)
 - **Objetivo:** quando `ask_user` tem `options` não-vazio, `Up`/`Down` movem um destaque entre
   as opções; `Enter` com a caixa de resposta vazia envia o texto exato da opção destacada
   (elimina a ambiguidade "1"/"2" pro modelo); `Enter` com texto digitado envia o texto livre,

@@ -125,6 +125,10 @@ Tickets desta rodada (ver `docs/roadmap-v0.15.md` para detalhe completo):
 - MT-97 ✅ **concluído** (`d697ba8`) — caixa de entrada com wrap, altura dinâmica (teto de 1/3
   da altura do terminal, entre 3 e 12) e cursor real do terminal; verificado com smoke-test
   real via `tmux` + `tmux display-message` conferindo linha/coluna exatas do cursor.
+- MT-98 ✅ **concluído** (`be02822`) — seleção por seta nas opções do `ask_user` (`Enter` com
+  campo vazio envia o texto exato da opção destacada) + sentinela de cancelamento no `Esc`;
+  verificado com smoke-test real via `tmux` + mock HTTP roteirizado (`ask_user` de verdade,
+  corpo da segunda requisição conferido: "Apagar" enviado, não "2"; sentinela completa no Esc).
 - MT-97: caixa de entrada com wrap, altura dinâmica (com teto) e cursor real do terminal.
 - MT-98: seleção por seta nas opções do `ask_user` + sentinela de cancelamento no `Esc`.
 - MT-99: nota de documentação sobre comportamento dependente do modelo.
