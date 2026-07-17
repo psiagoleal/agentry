@@ -93,8 +93,11 @@ pub(crate) fn parse_bool_toggle(valor: &str) -> Result<bool, String> {
 ///
 /// Devolve a mensagem de confirmação e se o campo `model` foi tocado (para o
 /// chamador decidir se precisa declarar um novo candidato via
-/// [`set_chat_route`] antes de resolver de novo).
-fn aplicar_comando(
+/// [`set_chat_route`] antes de resolver de novo). `pub(crate)` — reaproveitada
+/// também pela TUI (`crates/cli/src/tui/mod.rs`) para os comandos que não
+/// tocam `model` (que exigiria `&mut Router`, indisponível lá — a TUI
+/// recusa `/model` com uma mensagem própria antes de chegar aqui).
+pub(crate) fn aplicar_comando(
     comando: &str,
     overrides: &mut RuntimeOverride,
 ) -> Result<(String, bool), String> {

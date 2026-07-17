@@ -50,6 +50,7 @@ use agentry_core::model::{StreamEvent, ToolCall, Usage};
 use agentry_core::router::{RouteTarget, Router, RuntimeOverride};
 use agentry_core::session::{Session, SessionError, SessionOutcome};
 
+use crate::repl;
 use crate::tool_executor::PedidoHumano;
 use chat::{Autor, ChatState};
 use diff::LinhaDiff;
@@ -297,6 +298,101 @@ fn mensagem_de_undo(
     match resultado {
         Ok(outcome) => format!("[undo] {}", crate::formatar_undo(&outcome)),
         Err(erro) => format!("[undo] erro: {erro}"),
+    }
+}
+
+/// Processa um comando de texto (`/usage`, `/undo`, `/remember`,
+/// `/compact`, `/task-class`, `/provider`, `/temperature`, `/top_p`,
+/// `/max_tokens`, `/system`, `/reasoning`) digitado na caixa de entrada da
+/// TUI — achado num teste manual de usabilidade: antes desta função, todo
+/// texto começando com `/` era enviado ao modelo como mensagem de chat
+/// comum, que "inventava" uma resposta plausível em vez de rodar o comando
+/// de verdade (`/usage` respondia um número que não vinha de lugar nenhum;
+/// `/remember` não gravava nada). Mesma disciplina de reaproveitamento do
+/// resto do projeto: chama [`repl::aplicar_comando`] e os mesmos tipos já
+/// usados pelo REPL de texto (`CheckpointStore`, `MemoryStore`,
+/// `Session::compact`) — nenhuma segunda implementação divergente.
+///
+/// `/model` é a única exceção deliberada: precisaria de `&mut Router` para
+/// declarar um candidato novo ([`set_chat_route`]), mas o `Router` da TUI
+/// é compartilhado (`Arc`) com a *task* de streaming em voo — mesma
+/// restrição que levou o subagente (ADR-0031/MT-91) a montar sua própria
+/// instância em vez de compartilhar uma só. Reaproveitar esse padrão aqui
+/// (uma segunda instância "equivalente") não ajudaria: o problema não é
+/// *ter* um `Router` mutável, é que a TUI só tem *um* ponto de verdade
+/// para ele, também lido pela *task* de streaming — então `/model`
+/// simplesmente recusa e aponta para o seletor (`Ctrl+P`), que já resolve
+/// o mesmo problema sem exigir mutação (escolhe entre candidatos já
+/// declarados). `/init` também fica de fora (bootstrap de configuração,
+/// não faz sentido no meio de uma sessão interativa já rodando).
+async fn processar_comando_de_texto(
+    comando: &str,
+    sessao: &mut Session,
+    router: &Router,
+    overrides: &mut RuntimeOverride,
+    task_class: &mut String,
+    checkpoint_store: &agentry_core::checkpoint::CheckpointStore,
+    workspace_root: &std::path::Path,
+) -> String {
+    if comando == "compact" {
+        return match sessao.compact(router).await {
+            Ok(()) => "sessão compactada".to_string(),
+            Err(erro) => format!("erro: {erro}"),
+        };
+    }
+    if comando == "usage" {
+        return format!(
+            "uso desta sessão: {}",
+            crate::formatar_uso(sessao.usage_total())
+        );
+    }
+    if comando == "undo" {
+        return mensagem_de_undo(checkpoint_store.undo());
+    }
+    if comando == "remember" || comando.starts_with("remember ") {
+        let fato = comando.strip_prefix("remember").unwrap_or("").trim();
+        if fato.is_empty() {
+            return "uso: /remember <fato>".to_string();
+        }
+        let store = agentry_core::memory::MemoryStore::new(workspace_root);
+        return match store.remember(fato) {
+            Ok(()) => format!("lembrado: {fato}"),
+            Err(erro) => format!("erro: {erro}"),
+        };
+    }
+    if comando == "task-class" || comando.starts_with("task-class ") {
+        let nome = comando.strip_prefix("task-class").unwrap_or("").trim();
+        if nome.is_empty() {
+            return "uso: /task-class <nome>".to_string();
+        }
+        return match router.resolve_with_override(nome, overrides) {
+            Ok(rota) => {
+                *task_class = nome.to_string();
+                sessao.apply_route(rota);
+                format!("task-class alterada para: {nome}")
+            }
+            Err(erro) => format!("erro: {erro}"),
+        };
+    }
+    if comando == "model" || comando.starts_with("model ") {
+        return "troca de modelo na TUI é pelo seletor (Ctrl+P), não pelo comando /model"
+            .to_string();
+    }
+    if comando == "init" || comando.starts_with("init ") {
+        return "/init não é suportado na TUI (bootstrap de configuração; rode fora de uma \
+                sessão interativa já em andamento)"
+            .to_string();
+    }
+
+    match repl::aplicar_comando(comando, overrides) {
+        Ok((mensagem, _mudou_model)) => match router.resolve_with_override(task_class, overrides) {
+            Ok(rota) => {
+                sessao.apply_route(rota);
+                mensagem
+            }
+            Err(erro) => format!("erro: {erro}"),
+        },
+        Err(erro) => erro,
     }
 }
 
@@ -713,14 +809,14 @@ async fn loop_eventos(
     terminal: &mut DefaultTerminal,
     sessao_inicial: Session,
     router: Router,
-    task_class: String,
+    mut task_class: String,
     overrides: RuntimeOverride,
     mut rx_humano: mpsc::UnboundedReceiver<PedidoHumano>,
     auto: Arc<AtomicBool>,
     workspace_root: std::path::PathBuf,
 ) -> io::Result<()> {
     let router = Arc::new(router);
-    let checkpoint_store = agentry_core::checkpoint::CheckpointStore::new(workspace_root);
+    let checkpoint_store = agentry_core::checkpoint::CheckpointStore::new(workspace_root.clone());
     let mut estado = Estado::new(overrides, auto);
     let mut sessao_atual = Some(sessao_inicial);
     let mut rx_terminal = iniciar_leitor_de_terminal();
@@ -881,6 +977,33 @@ async fn loop_eventos(
                                 .map(|entry| model_picker::a_partir_de_candidatos(&entry.candidates))
                                 .unwrap_or_default();
                             estado.seletor = Some(SeletorDeModeloEstado::novo(candidatos));
+                        }
+                        Some(Action::Send) if estado.entrada.trim() == "/exit"
+                            || estado.entrada.trim() == "/quit" =>
+                        {
+                            return Ok(());
+                        }
+                        Some(Action::Send) if estado.entrada.trim().starts_with('/') => {
+                            if let Some(sessao) = sessao_atual.as_mut() {
+                                let comando = estado
+                                    .entrada
+                                    .trim()
+                                    .strip_prefix('/')
+                                    .unwrap_or_default()
+                                    .to_string();
+                                estado.entrada.clear();
+                                let mensagem = processar_comando_de_texto(
+                                    &comando,
+                                    sessao,
+                                    router.as_ref(),
+                                    &mut estado.overrides,
+                                    &mut task_class,
+                                    &checkpoint_store,
+                                    &workspace_root,
+                                )
+                                .await;
+                                estado.chat.registrar_mensagem_sistema(mensagem);
+                            }
                         }
                         Some(Action::Send) => {
                             if let Some(sessao) = sessao_atual.take() {
@@ -1353,5 +1476,268 @@ mod tests {
         let resultado = aplicar_selecao(&alvo, "chat", &router, &mut overrides, &mut sessao);
 
         assert!(resultado.is_err());
+    }
+
+    // --- processar_comando_de_texto (achado de usabilidade: /usage, /undo,
+    // /remember digitados na TUI viravam mensagem de chat comum) ---
+
+    struct TempDir(std::path::PathBuf);
+
+    impl TempDir {
+        fn new() -> Self {
+            let unico = format!(
+                "agentry-tui-mod-test-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .expect("relógio do sistema não deve estar antes de 1970")
+                    .as_nanos()
+            );
+            let path = std::env::temp_dir().join(unico);
+            std::fs::create_dir_all(&path).expect("deve criar diretório temporário de teste");
+            Self(path)
+        }
+
+        fn path(&self) -> &std::path::Path {
+            &self.0
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn router_com_task_class(nome: &str, mock: Arc<MockProvider>) -> Router {
+        let mut router = Router::new(EgressClass::LocalOnly);
+        router.register_provider(mock.clone());
+        router.set_route(
+            nome,
+            RouteEntry {
+                candidates: vec![RouteTarget::new(
+                    "mock",
+                    "modelo-inicial",
+                    EgressClass::LocalOnly,
+                )],
+                preset: CallPreset::default(),
+            },
+        );
+        router
+    }
+
+    #[tokio::test]
+    async fn comando_usage_devolve_o_uso_real_da_sessao_sem_chamar_o_provider() {
+        let mock = Arc::new(MockProvider::new("mock"));
+        let mut sessao = sessao_de_teste(mock.clone());
+        let router = router_com_task_class("chat", mock.clone());
+        let dir = TempDir::new();
+        let checkpoint_store = agentry_core::checkpoint::CheckpointStore::new(dir.path());
+        let mut overrides = RuntimeOverride::default();
+        let mut task_class = "chat".to_string();
+
+        let mensagem = processar_comando_de_texto(
+            "usage",
+            &mut sessao,
+            &router,
+            &mut overrides,
+            &mut task_class,
+            &checkpoint_store,
+            dir.path(),
+        )
+        .await;
+
+        assert_eq!(
+            mensagem,
+            format!(
+                "uso desta sessão: {}",
+                crate::formatar_uso(sessao.usage_total())
+            )
+        );
+        assert_eq!(mock.chat_requests().len(), 0, "não deve chamar o provider");
+    }
+
+    #[tokio::test]
+    async fn comando_remember_grava_de_verdade_no_memory_store() {
+        let mock = Arc::new(MockProvider::new("mock"));
+        let mut sessao = sessao_de_teste(mock.clone());
+        let router = router_com_task_class("chat", mock);
+        let dir = TempDir::new();
+        let checkpoint_store = agentry_core::checkpoint::CheckpointStore::new(dir.path());
+        let mut overrides = RuntimeOverride::default();
+        let mut task_class = "chat".to_string();
+
+        let mensagem = processar_comando_de_texto(
+            "remember gosta de café",
+            &mut sessao,
+            &router,
+            &mut overrides,
+            &mut task_class,
+            &checkpoint_store,
+            dir.path(),
+        )
+        .await;
+
+        assert_eq!(mensagem, "lembrado: gosta de café");
+        let fatos = agentry_core::memory::MemoryStore::new(dir.path())
+            .load()
+            .expect("deve carregar o que acabou de gravar");
+        assert_eq!(fatos, vec!["gosta de café".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn comando_remember_sem_fato_pede_uso_sem_gravar_nada() {
+        let mock = Arc::new(MockProvider::new("mock"));
+        let mut sessao = sessao_de_teste(mock.clone());
+        let router = router_com_task_class("chat", mock);
+        let dir = TempDir::new();
+        let checkpoint_store = agentry_core::checkpoint::CheckpointStore::new(dir.path());
+        let mut overrides = RuntimeOverride::default();
+        let mut task_class = "chat".to_string();
+
+        let mensagem = processar_comando_de_texto(
+            "remember",
+            &mut sessao,
+            &router,
+            &mut overrides,
+            &mut task_class,
+            &checkpoint_store,
+            dir.path(),
+        )
+        .await;
+
+        assert_eq!(mensagem, "uso: /remember <fato>");
+        let fatos = agentry_core::memory::MemoryStore::new(dir.path())
+            .load()
+            .expect("ausência de arquivo não é erro");
+        assert!(fatos.is_empty());
+    }
+
+    #[tokio::test]
+    async fn comando_undo_reaproveita_a_mesma_formatacao_do_ctrl_z() {
+        let mock = Arc::new(MockProvider::new("mock"));
+        let mut sessao = sessao_de_teste(mock.clone());
+        let router = router_com_task_class("chat", mock);
+        let dir = TempDir::new();
+        let checkpoint_store = agentry_core::checkpoint::CheckpointStore::new(dir.path());
+        let mut overrides = RuntimeOverride::default();
+        let mut task_class = "chat".to_string();
+
+        let mensagem = processar_comando_de_texto(
+            "undo",
+            &mut sessao,
+            &router,
+            &mut overrides,
+            &mut task_class,
+            &checkpoint_store,
+            dir.path(),
+        )
+        .await;
+
+        // Sem nenhum checkpoint gravado — mesma mensagem de erro que
+        // `mensagem_de_undo`/`Ctrl+Z` já produzem (fonte única, ver doc).
+        assert_eq!(mensagem, mensagem_de_undo(checkpoint_store.undo()));
+    }
+
+    #[tokio::test]
+    async fn comando_task_class_desconhecida_devolve_erro_sem_mudar_a_sessao() {
+        let mock = Arc::new(MockProvider::new("mock"));
+        let mut sessao = sessao_de_teste(mock.clone());
+        let router = router_com_task_class("chat", mock);
+        let dir = TempDir::new();
+        let checkpoint_store = agentry_core::checkpoint::CheckpointStore::new(dir.path());
+        let mut overrides = RuntimeOverride::default();
+        let mut task_class = "chat".to_string();
+
+        let mensagem = processar_comando_de_texto(
+            "task-class nao-existe",
+            &mut sessao,
+            &router,
+            &mut overrides,
+            &mut task_class,
+            &checkpoint_store,
+            dir.path(),
+        )
+        .await;
+
+        assert!(mensagem.starts_with("erro:"), "mensagem: {mensagem:?}");
+        assert_eq!(
+            task_class, "chat",
+            "task-class ativa não deve mudar em falha"
+        );
+    }
+
+    #[tokio::test]
+    async fn comando_model_recusa_e_aponta_para_o_seletor() {
+        let mock = Arc::new(MockProvider::new("mock"));
+        let mut sessao = sessao_de_teste(mock.clone());
+        let router = router_com_task_class("chat", mock);
+        let dir = TempDir::new();
+        let checkpoint_store = agentry_core::checkpoint::CheckpointStore::new(dir.path());
+        let mut overrides = RuntimeOverride::default();
+        let mut task_class = "chat".to_string();
+
+        let mensagem = processar_comando_de_texto(
+            "model gpt-4",
+            &mut sessao,
+            &router,
+            &mut overrides,
+            &mut task_class,
+            &checkpoint_store,
+            dir.path(),
+        )
+        .await;
+
+        assert!(mensagem.contains("Ctrl+P"), "mensagem: {mensagem:?}");
+        assert_eq!(overrides.model, None, "não deve tentar mudar o modelo");
+    }
+
+    #[tokio::test]
+    async fn comando_generico_passa_por_aplicar_comando_e_reaplica_a_rota() {
+        let mock = Arc::new(MockProvider::new("mock"));
+        let mut sessao = sessao_de_teste(mock.clone());
+        let router = router_com_task_class("chat", mock);
+        let dir = TempDir::new();
+        let checkpoint_store = agentry_core::checkpoint::CheckpointStore::new(dir.path());
+        let mut overrides = RuntimeOverride::default();
+        let mut task_class = "chat".to_string();
+
+        let mensagem = processar_comando_de_texto(
+            "temperature 0.2",
+            &mut sessao,
+            &router,
+            &mut overrides,
+            &mut task_class,
+            &checkpoint_store,
+            dir.path(),
+        )
+        .await;
+
+        assert_eq!(mensagem, "temperature alterada para: 0.2");
+        assert_eq!(overrides.temperature, Some(0.2));
+    }
+
+    #[tokio::test]
+    async fn comando_desconhecido_devolve_erro_sem_efeito_colateral() {
+        let mock = Arc::new(MockProvider::new("mock"));
+        let mut sessao = sessao_de_teste(mock.clone());
+        let router = router_com_task_class("chat", mock);
+        let dir = TempDir::new();
+        let checkpoint_store = agentry_core::checkpoint::CheckpointStore::new(dir.path());
+        let mut overrides = RuntimeOverride::default();
+        let mut task_class = "chat".to_string();
+
+        let mensagem = processar_comando_de_texto(
+            "isso-nao-existe",
+            &mut sessao,
+            &router,
+            &mut overrides,
+            &mut task_class,
+            &checkpoint_store,
+            dir.path(),
+        )
+        .await;
+
+        assert_eq!(mensagem, "comando desconhecido: /isso-nao-existe");
     }
 }
