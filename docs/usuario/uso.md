@@ -192,6 +192,28 @@ arquivo, buscar no código, rodar comando de shell). Tools na lista `ask` de
 tools em `deny` nunca rodam. Ver [Guardrails de conteúdo](guardrails.md) para o mecanismo
 separado que filtra o **conteúdo** das mensagens (independente de qual tool é chamada).
 
+### Uso de ferramentas é variação do modelo, não do `agentry`
+
+Se o agente parece usar `ask_user` (ou qualquer outra tool) de forma inconsistente — a mesma
+tarefa, rodada duas vezes, se comporta diferente; ou o modelo insiste em perguntar coisas
+triviais em vez de agir — isso é comportamento do **modelo** por trás do provider ativo, não
+uma falha do `agentry`. `temperature`/`top_p` não são fixados por padrão (o provider usa a
+própria amostragem padrão), e modelos pequenos/locais (ex.: via Ollama) costumam ter suporte a
+*tool-calling* mais fraco que gateways de nuvem maiores — inclusive podem confundir uma
+resposta de chat comum com uma chamada de `ask_user`, ou vice-versa.
+
+Se isso atrapalhar o uso, fixar a temperatura para algo baixo tende a deixar o comportamento
+mais determinístico:
+
+```
+/temperature 0
+```
+
+(ou `--temperature 0` no modo *one-shot*, `taskClasses.<nome>.preset.temperature` na
+configuração). Isso reduz a variação entre rodadas, mas não elimina qualidade de *tool-calling*
+inerente ao modelo escolhido — trocar de modelo/provider (`/model`, `/provider`) costuma ter
+mais efeito que ajustar parâmetros de amostragem.
+
 ## Ferramentas do agente
 
 Nenhuma das tools abaixo muda flags/comandos de invocação — o agente decide sozinho, no meio
