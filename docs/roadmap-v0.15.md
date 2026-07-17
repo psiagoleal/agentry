@@ -111,7 +111,7 @@ tudo com `ratatui`/`std` já presentes.
 
 ## Fase B — Pesquisa de referência de UX/TUI (próxima rodada de trabalho)
 
-### MT-103: Pesquisa profunda + mapeamento de ferramentas semelhantes
+### MT-103: Pesquisa profunda + mapeamento de ferramentas semelhantes ✅ concluído (0b25265) — fecha a Fase B
 - **Objetivo:** produzir `docs/pesquisa-tui-referencias.md` comparando Claude Code CLI,
   OpenCode, Aider, Gemini CLI e Codex CLI nos eixos: *keybindings*, seleção de modelo/provider,
   UX de confirmação/permissão, revisão de diff, *streaming*/formatação de Markdown,

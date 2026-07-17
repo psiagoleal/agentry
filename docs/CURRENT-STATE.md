@@ -137,10 +137,22 @@ Todos verificados com smoke-test real via `tmux`/mock HTTP roteirizado, incluind
 sempre devolve tool-call (loop infinito simulado): o *one-shot* real parou em exatamente 25
 turnos com a mensagem clara, sem travar.
 
-**Próximo passo — MT-103 (próxima rodada):** pesquisa profunda de UX/TUI — Claude Code CLI,
-OpenCode, Aider, Gemini CLI, Codex CLI — primeira etapa de um aprimoramento mais amplo da TUI
-pedido pelo mantenedor, informado por boas práticas de design ao invés de decisões ad-hoc. Fase
-C+ (redesenho) só depois que MT-103 existir e for revisado.
+**MT-103 ✅ concluído** (`0b25265`) — `docs/pesquisa-tui-referencias.md` compara Claude Code
+CLI, OpenCode, Aider, Gemini CLI e Codex CLI em 10 eixos (*keybindings*, seleção de modelo,
+permissão/confirmação, revisão de *diff*, *streaming*/Markdown, rolagem, *onboarding*, temas,
+*widget* de tarefas, descoberta de atalhos), sempre contrastando com o estado atual do
+`agentry`. Termina com 10 oportunidades priorizadas (só esboçadas, não detalhadas) — destaque:
+**arquivo de *keybindings* do usuário** é o único eixo em que o `agentry` está atrás de
+**todas as 5** referências pesquisadas; **nenhum *widget*/*tool* de lista de tarefas** é o gap
+mais consistente (3 de 5 ferramentas têm algo equivalente).
+
+**Fecha a Fase B (rodada 4/roadmap v0.15 inteiro: MT-96..103, todos concluídos).** Próximo
+passo: Fase C+ (redesenho da TUI informado pela pesquisa) — **aguardando o mantenedor revisar
+`docs/pesquisa-tui-referencias.md` e priorizar quais das 10 oportunidades viram ticket de
+verdade** antes de qualquer implementação começar (mesma disciplina de ADR-com-contexto-fresco
+do resto do projeto — não decidir sozinho o que implementar de uma lista de oportunidades sem
+confirmação, já que são mudanças de design de UI com gosto/prioridade do mantenedor
+envolvidos, não bugs a corrigir).
 
 **Máquina de teste:** o mantenedor criou uma pasta `usage-test/` neste próprio Linux para
 testar com Ollama — sem acesso à VPN necessária para LiteLLM aqui (só no notebook Windows).
