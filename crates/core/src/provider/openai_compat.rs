@@ -71,6 +71,8 @@ struct OpenAiRequest<'a> {
     model: &'a str,
     messages: Vec<OpenAiMessage>,
     stream: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stream_options: Option<StreamOptions>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     tools: Vec<OpenAiTool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -79,6 +81,15 @@ struct OpenAiRequest<'a> {
     temperature: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     top_p: Option<f32>,
+}
+
+/// Sem isto, a API OpenAI (e gateways que a espelham, ex.: LiteLLM) **não**
+/// inclui `usage` em nenhum chunk do streaming — só `include_usage: true`
+/// pede o chunk final extra com o total. Omitido em requisições
+/// não-streaming, onde `usage` já vem sempre na resposta única.
+#[derive(Serialize)]
+struct StreamOptions {
+    include_usage: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
@@ -289,6 +300,9 @@ fn build_request<'a>(request: &'a ChatRequest, stream: bool) -> OpenAiRequest<'a
             .flat_map(message_to_openai)
             .collect(),
         stream,
+        stream_options: stream.then_some(StreamOptions {
+            include_usage: true,
+        }),
         tools: request.tools.iter().map(tool_spec_to_openai).collect(),
         max_tokens: request.max_tokens,
         temperature: request.temperature,
@@ -561,6 +575,46 @@ mod tests {
         (addr, conexoes)
     }
 
+    /// Como [`start_mock_server`], mas também captura os bytes brutos da
+    /// primeira requisição recebida — mesma técnica de
+    /// `transport::tests::start_mock_server_capturando`, usada aqui para
+    /// provar o corpo da requisição (`stream_options`), não um header.
+    async fn start_mock_server_capturando(
+        response_body: &'static str,
+    ) -> (std::net::SocketAddr, Arc<std::sync::Mutex<Vec<u8>>>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind em porta efêmera deve funcionar");
+        let addr = listener
+            .local_addr()
+            .expect("socket deve ter endereço local");
+        let capturado = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let alvo = Arc::clone(&capturado);
+
+        tokio::spawn(async move {
+            if let Ok((mut socket, _)) = listener.accept().await {
+                let mut buf = [0u8; 4096];
+                if let Ok(n) = socket.read(&mut buf).await {
+                    alvo.lock()
+                        .expect("mutex de captura não deve envenenar")
+                        .extend_from_slice(&buf[..n]);
+                }
+                let resposta = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\
+                     Content-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    response_body.len(),
+                    response_body
+                );
+                let _ = socket.write_all(resposta.as_bytes()).await;
+                let _ = socket.shutdown().await;
+            }
+        });
+
+        (addr, capturado)
+    }
+
     fn transport_com_classe(addr: std::net::SocketAddr, classe: EgressClass) -> Arc<Transport> {
         let allowlist = Allowlist::new(vec![AllowlistEntry::new(addr.ip().to_string(), classe)]);
         Arc::new(Transport::new(
@@ -677,6 +731,65 @@ mod tests {
                     }
                 },
             ]
+        );
+    }
+
+    #[tokio::test]
+    async fn chat_stream_pede_stream_options_include_usage() {
+        // Sem `stream_options: {include_usage: true}` no corpo, um gateway
+        // OpenAI-compatible de verdade (LiteLLM, vLLM) nunca manda `usage`
+        // em nenhum chunk do streaming — o mock deste teste nem chega a
+        // devolver `usage` (só MessageStart/[DONE]); o que importa é o
+        // corpo que o provider realmente mandou.
+        let (addr, capturado) =
+            start_mock_server_capturando("data: {\"choices\":[]}\ndata: [DONE]\n").await;
+        let provider = OpenAiCompatProvider::new(
+            transport_com_classe(addr, EgressClass::CloudOk),
+            format!("http://{addr}"),
+            "vllm-local",
+        );
+
+        let mut stream = provider
+            .chat_stream(ChatRequest::new("qwen2.5-coder", vec![Message::user("oi")]))
+            .await
+            .expect("stream deve funcionar via Transporte");
+        while stream.recv().await.is_some() {}
+
+        let requisicao_bruta =
+            String::from_utf8_lossy(&capturado.lock().expect("mutex não deve envenenar"))
+                .into_owned();
+        assert!(
+            requisicao_bruta.contains(r#""stream_options":{"include_usage":true}"#),
+            "esperava stream_options:{{include_usage:true}} no corpo da requisição \
+             de streaming; recebido:\n{requisicao_bruta}"
+        );
+    }
+
+    #[tokio::test]
+    async fn chat_nao_stream_nao_manda_stream_options() {
+        // Requisição não-streaming já recebe `usage` sempre, sem precisar
+        // pedir nada extra — `stream_options` deve ficar de fora do corpo.
+        let (addr, capturado) = start_mock_server_capturando(
+            r#"{"choices":[{"message":{"role":"assistant","content":"oi"}}]}"#,
+        )
+        .await;
+        let provider = OpenAiCompatProvider::new(
+            transport_com_classe(addr, EgressClass::CloudOk),
+            format!("http://{addr}"),
+            "vllm-local",
+        );
+
+        provider
+            .chat(ChatRequest::new("qwen2.5-coder", vec![Message::user("oi")]))
+            .await
+            .expect("chat deve funcionar via Transporte");
+
+        let requisicao_bruta =
+            String::from_utf8_lossy(&capturado.lock().expect("mutex não deve envenenar"))
+                .into_owned();
+        assert!(
+            !requisicao_bruta.contains("stream_options"),
+            "requisição não-streaming não deveria mandar stream_options; recebido:\n{requisicao_bruta}"
         );
     }
 
