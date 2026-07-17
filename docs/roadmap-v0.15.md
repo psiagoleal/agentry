@@ -65,7 +65,7 @@ tudo com `ratatui`/`std` já presentes.
 - **Fora de escopo:** paginação/scroll dentro do modal se a lista de opções exceder a área.
 - **Depende de:** nenhum.
 
-### MT-99: Nota de documentação — comportamento de `ask_user`/tool-calling depende do modelo
+### MT-99: Nota de documentação — comportamento de `ask_user`/tool-calling depende do modelo ✅ concluído (479c9d8)
 - **Objetivo:** `docs/usuario/uso.md` ganha uma nota explicando que uso inconsistente/excessivo
   de `ask_user` (ou tool-calling em geral) é variação do modelo por trás do provider, não do
   `agentry` — `temperature`/`top_p` não são fixados por padrão; sugere fixar via

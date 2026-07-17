@@ -129,6 +129,12 @@ Tickets desta rodada (ver `docs/roadmap-v0.15.md` para detalhe completo):
   campo vazio envia o texto exato da opção destacada) + sentinela de cancelamento no `Esc`;
   verificado com smoke-test real via `tmux` + mock HTTP roteirizado (`ask_user` de verdade,
   corpo da segunda requisição conferido: "Apagar" enviado, não "2"; sentinela completa no Esc).
+- MT-99 ✅ **concluído** (`479c9d8`) — nota em `docs/usuario/uso.md` explicando que
+  inconsistência/excesso de `ask_user` é variação do modelo, não bug; sugere `/temperature 0`
+  ou trocar de modelo/provider.
+
+**Fase A completa (MT-96..99).** Próximo: teto de turnos consecutivos com tool-call
+(MT-100..102, ADR-0033).
 - MT-97: caixa de entrada com wrap, altura dinâmica (com teto) e cursor real do terminal.
 - MT-98: seleção por seta nas opções do `ask_user` + sentinela de cancelamento no `Esc`.
 - MT-99: nota de documentação sobre comportamento dependente do modelo.
