@@ -36,7 +36,7 @@ tudo com `ratatui`/`std` já presentes.
 - **Fora de escopo:** qualquer mudança de largura/wrap (já corrigido na rodada 2).
 - **Depende de:** nenhum.
 
-### MT-97: Caixa de entrada com wrap, altura dinâmica (com teto) e cursor real do terminal
+### MT-97: Caixa de entrada com wrap, altura dinâmica (com teto) e cursor real do terminal ✅ concluído (d697ba8)
 - **Objetivo:** a caixa de entrada reaproveita `quebrar_em_linhas` (já existe, mesma função do
   histórico); a altura da caixa passa a ser calculada a cada frame a partir do número de linhas
   quebradas + 2 (borda), com um teto — além do teto, altura para de crescer e a caixa mostra

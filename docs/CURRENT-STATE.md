@@ -122,6 +122,9 @@ normalização, e `Session::run`/`run_streaming` só param por `StopReason::Done
 Tickets desta rodada (ver `docs/roadmap-v0.15.md` para detalhe completo):
 - MT-96 ✅ **concluído** (`4a54ee5`) — ancorar histórico no fim quando a conversa cabe na tela
   inteira; verificado com smoke-test real via `tmux` (pane 100×40, 1 mensagem).
+- MT-97 ✅ **concluído** (`d697ba8`) — caixa de entrada com wrap, altura dinâmica (teto de 1/3
+  da altura do terminal, entre 3 e 12) e cursor real do terminal; verificado com smoke-test
+  real via `tmux` + `tmux display-message` conferindo linha/coluna exatas do cursor.
 - MT-97: caixa de entrada com wrap, altura dinâmica (com teto) e cursor real do terminal.
 - MT-98: seleção por seta nas opções do `ask_user` + sentinela de cancelamento no `Esc`.
 - MT-99: nota de documentação sobre comportamento dependente do modelo.
