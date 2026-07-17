@@ -516,6 +516,27 @@ fn montar_linhas_do_historico(estado: &Estado, largura_disponivel: usize) -> Vec
     linhas
 }
 
+/// Preenche `linhas` com linhas em branco no **início** até `altura_minima`,
+/// só quando a conversa é mais curta que a área visível — âncora o
+/// conteúdo real no fim da caixa, mesmo comportamento de qualquer chat
+/// (Slack/Discord/iMessage sempre "grudam" embaixo; espaço vazio, se
+/// houver, fica em cima). Achado num teste manual de usabilidade: sem
+/// isto, uma conversa curta aparecia no topo da caixa com uma faixa em
+/// branco embaixo — o `deslocamento_do_topo` de `draw` já ancorava
+/// corretamente quando a conversa **excede** a área visível, mas "mostrar
+/// o fim" e "mostrar do topo" coincidem matematicamente quando ela cabe
+/// inteira. Sem efeito quando `linhas.len() >= altura_minima` (nada a
+/// fazer, o scroll cuida do resto).
+fn com_padding_no_topo(mut linhas: Vec<Line<'static>>, altura_minima: usize) -> Vec<Line<'static>> {
+    if linhas.len() < altura_minima {
+        let preenchimento = altura_minima - linhas.len();
+        let mut com_padding = vec![Line::from(""); preenchimento];
+        com_padding.append(&mut linhas);
+        return com_padding;
+    }
+    linhas
+}
+
 /// Tela: histórico de chat (área rolável) em cima, caixa de entrada fixa
 /// embaixo — rodapé da caixa de entrada mostra [`rodape_da_entrada`]. Com o
 /// seletor de modelo aberto, um modal centralizado é desenhado por cima.
@@ -540,7 +561,10 @@ fn draw(frame: &mut Frame<'_>, estado: &Estado) {
             .block(Block::bordered().title(" agentry "));
         frame.render_widget(logo, areas[0]);
     } else {
-        let linhas = montar_linhas_do_historico(estado, largura_interna);
+        let linhas = com_padding_no_topo(
+            montar_linhas_do_historico(estado, largura_interna),
+            altura_interna,
+        );
         // `estado.scroll` conta "quantas linhas rolar para cima a partir do
         // fim" (0 = fim da conversa, sempre visível assim que uma mensagem
         // nova chega — achado num teste manual de usabilidade: a conversa
@@ -1174,6 +1198,74 @@ mod tests {
             .expect("deve haver uma linha com o marcador de tool");
 
         assert_eq!(linha_do_marcador.style, ESTILO_MARCADOR_DE_TOOL);
+    }
+
+    // --- com_padding_no_topo (achado de usabilidade: conversa curta
+    // aparecia no topo da caixa, com espaço em branco embaixo) ---
+
+    #[test]
+    fn com_padding_no_topo_preenche_quando_conversa_e_mais_curta_que_a_area() {
+        let linhas = vec![Line::from("usuário: oi"), Line::from("agente: olá!")];
+
+        let resultado = com_padding_no_topo(linhas, 5);
+
+        assert_eq!(resultado.len(), 5);
+        assert_eq!(resultado[0], Line::from(""));
+        assert_eq!(resultado[1], Line::from(""));
+        assert_eq!(resultado[2], Line::from(""));
+        assert_eq!(resultado[3], Line::from("usuário: oi"));
+        assert_eq!(resultado[4], Line::from("agente: olá!"));
+    }
+
+    #[test]
+    fn com_padding_no_topo_nao_altera_quando_conversa_ja_preenche_a_area() {
+        let linhas = vec![
+            Line::from("linha 1"),
+            Line::from("linha 2"),
+            Line::from("linha 3"),
+        ];
+
+        let resultado = com_padding_no_topo(linhas.clone(), 3);
+
+        assert_eq!(resultado, linhas);
+    }
+
+    #[test]
+    fn com_padding_no_topo_nao_altera_quando_conversa_excede_a_area() {
+        let linhas: Vec<Line> = (0..10).map(|i| Line::from(format!("linha {i}"))).collect();
+
+        let resultado = com_padding_no_topo(linhas.clone(), 5);
+
+        assert_eq!(
+            resultado, linhas,
+            "conversa maior que a área não deve ganhar padding"
+        );
+    }
+
+    #[test]
+    fn historia_curta_fica_ancorada_no_fim_apos_padding_mais_scroll() {
+        // Reproduz a matemática de `draw`: depois do padding, uma conversa
+        // curta ocupa exatamente `altura_interna` linhas, então
+        // `deslocamento_maximo` é 0 e a última linha real cai na última
+        // linha visível — sem isto, `deslocamento_do_topo` também dava 0,
+        // mas a partir do topo de um vetor sem padding (conteúdo real no
+        // topo, em vez de embaixo).
+        let mut estado = estado_vazio();
+        estado.entrada = "oi".into();
+        estado.preparar_envio();
+
+        let altura_interna = 20;
+        let linhas = com_padding_no_topo(montar_linhas_do_historico(&estado, 40), altura_interna);
+        let deslocamento_maximo = linhas.len().saturating_sub(altura_interna);
+
+        assert_eq!(linhas.len(), altura_interna);
+        assert_eq!(deslocamento_maximo, 0);
+        assert!(
+            linhas.last().unwrap().to_string().starts_with("agente:")
+                || linhas.last().unwrap().to_string().starts_with("usuário:"),
+            "última linha visível deve ser conteúdo real, não padding: {:?}",
+            linhas.last()
+        );
     }
 
     #[test]
