@@ -31,16 +31,65 @@ gateway LiteLLM de verdade. Dois bugs reais apareceram, ambos corrigidos:
    requisição real; verificado também com smoke-test do binário release real contra um mock
    HTTP local — as 14 tools registradas chegam de fato no corpo da requisição agora).
 
-DoD completo (fmt/clippy/`cargo test --all`, 397 testes/build release) verde para os dois.
-**Ambos commitados, mas ainda não pushados nem incluídos em nenhum build/release novo** — os
-binários já publicados em `v0.1.0-usertest` continuam com os dois bugs (o de tools é o mais
-sério: nenhuma tool jamais funcionou nesses binários). Outros dois pontos levantados no mesmo
-teste manual não são bugs: o erro do servidor MCP `'exemplo'` no arranque é o placeholder de
-`echo` da config gerada por `--init` falhando *de propósito* (mais cedo no Windows, onde
-`echo` não é um executável de verdade, do que no Linux); a TUI não abrir é esperado sem a flag
-`--tui`. Ficou sem explicação a demora na inicialização reportada pelo mantenedor — hipótese
-mais provável é o Windows Defender/SmartScreen escaneando o executável grande (~260MB) na
-primeira execução (fenômeno comum, externo ao código), não confirmada ainda.
+DoD completo (fmt/clippy/`cargo test --all`, 397 testes/build release) verde para os dois. Os
+dois foram pushados e a release `v0.1.0-usertest` foi atualizada (assets substituídos, tag
+movida para o commit `2f82091`) — ver §"Rodada 2" abaixo para o teste seguinte. Outros dois
+pontos levantados no mesmo teste manual não são bugs: o erro do servidor MCP `'exemplo'` no
+arranque é o placeholder de `echo` da config gerada por `--init` falhando *de propósito* (mais
+cedo no Windows, onde `echo` não é um executável de verdade, do que no Linux); a TUI não abrir é
+esperado sem a flag `--tui`. Ficou sem explicação a demora na inicialização reportada pelo
+mantenedor — hipótese mais provável é o Windows Defender/SmartScreen escaneando o executável
+grande (~260MB) na primeira execução (fenômeno comum, externo ao código), não confirmada ainda.
+
+### Rodada 2 — teste manual da TUI (commit `9448fa7`)
+
+Com os fixes da rodada 1 já publicados, o mantenedor testou `--tui` (Windows+LiteLLM e
+Linux+Ollama) e reportou uma lista de problemas de UX. Investigados e corrigidos nesta rodada
+(commit `9448fa7`):
+
+- **Texto sem *word-wrap*** — `ratatui::Paragraph` não quebra linha por padrão; texto mais
+  largo que o terminal desaparecia da tela (era literalmente por isso que a mensagem sobre
+  `dir`/`ls -la` "ficou cortada"). Corrigido com *wrap* manual (`quebrar_em_linhas`), não a API
+  `Wrap` do `ratatui` — decisão deliberada, dá controle total sobre a contagem de linhas depois
+  do *wrap*, necessário pro item seguinte.
+- **Conversa abria no topo, não ancorada no fim** — semântica de `Estado::scroll` invertida
+  (agora conta distância a partir do fim, não do topo); resolve tanto abrir já no fim quanto
+  "empurrar pra cima" ao chegar mensagem nova, sem precisar de uma *flag* de "auto-follow"
+  separada.
+- **Nenhuma indicação visual de tool em uso** — `ChatState::aplicar_evento` agora trata
+  `StreamEvent::ToolCallStart` com um marcador inline (`⚙ usando fs_write...`), estilizado
+  separado do texto normal.
+- **Logo de abertura** — banner simples estilo 8-bit, centralizado, some para sempre após a
+  primeira mensagem enviada.
+- **"Nenhuma formatação"** — resolvido só parcialmente: cor por autor (usuário/agente), **não**
+  *Markdown* de verdade (negrito/blocos de código estilizados) — decisão de escopo, documentada
+  no commit; extensão futura se houver demanda.
+
+Verificado com smoke-test do binário release real via `tmux` + mock HTTP local (simulando um
+tool-call seguido de resposta longa): logo vazio, marcador de tool + *wrap* conferidos
+visualmente, *auto-scroll* ao fim confirmado ao longo de várias mensagens, rolagem manual pra
+cima mostra histórico antigo, enviar mensagem nova enquanto rolado pra cima volta ao fim.
+
+**Não corrigido** (explicado ao mantenedor, não são bugs de código):
+- Modelo usa `ask_user` de forma inconsistente entre rodadas idênticas do mesmo prompt —
+  `CallPreset.temperature`/`top_p` não são fixados por padrão (`None`, sampling padrão do
+  provider) — variação normal de amostragem do modelo, não da fiação do agentry.
+- Nenhum widget de confirmação apareceu — config *default* (`permissions.ask: []`, `shell_exec`
+  sempre negado) simplesmente não pede confirmação para `fs_write`/`fs_edit` nem para shell
+  (que já é bloqueado antes de chegar a perguntar); comportamento esperado da política atual,
+  mudar o *default* seria uma decisão de política, não uma correção.
+- `/usage`/`/undo`/`/remember` digitados como texto na TUI viram mensagem de chat comum (a TUI
+  nunca implementou interceptação de comando com `/`, diferente do REPL) — por isso "lembrar"
+  nunca persistiu nada de verdade e "uso" respondia um número inventado pelo modelo. `/undo` já
+  tem `Ctrl+Z` como via real na TUI; `/remember` foi decisão deliberada de escopo (MT-94,
+  YAGNI); `/usage` já aparece ao vivo no rodapé. Não corrigido nesta rodada — se vier a ser
+  necessário, o caminho é a TUI reconhecer esses prefixos e recusar com uma mensagem de sistema
+  em vez de repassar ao modelo (evita a resposta inventada), não necessariamente implementar
+  os três de verdade na TUI.
+- Demora na inicialização (relatada na rodada 1) segue sem confirmação da causa.
+
+**Ainda não pushado nem incluído em nenhum build/release** — mesmo estado da rodada 1 antes de
+ela ter sido publicada.
 
 ## Último turno
 
