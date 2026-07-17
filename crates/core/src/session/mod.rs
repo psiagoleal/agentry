@@ -70,7 +70,23 @@ pub enum StopReason {
     Done,
     /// O orçamento de tokens foi atingido antes de uma resposta final.
     BudgetExceeded,
+    /// O teto de turnos consecutivos com tool-call foi atingido antes de
+    /// uma resposta final (ADR-0033) — independente do orçamento de
+    /// tokens. Rede de segurança contra um modelo que fica chamando tools
+    /// indefinidamente (achado na rodada 4 de teste manual: `ask_user`
+    /// respondido, modelo seguiu chamando tools/mandando mensagens em
+    /// loop). Histórico e uso acumulado preservados, mesmo padrão de
+    /// [`Self::BudgetExceeded`] — nunca um erro fatal.
+    MaxTurnsExceeded,
 }
+
+/// Teto *default* de turnos consecutivos com tool-call (ADR-0033) quando
+/// [`Session`] não é construída com [`Session::with_max_tool_turns`] — bem
+/// mais generoso que qualquer tarefa legítima costuma precisar, só para
+/// nunca deixar um modelo em loop sem controle independente do orçamento
+/// de tokens (que pode ser grande o bastante para o loop parecer "travado"
+/// por muito tempo antes de parar).
+pub const DEFAULT_MAX_TOOL_TURNS: u32 = 25;
 
 /// Resultado de rodar o loop até encerrar.
 #[derive(Debug, Clone, PartialEq)]
@@ -352,6 +368,11 @@ pub struct Session {
     /// **uma** chamada (para decidir estouro de [`TokenBudget`]) — este
     /// campo persiste entre chamadas, exposto via [`Self::usage_total`].
     usage_total: Usage,
+    /// Teto de turnos consecutivos com tool-call (ADR-0033) — `run`/
+    /// `run_streaming` param com [`StopReason::MaxTurnsExceeded`] ao
+    /// atingi-lo, independente do orçamento de tokens. [`DEFAULT_MAX_TOOL_TURNS`]
+    /// por padrão; ajustável via [`Self::with_max_tool_turns`].
+    max_tool_turns: u32,
 }
 
 impl Session {
@@ -375,7 +396,16 @@ impl Session {
             memoria: None,
             skills_list: None,
             usage_total: Usage::default(),
+            max_tool_turns: DEFAULT_MAX_TOOL_TURNS,
         }
+    }
+
+    /// Ajusta o teto de turnos consecutivos com tool-call (ADR-0033) —
+    /// *default* [`DEFAULT_MAX_TOOL_TURNS`] se nunca chamado.
+    #[must_use]
+    pub fn with_max_tool_turns(mut self, max_tool_turns: u32) -> Self {
+        self.max_tool_turns = max_tool_turns;
+        self
     }
 
     /// Declara as tools oferecidas ao modelo (via [`ChatRequest::tools`]).
@@ -612,6 +642,21 @@ impl Session {
         if tool_calls.is_empty() {
             return Some(SessionOutcome {
                 reason: StopReason::Done,
+                usage: *consumed,
+                turns,
+                reviews: Vec::new(),
+                guardrail_hits: Vec::new(),
+            });
+        }
+
+        // Turno tem tool-calls (o loop continuaria) e já atingiu o teto
+        // (ADR-0033) — para **antes** de executar mais uma rodada de
+        // tools, nunca depois; o histórico já acumulado até aqui (incluindo
+        // a mensagem do modelo que pediu essas tool-calls, já empurrada
+        // acima) é preservado, mesmo padrão de `BudgetExceeded`.
+        if turns >= self.max_tool_turns {
+            return Some(SessionOutcome {
+                reason: StopReason::MaxTurnsExceeded,
                 usage: *consumed,
                 turns,
                 reviews: Vec::new(),
@@ -1183,6 +1228,121 @@ mod tests {
             "tool pendente não deve ser executada após estourar o orçamento"
         );
         assert_eq!(mock.chat_requests().len(), 1);
+    }
+
+    // --- MT-101/ADR-0033: teto de turnos consecutivos com tool-call,
+    // independente do orçamento de tokens ---
+
+    #[tokio::test]
+    async fn para_no_teto_de_turnos_sem_executar_a_rodada_que_estourou() {
+        let mock = Arc::new(MockProvider::new("mock"));
+        // 3 respostas com tool-call enfileiradas, mas o teto é 2 — se o
+        // loop tentasse rodar uma terceira vez, receberia erro de fila
+        // vazia (MockProvider só tem 3) ou, pior, executaria a tool da
+        // rodada que já deveria ter parado.
+        for i in 0..3 {
+            mock.enqueue_chat(Ok(resposta_com_tool_call(
+                &format!("call-{i}"),
+                "fs_read",
+                Usage::default(),
+            )));
+        }
+        let executor = Arc::new(CountingExecutor::default());
+        let mut session = Session::new(
+            route(mock.clone()),
+            executor.clone(),
+            TokenBudget::new(1_000_000),
+        )
+        .with_max_tool_turns(2);
+        session.push_user_message("tarefa");
+
+        let outcome = session
+            .run(&router_vazio())
+            .await
+            .expect("loop deve parar no teto, não é erro");
+
+        assert_eq!(outcome.reason, StopReason::MaxTurnsExceeded);
+        assert_eq!(outcome.turns, 2);
+        assert_eq!(
+            executor.chamadas.load(Ordering::SeqCst),
+            1,
+            "só a tool-call do turno 1 deve ter sido executada; a do turno 2 (que estourou) não"
+        );
+        assert_eq!(
+            mock.chat_requests().len(),
+            2,
+            "não deve chamar o provider uma terceira vez depois de parar no teto"
+        );
+    }
+
+    #[tokio::test]
+    async fn sessao_abaixo_do_teto_de_turnos_termina_normalmente_em_done() {
+        let mock = Arc::new(MockProvider::new("mock"));
+        mock.enqueue_chat(Ok(resposta_com_tool_call(
+            "call-1",
+            "fs_read",
+            Usage::default(),
+        )));
+        mock.enqueue_chat(Ok(resposta_final("pronto", Usage::default())));
+        let executor = Arc::new(CountingExecutor::default());
+        let mut session = Session::new(
+            route(mock.clone()),
+            executor.clone(),
+            TokenBudget::new(1_000_000),
+        )
+        .with_max_tool_turns(25);
+        session.push_user_message("tarefa curta");
+
+        let outcome = session
+            .run(&router_vazio())
+            .await
+            .expect("loop deve completar");
+
+        assert_eq!(outcome.reason, StopReason::Done);
+        assert_eq!(outcome.turns, 2);
+        assert_eq!(executor.chamadas.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn contador_de_turnos_reseta_a_cada_nova_mensagem_de_usuario() {
+        let mock = Arc::new(MockProvider::new("mock"));
+        // Primeira mensagem: 1 turno com tool-call + 1 turno final (2 no total).
+        mock.enqueue_chat(Ok(resposta_com_tool_call(
+            "call-1",
+            "fs_read",
+            Usage::default(),
+        )));
+        mock.enqueue_chat(Ok(resposta_final("primeira resposta", Usage::default())));
+        // Segunda mensagem: se o contador não resetasse, turns começaria em
+        // 2 (herdado da primeira chamada a run()) e um teto de 2 pararia
+        // essa segunda mensagem imediatamente, sem completar.
+        mock.enqueue_chat(Ok(resposta_final("segunda resposta", Usage::default())));
+        let executor = Arc::new(CountingExecutor::default());
+        let mut session = Session::new(
+            route(mock.clone()),
+            executor.clone(),
+            TokenBudget::new(1_000_000),
+        )
+        .with_max_tool_turns(2);
+
+        session.push_user_message("primeira tarefa");
+        let primeiro_outcome = session
+            .run(&router_vazio())
+            .await
+            .expect("primeira mensagem deve completar");
+        assert_eq!(primeiro_outcome.reason, StopReason::Done);
+        assert_eq!(primeiro_outcome.turns, 2);
+
+        session.push_user_message("segunda tarefa");
+        let segundo_outcome = session
+            .run(&router_vazio())
+            .await
+            .expect("segunda mensagem deve completar, contador de turnos resetado");
+        assert_eq!(segundo_outcome.reason, StopReason::Done);
+        assert_eq!(
+            segundo_outcome.turns, 1,
+            "contador de turnos deve recomeçar do zero para a nova mensagem"
+        );
     }
 
     #[tokio::test]
