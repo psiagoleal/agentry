@@ -5,6 +5,27 @@
 > Opcional em projetos solo; recomendado em colaborações. Atualizado a cada commit.
 > Não inclua segredos. Mantido conforme a skill `handoff-updater`.
 
+## Nota fora do loop (2026-07-17)
+
+Loop autônomo segue parado (ver "Impedimentos abertos" mais abaixo — só resta multimodal,
+bloqueada). **Fora do loop**, o mantenedor gerou builds de release (Linux/Windows,
+cross-compilado via mingw-w64) e testou manualmente num binário real do Windows contra um
+gateway LiteLLM de verdade. Um bug real apareceu: `/usage` sempre mostrava 0 tokens — causa
+raiz: `OpenAiCompatProvider` (`crates/core/src/provider/openai_compat.rs`) nunca pedia
+`stream_options: {include_usage: true}` no corpo da requisição de streaming; sem esse campo, a
+API OpenAI (e gateways que a espelham, LiteLLM/vLLM) não inclui `usage` em nenhum chunk — a
+agregação em `chat_stream` já somava corretamente quando presente, só nunca recebia nada.
+Corrigido no commit `3c04c19` (dois testes novos capturando o corpo real da requisição); DoD
+completo (fmt/clippy/`cargo test --all`, 395 testes/build release) verde. **Commitado, mas
+ainda não pushado nem incluído em nenhum build/release novo** — os binários já publicados em
+`v0.1.0-usertest` continuam com o bug de `/usage`. Outros dois pontos levantados no mesmo teste
+manual não são bugs: o erro do servidor MCP `'exemplo'` no arranque é o placeholder de
+`echo` da config gerada por `--init` falhando *de propósito* (mais cedo no Windows, onde
+`echo` não é um executável de verdade, do que no Linux); a TUI não abrir é esperado sem a flag
+`--tui`. Ficou sem explicação a demora na inicialização reportada pelo mantenedor — hipótese
+mais provável é o Windows Defender/SmartScreen escaneando o executável grande (~260MB) na
+primeira execução (fenômeno comum, externo ao código), não confirmada ainda.
+
 ## Último turno
 
 - **Data:** 2026-07-16
