@@ -516,6 +516,18 @@ fn montar_linhas_do_historico(estado: &Estado, largura_disponivel: usize) -> Vec
     linhas
 }
 
+/// Altura total (linhas de conteúdo + 2 de borda) da caixa de entrada,
+/// dado quantas linhas o texto digitado ocupa depois do *wrap* — cresce
+/// junto com o texto, até `teto` (também em unidades de altura total com
+/// borda; nunca menor que 3, a altura mínima de sempre). Função pura, sem
+/// depender de `Frame`/terminal real — achado num teste manual de
+/// usabilidade: a caixa de entrada não tinha *wrap* nem crescia,
+/// diferente do histórico (corrigido na rodada 2).
+fn altura_da_entrada(linhas_de_conteudo: usize, teto: u16) -> u16 {
+    let altura_com_borda = (linhas_de_conteudo.max(1) as u16).saturating_add(2);
+    altura_com_borda.clamp(3, teto.max(3))
+}
+
 /// Preenche `linhas` com linhas em branco no **início** até `altura_minima`,
 /// só quando a conversa é mais curta que a área visível — âncora o
 /// conteúdo real no fim da caixa, mesmo comportamento de qualquer chat
@@ -541,15 +553,26 @@ fn com_padding_no_topo(mut linhas: Vec<Line<'static>>, altura_minima: usize) -> 
 /// embaixo — rodapé da caixa de entrada mostra [`rodape_da_entrada`]. Com o
 /// seletor de modelo aberto, um modal centralizado é desenhado por cima.
 fn draw(frame: &mut Frame<'_>, estado: &Estado) {
+    // Largura interna já conhecida antes do `Layout::split` — um *split*
+    // vertical preserva a largura cheia em todas as áreas, então dá pra
+    // calcular a altura da caixa de entrada (que depende de quantas linhas
+    // o texto digitado ocupa depois do *wrap*) antes de montar o layout.
+    let largura_interna = frame.area().width.saturating_sub(2) as usize;
+    // Teto da caixa de entrada: um terço da altura do terminal, entre 3
+    // (mínimo de sempre) e 12 linhas de altura total — generoso o
+    // bastante pra mensagens de várias linhas sem tomar a tela inteira.
+    let teto_altura_entrada = (frame.area().height / 3).clamp(3, 12);
+    let linhas_entrada = quebrar_em_linhas(&estado.entrada, largura_interna.max(1));
+    let altura_entrada = altura_da_entrada(linhas_entrada.len(), teto_altura_entrada);
+
     let areas = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(3), Constraint::Length(3)])
+        .constraints([Constraint::Min(3), Constraint::Length(altura_entrada)])
         .split(frame.area());
 
-    // Largura/altura *internas* ao bloco com borda (2 colunas/linhas a
-    // menos que a área cheia) — mesmas contas usadas pelo `ratatui` para
-    // desenhar `Block::bordered()`.
-    let largura_interna = areas[0].width.saturating_sub(2) as usize;
+    // Altura *interna* ao bloco com borda do histórico (2 linhas a menos
+    // que a área cheia) — mesma conta usada pelo `ratatui` para desenhar
+    // `Block::bordered()`.
     let altura_interna = areas[0].height.saturating_sub(2) as usize;
 
     if estado.chat.mensagens().is_empty() {
@@ -591,12 +614,38 @@ fn draw(frame: &mut Frame<'_>, estado: &Estado) {
         format!(" mensagem{modo_auto} ")
     };
     let rodape = rodape_da_entrada(estado);
-    let caixa_de_entrada = Paragraph::new(estado.entrada.as_str()).block(
-        Block::bordered()
-            .title(titulo_entrada)
-            .title_bottom(Line::from(rodape).alignment(Alignment::Center)),
-    );
+    // Altura *interior* (sem borda) da caixa de entrada — quando o texto
+    // excede o teto, `linhas_entrada.len() > altura_interior_entrada`;
+    // mostra sempre a **cauda** (o cursor está sempre no fim do texto, já
+    // que a edição hoje só existe por `push`/`pop` no fim da `String`, sem
+    // navegação de cursor no meio — não precisa de scroll configurável
+    // separado, é sempre "role o bastante pra mostrar a última linha").
+    let altura_interior_entrada = areas[1].height.saturating_sub(2) as usize;
+    let deslocamento_entrada = linhas_entrada
+        .len()
+        .saturating_sub(altura_interior_entrada.max(1)) as u16;
+    let caixa_de_entrada = Paragraph::new(linhas_entrada.join("\n"))
+        .block(
+            Block::bordered()
+                .title(titulo_entrada)
+                .title_bottom(Line::from(rodape).alignment(Alignment::Center)),
+        )
+        .scroll((deslocamento_entrada, 0));
     frame.render_widget(caixa_de_entrada, areas[1]);
+
+    // Cursor real do terminal (pisca com o estilo nativo do terminal do
+    // usuário, sem widget sintético) — só faz sentido quando a caixa de
+    // entrada é de fato o alvo do foco, isto é, nenhum modal por cima
+    // (seletor de modelo/pergunta ao agente) está capturando o teclado.
+    if estado.seletor.is_none() && estado.solicitacao.is_none() {
+        let ultima_linha = linhas_entrada.len().saturating_sub(1);
+        let linha_visivel = ultima_linha.saturating_sub(deslocamento_entrada as usize) as u16;
+        let coluna = linhas_entrada
+            .last()
+            .map(|linha| linha.chars().count())
+            .unwrap_or(0) as u16;
+        frame.set_cursor_position((areas[1].x + 1 + coluna, areas[1].y + 1 + linha_visivel));
+    }
 
     if let Some(seletor) = &estado.seletor {
         draw_seletor(frame, seletor);
@@ -1198,6 +1247,31 @@ mod tests {
             .expect("deve haver uma linha com o marcador de tool");
 
         assert_eq!(linha_do_marcador.style, ESTILO_MARCADOR_DE_TOOL);
+    }
+
+    // --- altura_da_entrada (achado de usabilidade: caixa de entrada sem
+    // wrap nem altura dinâmica, diferente do histórico) ---
+
+    #[test]
+    fn altura_da_entrada_texto_vazio_e_a_minima() {
+        assert_eq!(altura_da_entrada(0, 12), 3);
+        assert_eq!(altura_da_entrada(1, 12), 3);
+    }
+
+    #[test]
+    fn altura_da_entrada_cresce_com_mais_linhas_de_conteudo() {
+        assert_eq!(altura_da_entrada(3, 12), 5);
+        assert_eq!(altura_da_entrada(5, 12), 7);
+    }
+
+    #[test]
+    fn altura_da_entrada_satura_no_teto() {
+        assert_eq!(altura_da_entrada(50, 12), 12);
+    }
+
+    #[test]
+    fn altura_da_entrada_nunca_fica_abaixo_de_tres_mesmo_com_teto_baixo() {
+        assert_eq!(altura_da_entrada(1, 2), 3);
     }
 
     // --- com_padding_no_topo (achado de usabilidade: conversa curta
