@@ -88,13 +88,55 @@ enum SolicitacaoAtiva {
         responder: tokio::sync::oneshot::Sender<bool>,
     },
     /// Pergunta de texto livre da tool `ask_user` (`TuiPrompter`,
-    /// ADR-0024) — `entrada` é a resposta sendo digitada.
+    /// ADR-0024) — `entrada` é a resposta sendo digitada. `selecionada`
+    /// (MT-98) é o índice destacado em `options` quando não-vazio;
+    /// `Up`/`Down` movem o destaque, `Enter` com `entrada` vazia envia o
+    /// texto exato da opção destacada (elimina a ambiguidade de o modelo
+    /// ter que "traduzir" um número como "1"/"2" de volta pra opção
+    /// certa — achado na rodada 4: mesma pergunta, respostas idênticas em
+    /// forma numérica, comportamento inconsistente entre rodadas). Digitar
+    /// qualquer texto ignora a seleção e envia o texto livre, como sempre.
     Pergunta {
         question: String,
         options: Vec<String>,
         entrada: String,
+        selecionada: usize,
         responder: tokio::sync::oneshot::Sender<String>,
     },
+}
+
+/// Enviada no lugar de uma `String` vazia quando o usuário cancela a
+/// pergunta (`Esc`) — achado na rodada 4: antes, `Esc` mandava
+/// `String::new()`, indistinguível de "usuário respondeu vazio e apertou
+/// Enter" do ponto de vista do modelo (que via os dois casos como a
+/// mesma execução de tool bem-sucedida, sem nenhum sinal de que o usuário
+/// não quis responder).
+const SENTINELA_CANCELAMENTO_PERGUNTA: &str = "(usuário cancelou a pergunta, sem responder)";
+
+/// Move o índice destacado entre as opções de uma `SolicitacaoAtiva::Pergunta`,
+/// saturando nos limites — mesmo espírito de
+/// `SeletorDeModeloEstado::mover_selecao`, função livre porque a seleção
+/// aqui não precisa de nenhum outro estado (busca/filtro) além do índice.
+fn mover_selecao_pergunta(atual: usize, delta: isize, total_opcoes: usize) -> usize {
+    if total_opcoes == 0 {
+        return 0;
+    }
+    let atual = atual.min(total_opcoes - 1) as isize;
+    (atual + delta).clamp(0, total_opcoes as isize - 1) as usize
+}
+
+/// Decide o texto a enviar de volta pro `ask_user` ao apertar `Enter`:
+/// campo vazio + alguma opção declarada envia o texto exato da opção
+/// destacada por `selecionada` (nunca um número que o modelo teria que
+/// "traduzir" de volta); campo preenchido envia o texto livre, sempre —
+/// a seleção nunca sobrescreve o que o usuário digitou de propósito.
+/// Função pura, testável sem terminal/canais reais.
+fn resposta_da_pergunta(entrada: String, options: &[String], selecionada: usize) -> String {
+    if entrada.trim().is_empty() && !options.is_empty() {
+        options[selecionada].clone()
+    } else {
+        entrada
+    }
 }
 
 /// Estado do seletor de modelo/*provider* (MT-73) — só existe enquanto o
@@ -688,6 +730,7 @@ fn draw_solicitacao(frame: &mut Frame<'_>, solicitacao: &SolicitacaoAtiva) {
             question,
             options,
             entrada,
+            selecionada,
             ..
         } => {
             let area = area_centralizada(60, 40, frame.area());
@@ -699,7 +742,22 @@ fn draw_solicitacao(frame: &mut Frame<'_>, solicitacao: &SolicitacaoAtiva) {
 
             let mut linhas = vec![Line::from(question.as_str())];
             for (indice, opcao) in options.iter().enumerate() {
-                linhas.push(Line::from(format!("  {}. {opcao}", indice + 1)));
+                let destacada = indice == *selecionada;
+                let marcador = if destacada { "> " } else { "  " };
+                let texto = format!("{marcador}{}. {opcao}", indice + 1);
+                if destacada {
+                    linhas.push(Line::styled(
+                        texto,
+                        Style::default().add_modifier(Modifier::BOLD),
+                    ));
+                } else {
+                    linhas.push(Line::from(texto));
+                }
+            }
+            if !options.is_empty() {
+                linhas.push(Line::from(
+                    "↑↓ escolhe · Enter (vazio) envia a opção · ou digite livremente",
+                ));
             }
             let pergunta =
                 Paragraph::new(linhas).block(Block::bordered().title(" pergunta do agente "));
@@ -941,17 +999,39 @@ async fn loop_eventos(
                             question,
                             options,
                             mut entrada,
+                            mut selecionada,
                             responder,
                         } => match acao {
                             Some(Action::Quit) => {
-                                let _ = responder.send(String::new());
+                                let _ = responder.send(SENTINELA_CANCELAMENTO_PERGUNTA.to_string());
                                 return Ok(());
                             }
                             Some(Action::Send) => {
-                                let _ = responder.send(entrada);
+                                let resposta = resposta_da_pergunta(entrada, &options, selecionada);
+                                let _ = responder.send(resposta);
                             }
                             Some(Action::Cancel) => {
-                                let _ = responder.send(String::new());
+                                let _ = responder.send(SENTINELA_CANCELAMENTO_PERGUNTA.to_string());
+                            }
+                            Some(Action::ScrollUp) => {
+                                selecionada = mover_selecao_pergunta(selecionada, -1, options.len());
+                                estado.solicitacao = Some(SolicitacaoAtiva::Pergunta {
+                                    question,
+                                    options,
+                                    entrada,
+                                    selecionada,
+                                    responder,
+                                });
+                            }
+                            Some(Action::ScrollDown) => {
+                                selecionada = mover_selecao_pergunta(selecionada, 1, options.len());
+                                estado.solicitacao = Some(SolicitacaoAtiva::Pergunta {
+                                    question,
+                                    options,
+                                    entrada,
+                                    selecionada,
+                                    responder,
+                                });
                             }
                             None => {
                                 match key.code {
@@ -967,6 +1047,7 @@ async fn loop_eventos(
                                     question,
                                     options,
                                     entrada,
+                                    selecionada,
                                     responder,
                                 });
                             }
@@ -975,6 +1056,7 @@ async fn loop_eventos(
                                     question,
                                     options,
                                     entrada,
+                                    selecionada,
                                     responder,
                                 });
                             }
@@ -1139,6 +1221,7 @@ async fn loop_eventos(
                         question,
                         options,
                         entrada: String::new(),
+                        selecionada: 0,
                         responder,
                     },
                 });
@@ -1251,6 +1334,57 @@ mod tests {
 
     // --- altura_da_entrada (achado de usabilidade: caixa de entrada sem
     // wrap nem altura dinâmica, diferente do histórico) ---
+
+    // --- mover_selecao_pergunta / resposta_da_pergunta (achado de
+    // usabilidade: ask_user respondido por número "1"/"2" tinha
+    // comportamento inconsistente entre rodadas idênticas do mesmo prompt) ---
+
+    #[test]
+    fn mover_selecao_pergunta_satura_nos_limites() {
+        assert_eq!(
+            mover_selecao_pergunta(0, -1, 2),
+            0,
+            "não desce abaixo de zero"
+        );
+        assert_eq!(mover_selecao_pergunta(0, 1, 2), 1);
+        assert_eq!(
+            mover_selecao_pergunta(1, 1, 2),
+            1,
+            "não passa da última opção"
+        );
+    }
+
+    #[test]
+    fn mover_selecao_pergunta_sem_opcoes_permanece_em_zero() {
+        assert_eq!(mover_selecao_pergunta(0, 1, 0), 0);
+        assert_eq!(mover_selecao_pergunta(5, -1, 0), 0);
+    }
+
+    #[test]
+    fn resposta_da_pergunta_com_campo_vazio_envia_o_texto_exato_da_opcao_destacada() {
+        let options = vec!["Manter".to_string(), "Apagar".to_string()];
+
+        assert_eq!(
+            resposta_da_pergunta(String::new(), &options, 1),
+            "Apagar",
+            "deve enviar o texto da opção, nunca o número"
+        );
+    }
+
+    #[test]
+    fn resposta_da_pergunta_com_texto_digitado_ignora_a_selecao() {
+        let options = vec!["Manter".to_string(), "Apagar".to_string()];
+
+        assert_eq!(
+            resposta_da_pergunta("resposta livre".to_string(), &options, 0),
+            "resposta livre"
+        );
+    }
+
+    #[test]
+    fn resposta_da_pergunta_sem_opcoes_e_sempre_texto_livre_mesmo_vazio() {
+        assert_eq!(resposta_da_pergunta(String::new(), &[], 0), "");
+    }
 
     #[test]
     fn altura_da_entrada_texto_vazio_e_a_minima() {
