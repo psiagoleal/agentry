@@ -10,16 +10,32 @@
 Loop autônomo segue parado (ver "Impedimentos abertos" mais abaixo — só resta multimodal,
 bloqueada). **Fora do loop**, o mantenedor gerou builds de release (Linux/Windows,
 cross-compilado via mingw-w64) e testou manualmente num binário real do Windows contra um
-gateway LiteLLM de verdade. Um bug real apareceu: `/usage` sempre mostrava 0 tokens — causa
-raiz: `OpenAiCompatProvider` (`crates/core/src/provider/openai_compat.rs`) nunca pedia
-`stream_options: {include_usage: true}` no corpo da requisição de streaming; sem esse campo, a
-API OpenAI (e gateways que a espelham, LiteLLM/vLLM) não inclui `usage` em nenhum chunk — a
-agregação em `chat_stream` já somava corretamente quando presente, só nunca recebia nada.
-Corrigido no commit `3c04c19` (dois testes novos capturando o corpo real da requisição); DoD
-completo (fmt/clippy/`cargo test --all`, 395 testes/build release) verde. **Commitado, mas
-ainda não pushado nem incluído em nenhum build/release novo** — os binários já publicados em
-`v0.1.0-usertest` continuam com o bug de `/usage`. Outros dois pontos levantados no mesmo teste
-manual não são bugs: o erro do servidor MCP `'exemplo'` no arranque é o placeholder de
+gateway LiteLLM de verdade. Dois bugs reais apareceram, ambos corrigidos:
+
+1. **`/usage` sempre mostrava 0 tokens** — causa raiz: `OpenAiCompatProvider`
+   (`crates/core/src/provider/openai_compat.rs`) nunca pedia `stream_options: {include_usage:
+   true}` no corpo da requisição de streaming; sem esse campo, a API OpenAI (e gateways que a
+   espelham, LiteLLM/vLLM) não inclui `usage` em nenhum chunk — a agregação em `chat_stream` já
+   somava corretamente quando presente, só nunca recebia nada. Corrigido no commit `3c04c19`
+   (dois testes novos capturando o corpo real da requisição).
+2. **O modelo nunca chamava nenhuma tool** (achado mais grave, investigado a partir do relato de
+   que o modelo só imprimia blocos de código Python em vez de usar `fs_write`/etc.): a causa não
+   era o modelo nem o gateway — **`main()` nunca chamava `Session::with_tools`, em lugar
+   nenhum do arquivo**. `Session::new` inicializa `tools: Vec::new()`, e como `registry` é
+   consumido por `RegistryToolExecutor::new` antes da sessão ser montada, a requisição real ao
+   provider sempre ia com `tools` vazio — em **qualquer** modo (REPL/one-shot/TUI), com
+   **qualquer** provider (Ollama ou LiteLLM), desde sempre. Os 395 testes existentes não
+   pegaram isso porque cada um constrói sua própria `Session` com `with_tools` explícito, nunca
+   exercitando essa sequência exata do `main()` real. Corrigido no commit `893e5c3` (captura
+   `registry.specs()` antes do `move`; teste de regressão com `MockProvider` observando a
+   requisição real; verificado também com smoke-test do binário release real contra um mock
+   HTTP local — as 14 tools registradas chegam de fato no corpo da requisição agora).
+
+DoD completo (fmt/clippy/`cargo test --all`, 397 testes/build release) verde para os dois.
+**Ambos commitados, mas ainda não pushados nem incluídos em nenhum build/release novo** — os
+binários já publicados em `v0.1.0-usertest` continuam com os dois bugs (o de tools é o mais
+sério: nenhuma tool jamais funcionou nesses binários). Outros dois pontos levantados no mesmo
+teste manual não são bugs: o erro do servidor MCP `'exemplo'` no arranque é o placeholder de
 `echo` da config gerada por `--init` falhando *de propósito* (mais cedo no Windows, onde
 `echo` não é um executável de verdade, do que no Linux); a TUI não abrir é esperado sem a flag
 `--tui`. Ficou sem explicação a demora na inicialização reportada pelo mantenedor — hipótese
