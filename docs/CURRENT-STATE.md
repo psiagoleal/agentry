@@ -78,18 +78,35 @@ cima mostra histórico antigo, enviar mensagem nova enquanto rolado pra cima vol
   sempre negado) simplesmente não pede confirmação para `fs_write`/`fs_edit` nem para shell
   (que já é bloqueado antes de chegar a perguntar); comportamento esperado da política atual,
   mudar o *default* seria uma decisão de política, não uma correção.
-- `/usage`/`/undo`/`/remember` digitados como texto na TUI viram mensagem de chat comum (a TUI
-  nunca implementou interceptação de comando com `/`, diferente do REPL) — por isso "lembrar"
-  nunca persistiu nada de verdade e "uso" respondia um número inventado pelo modelo. `/undo` já
-  tem `Ctrl+Z` como via real na TUI; `/remember` foi decisão deliberada de escopo (MT-94,
-  YAGNI); `/usage` já aparece ao vivo no rodapé. Não corrigido nesta rodada — se vier a ser
-  necessário, o caminho é a TUI reconhecer esses prefixos e recusar com uma mensagem de sistema
-  em vez de repassar ao modelo (evita a resposta inventada), não necessariamente implementar
-  os três de verdade na TUI.
+- `/usage`/`/undo`/`/remember` digitados como texto na TUI viravam mensagem de chat comum —
+  **corrigido na rodada 3**, ver abaixo.
 - Demora na inicialização (relatada na rodada 1) segue sem confirmação da causa.
 
-**Ainda não pushado nem incluído em nenhum build/release** — mesmo estado da rodada 1 antes de
-ela ter sido publicada.
+### Rodada 3 — comandos de barra na TUI (commit `201e005`)
+
+A pedido explícito do mantenedor ("os comandos devem funcionar também na TUI"), implementada a
+interceptação de texto começando com `/` na caixa de entrada da TUI, reaproveitando
+`repl::aplicar_comando` (agora `pub(crate)`) e os mesmos tipos que o REPL já usa
+(`CheckpointStore`, `MemoryStore`, `Session::compact`) — nova `processar_comando_de_texto`
+(`crates/cli/src/tui/mod.rs`).
+
+Funcionam de verdade agora: `/compact`, `/usage`, `/undo` (mesma mensagem de `Ctrl+Z`),
+`/remember <fato>`, `/task-class <nome>`, `/provider`, `/temperature`, `/top_p`, `/max_tokens`,
+`/system`, `/reasoning`, `/exit`, `/quit`. **Deliberadamente fora**: `/model` (precisaria de
+`&mut Router`, indisponível — o `Router` da TUI é `Arc` compartilhado com a *task* de
+streaming em voo; mesma restrição que levou o subagente, ADR-0031/MT-91, a montar sua própria
+instância em vez de compartilhar uma só — aqui o problema é ter só *um* ponto de verdade, não
+resolvido montando uma segunda instância) — recusa com mensagem apontando para o seletor
+(`Ctrl+P`); `/init` (bootstrap, sem sentido em sessão já rodando). Comando não reconhecido
+devolve "comando desconhecido: /x", nunca mais vira mensagem de chat.
+
+Verificado com smoke-test do binário release real via `tmux`: `/usage` devolve o número real
+sem gerar nenhuma requisição HTTP; `/remember` grava de fato em `.agentry/memory.json`
+(conferido lendo o arquivo depois); comando desconhecido e `/model` recusado mostram a
+mensagem certa; `/exit` digitado como texto encerra a TUI.
+
+**Ainda não pushado nem incluído em nenhum build/release** — mesmo estado das rodadas 1/2 antes
+de terem sido publicadas.
 
 ## Último turno
 
