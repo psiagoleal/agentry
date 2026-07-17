@@ -21,7 +21,7 @@ tudo com `ratatui`/`std` já presentes.
 
 ## Fase A — Correções de UX da TUI
 
-### MT-96: Ancorar o histórico no fim mesmo quando a conversa cabe na tela inteira
+### MT-96: Ancorar o histórico no fim mesmo quando a conversa cabe na tela inteira ✅ concluído (4a54ee5)
 - **Objetivo:** quando a conversa (já quebrada em linhas) cabe inteira na área visível do
   histórico, preencher com linhas em branco **no início** (não no fim) antes de renderizar —
   a última linha real sempre cai na última linha visível da caixa, espaço vazio (se houver)
