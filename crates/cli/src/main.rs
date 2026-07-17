@@ -370,6 +370,24 @@ pub(crate) fn formatar_undo(outcome: &agentry_core::checkpoint::UndoOutcome) -> 
     }
 }
 
+/// Mensagem de aviso quando a sessão para por
+/// [`agentry_core::session::StopReason::MaxTurnsExceeded`] (MT-102,
+/// ADR-0033) — `None` para qualquer outro motivo de parada. Única fonte da
+/// string, usada pelos três pontos de exposição (REPL, *one-shot*, TUI),
+/// mesma disciplina de [`formatar_uso`]/[`formatar_undo`].
+pub(crate) fn mensagem_de_teto_de_turnos(
+    outcome: &agentry_core::session::SessionOutcome,
+) -> Option<String> {
+    if outcome.reason != agentry_core::session::StopReason::MaxTurnsExceeded {
+        return None;
+    }
+    Some(format!(
+        "[aviso] parou após {} turnos consecutivos com uso de ferramenta (ADR-0033) — pode \
+         continuar enviando outra mensagem",
+        outcome.turns
+    ))
+}
+
 /// Emite cada [`AuditEntry`] de egresso em stderr — suficiente para a v0.1;
 /// persistência estruturada (arquivo/serviço) fica para quando houver
 /// demanda concreta. Usa o `Display` de `AuditEntry` (uma linha compacta),
@@ -1114,12 +1132,15 @@ async fn main() {
         });
     } else if let Some(tarefa) = args.tarefa {
         session.push_user_message(tarefa);
-        streaming::stream_to_writer(&mut session, io::stdout(), &router)
+        let outcome = streaming::stream_to_writer(&mut session, io::stdout(), &router)
             .await
             .unwrap_or_else(|erro| {
                 eprintln!("erro: {erro}");
                 std::process::exit(1)
             });
+        if let Some(aviso) = mensagem_de_teto_de_turnos(&outcome) {
+            eprintln!("{aviso}");
+        }
         eprintln!("[uso] {}", formatar_uso(session.usage_total()));
     } else {
         let stdin = io::stdin();
@@ -1709,6 +1730,54 @@ mod tests {
         assert_eq!(
             formatar_undo(&outcome),
             "'novo.txt' removido (não existia antes da mudança desfeita)"
+        );
+    }
+
+    // --- MT-102/ADR-0033: mensagem de aviso ao parar no teto de turnos ---
+
+    fn outcome_de_teste(
+        reason: agentry_core::session::StopReason,
+        turns: u32,
+    ) -> agentry_core::session::SessionOutcome {
+        agentry_core::session::SessionOutcome {
+            reason,
+            usage: agentry_core::model::Usage::default(),
+            turns,
+            reviews: Vec::new(),
+            guardrail_hits: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn mensagem_de_teto_de_turnos_e_none_quando_o_motivo_e_outro() {
+        assert_eq!(
+            mensagem_de_teto_de_turnos(&outcome_de_teste(
+                agentry_core::session::StopReason::Done,
+                3
+            )),
+            None
+        );
+        assert_eq!(
+            mensagem_de_teto_de_turnos(&outcome_de_teste(
+                agentry_core::session::StopReason::BudgetExceeded,
+                3
+            )),
+            None
+        );
+    }
+
+    #[test]
+    fn mensagem_de_teto_de_turnos_menciona_a_contagem_quando_e_o_motivo() {
+        let mensagem = mensagem_de_teto_de_turnos(&outcome_de_teste(
+            agentry_core::session::StopReason::MaxTurnsExceeded,
+            25,
+        ))
+        .expect("deve haver mensagem para MaxTurnsExceeded");
+
+        assert!(mensagem.contains("25"), "mensagem: {mensagem:?}");
+        assert!(
+            mensagem.contains("turnos consecutivos"),
+            "mensagem: {mensagem:?}"
         );
     }
 

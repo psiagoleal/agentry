@@ -1189,8 +1189,13 @@ async fn loop_eventos(
                 match evento_agente {
                     EventoAgente::Stream(stream_evt) => estado.chat.aplicar_evento(&stream_evt),
                     EventoAgente::Concluido(concluido) => {
-                        if let Err(erro) = &concluido.resultado {
-                            estado.chat.marcar_erro(&erro.to_string());
+                        match &concluido.resultado {
+                            Err(erro) => estado.chat.marcar_erro(&erro.to_string()),
+                            Ok(outcome) => {
+                                if let Some(aviso) = crate::mensagem_de_teto_de_turnos(outcome) {
+                                    estado.chat.registrar_mensagem_sistema(aviso);
+                                }
+                            }
                         }
                         estado.usage_total = concluido.sessao.usage_total();
                         sessao_atual = Some(concluido.sessao);

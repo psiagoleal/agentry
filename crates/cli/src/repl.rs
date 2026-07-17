@@ -337,7 +337,10 @@ pub async fn run_repl<R: BufRead, W: Write>(
         }
 
         session.push_user_message(linha);
-        stream_to_writer(session, &mut output, router).await?;
+        let outcome = stream_to_writer(session, &mut output, router).await?;
+        if let Some(aviso) = crate::mensagem_de_teto_de_turnos(&outcome) {
+            writeln!(output, "{aviso}").map_err(|e| e.to_string())?;
+        }
     }
     Ok(())
 }
@@ -370,6 +373,23 @@ mod tests {
             StreamEvent::MessageStart,
             StreamEvent::TextDelta {
                 text: texto.to_string(),
+            },
+            StreamEvent::MessageEnd {
+                usage: Usage::default(),
+            },
+        ]
+    }
+
+    fn roteiro_com_tool_call(id: &str, nome: &str) -> Vec<StreamEvent> {
+        vec![
+            StreamEvent::MessageStart,
+            StreamEvent::ToolCallStart {
+                id: id.to_string(),
+                name: nome.to_string(),
+            },
+            StreamEvent::ToolCallDelta {
+                id: id.to_string(),
+                delta: "{}".to_string(),
             },
             StreamEvent::MessageEnd {
                 usage: Usage::default(),
@@ -418,6 +438,52 @@ mod tests {
         assert_eq!(requisicoes.len(), 2);
         assert_eq!(requisicoes[0].temperature, Some(0.9));
         assert_eq!(requisicoes[1].temperature, Some(0.2));
+    }
+
+    #[tokio::test]
+    async fn repl_avisa_quando_para_no_teto_de_turnos_consecutivos_com_tool_call() {
+        let mock = Arc::new(MockProvider::new(PROVIDER));
+        mock.enqueue_stream(roteiro_com_tool_call("call-1", "fs_read"));
+        // Uma segunda resposta enfileirada: se o loop tentasse rodar de
+        // novo sem parar no teto, o teste ainda passaria "por acidente" —
+        // a asserção de `chat_requests().len()` abaixo é quem realmente
+        // prova que o teto parou o loop, não a fila do mock.
+        mock.enqueue_stream(roteiro_com_tool_call("call-2", "fs_read"));
+
+        let mut router = router_com_ollama(mock.clone(), "modelo-x");
+        let rota = router.resolve(TASK_CLASS).expect("deve resolver");
+        let mut session = Session::new(rota, Arc::new(NoopExecutor), TokenBudget::new(100_000))
+            .with_max_tool_turns(1);
+
+        let entrada = "tarefa\n/exit\n";
+        let mut saida = Vec::new();
+
+        run_repl(
+            Cursor::new(entrada.as_bytes()),
+            &mut saida,
+            &mut session,
+            &mut router,
+            RuntimeOverride::default(),
+            TASK_CLASS.to_string(),
+            &ReplConfig {
+                workspace_root: &std::env::temp_dir(),
+                preset_base: &CallPreset::default(),
+                candidato_extra: None,
+            },
+        )
+        .await
+        .expect("repl deve rodar sem erro, mesmo parando no teto");
+
+        let saida_texto = String::from_utf8(saida).unwrap();
+        assert!(
+            saida_texto.contains("turnos consecutivos"),
+            "saída deve avisar sobre o teto: {saida_texto:?}"
+        );
+        assert_eq!(
+            mock.chat_requests().len(),
+            1,
+            "não deve chamar o provider de novo depois de parar no teto"
+        );
     }
 
     #[tokio::test]
