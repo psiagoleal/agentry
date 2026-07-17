@@ -2,7 +2,7 @@
 
 # ADR 0033: Teto de turnos consecutivos com tool-call, independente do orçamento de tokens
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Data:** 2026-07-17
 - **Decisores:** Iago Leal (mantenedor)
 - **Tags:** confiabilidade, agent-loop, sessão

@@ -108,41 +108,39 @@ mensagem certa; `/exit` digitado como texto encerra a TUI.
 **Ainda não pushado nem incluído em nenhum build/release** — mesmo estado das rodadas 1/2 antes
 de terem sido publicadas.
 
-### Rodada 4 — em andamento (`docs/roadmap-v0.15.md`, MT-96..103)
+### Rodada 4 — concluída (`docs/roadmap-v0.15.md`, MT-96..102; MT-103 fica para a próxima rodada)
 
 Quarta rodada de teste manual (Windows+LiteLLM, Linux+Ollama, `temperature=0.2`) trouxe achados
-novos. Planejamento completo em `docs/roadmap-v0.15.md` + ADR-0033 (`Proposed`). Investigação
-prévia (agente Explore) confirmou: a inconsistência de `ask_user` respondido por número
-("1"/"2") e o loop de mensagens repetidas após a pergunta **não são bugs de código** — o
-`AskUserTool`/`TuiPrompter` já repassam a resposta digitada byte-a-byte pro modelo sem
-normalização, e `Session::run`/`run_streaming` só param por `StopReason::Done` ou
-`BudgetExceeded` (nenhum teto independente de turnos) — mas a UX pode reduzir a ambiguidade
-(MT-98) e o loop merece uma rede de segurança de qualquer forma (MT-100..102, ADR-0033).
+novos. Investigação prévia (agente Explore) confirmou: a inconsistência de `ask_user`
+respondido por número ("1"/"2") e o loop de mensagens repetidas após a pergunta **não são bugs
+de código** — o `AskUserTool`/`TuiPrompter` já repassavam a resposta digitada byte-a-byte pro
+modelo sem normalização, e `Session::run`/`run_streaming` só paravam por `StopReason::Done` ou
+`BudgetExceeded` (nenhum teto independente de turnos) — mas a UX podia reduzir a ambiguidade
+(MT-98) e o loop merecia uma rede de segurança de qualquer forma (MT-100..102, ADR-0033).
 
-Tickets desta rodada (ver `docs/roadmap-v0.15.md` para detalhe completo):
-- MT-96 ✅ **concluído** (`4a54ee5`) — ancorar histórico no fim quando a conversa cabe na tela
-  inteira; verificado com smoke-test real via `tmux` (pane 100×40, 1 mensagem).
-- MT-97 ✅ **concluído** (`d697ba8`) — caixa de entrada com wrap, altura dinâmica (teto de 1/3
-  da altura do terminal, entre 3 e 12) e cursor real do terminal; verificado com smoke-test
-  real via `tmux` + `tmux display-message` conferindo linha/coluna exatas do cursor.
-- MT-98 ✅ **concluído** (`be02822`) — seleção por seta nas opções do `ask_user` (`Enter` com
-  campo vazio envia o texto exato da opção destacada) + sentinela de cancelamento no `Esc`;
-  verificado com smoke-test real via `tmux` + mock HTTP roteirizado (`ask_user` de verdade,
-  corpo da segunda requisição conferido: "Apagar" enviado, não "2"; sentinela completa no Esc).
-- MT-99 ✅ **concluído** (`479c9d8`) — nota em `docs/usuario/uso.md` explicando que
-  inconsistência/excesso de `ask_user` é variação do modelo, não bug; sugere `/temperature 0`
-  ou trocar de modelo/provider.
+Tickets desta rodada (ver `docs/roadmap-v0.15.md` para detalhe completo — **todos concluídos**):
+- MT-96 ✅ (`4a54ee5`) — ancorar histórico no fim quando a conversa cabe na tela inteira.
+- MT-97 ✅ (`d697ba8`) — caixa de entrada com wrap, altura dinâmica (teto de 1/3 da altura do
+  terminal, entre 3 e 12) e cursor real do terminal.
+- MT-98 ✅ (`be02822`) — seleção por seta nas opções do `ask_user` (`Enter` com campo vazio
+  envia o texto exato da opção destacada) + sentinela de cancelamento no `Esc`.
+- MT-99 ✅ (`479c9d8`) — nota em `docs/usuario/uso.md` explicando que inconsistência/excesso de
+  `ask_user` é variação do modelo, não bug.
+- MT-100 ✅ (`c0110b7`) — ADR-0033 (teto de turnos consecutivos com tool-call).
+- MT-101 ✅ (`2842d12`) — `Session` ganha `max_tool_turns`/`StopReason::MaxTurnsExceeded`
+  (*default* 25), independente do orçamento de tokens; para **antes** de executar a rodada de
+  tools que estourou o teto.
+- MT-102 ✅ (`a9c3836`) — `mensagem_de_teto_de_turnos` (única fonte da string) exposta nos 3
+  pontos de saída (REPL/*one-shot*/TUI); ADR-0033 → `Accepted`.
 
-**Fase A completa (MT-96..99).** Próximo: teto de turnos consecutivos com tool-call
-(MT-100..102, ADR-0033).
-- MT-97: caixa de entrada com wrap, altura dinâmica (com teto) e cursor real do terminal.
-- MT-98: seleção por seta nas opções do `ask_user` + sentinela de cancelamento no `Esc`.
-- MT-99: nota de documentação sobre comportamento dependente do modelo.
-- MT-100/101/102: teto de turnos consecutivos com tool-call, independente do orçamento de
-  tokens (ADR-0033).
-- MT-103 (próxima rodada): pesquisa profunda de UX/TUI — Claude Code CLI, OpenCode, Aider,
-  Gemini CLI, Codex CLI — primeira etapa de um aprimoramento mais amplo da TUI pedido pelo
-  mantenedor, informado por boas práticas de design ao invés de decisões ad-hoc.
+Todos verificados com smoke-test real via `tmux`/mock HTTP roteirizado, incluindo um mock que
+sempre devolve tool-call (loop infinito simulado): o *one-shot* real parou em exatamente 25
+turnos com a mensagem clara, sem travar.
+
+**Próximo passo — MT-103 (próxima rodada):** pesquisa profunda de UX/TUI — Claude Code CLI,
+OpenCode, Aider, Gemini CLI, Codex CLI — primeira etapa de um aprimoramento mais amplo da TUI
+pedido pelo mantenedor, informado por boas práticas de design ao invés de decisões ad-hoc. Fase
+C+ (redesenho) só depois que MT-103 existir e for revisado.
 
 **Máquina de teste:** o mantenedor criou uma pasta `usage-test/` neste próprio Linux para
 testar com Ollama — sem acesso à VPN necessária para LiteLLM aqui (só no notebook Windows).

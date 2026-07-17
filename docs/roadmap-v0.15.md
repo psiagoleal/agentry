@@ -77,7 +77,7 @@ tudo com `ratatui`/`std` já presentes.
 
 ## Teto de turnos consecutivos com tool-call (ADR-0033)
 
-### MT-100: ADR-0033 — teto configurável de turnos consecutivos com tool-call
+### MT-100: ADR-0033 — teto configurável de turnos consecutivos com tool-call ✅ concluído (c0110b7)
 - **Objetivo:** `docs/adr/0033-teto-de-turnos-consecutivos-com-tool-call.md` (`Proposed`):
   `Session` ganha um teto de turnos consecutivos com tool-call, independente do orçamento de
   tokens — rede de segurança contra um modelo fraco em loop (achado desta rodada: "Processo
@@ -87,7 +87,7 @@ tudo com `ratatui`/`std` já presentes.
 - **Critério de aceite:** ADR segue o template (`skill adr-writer`).
 - **Depende de:** nenhum.
 
-### MT-101: Implementação do teto em `Session`
+### MT-101: Implementação do teto em `Session` ✅ concluído (2842d12)
 - **Objetivo:** `crates/core/src/session/mod.rs` — novo campo `max_tool_turns: u32` (builder,
   *default* generoso caso não configurado); `run`/`run_streaming` contam turnos consecutivos
   com tool-call e param com `StopReason::MaxTurnsExceeded` ao atingir o teto, preservando
@@ -99,7 +99,7 @@ tudo com `ratatui`/`std` já presentes.
 - **Fora de escopo:** tornar o teto configurável via `agentry.settings.json` (YAGNI por ora).
 - **Depende de:** MT-100.
 
-### MT-102: Exposição do novo `StopReason` nos 3 pontos de saída + documentação
+### MT-102: Exposição do novo `StopReason` nos 3 pontos de saída + documentação ✅ concluído (a9c3836) — fecha o teto de turnos, ADR-0033 → Accepted
 - **Objetivo:** REPL, one-shot e TUI tratam `StopReason::MaxTurnsExceeded` com mensagem clara,
   nunca pânico/erro genérico. `docs/usuario/uso.md` ganha nota curta. ADR-0033 → `Accepted`.
 - **Arquivos no escopo:** `crates/cli/src/repl.rs`, `crates/cli/src/main.rs`/
