@@ -40,7 +40,7 @@ use std::sync::Arc;
 
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
-use ratatui::style::{Color, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::Line;
 use ratatui::widgets::{Block, Clear, Paragraph};
 use ratatui::{DefaultTerminal, Frame};
@@ -206,19 +206,29 @@ impl Estado {
         }
     }
 
+    /// `scroll` conta a distância (em linhas já quebradas/wrapped) a partir
+    /// do **fim** da conversa — "rolar para cima" (ver histórico antigo)
+    /// aumenta essa distância. Sem teto aqui: o teto real (não passar do
+    /// início do histórico) é aplicado em `draw`, que é quem sabe quantas
+    /// linhas existem depois do wrap da largura atual do terminal.
     fn rolar_para_cima(&mut self) {
-        self.scroll = self.scroll.saturating_sub(1);
+        self.scroll = self.scroll.saturating_add(1);
     }
 
+    /// Inverso de [`Self::rolar_para_cima`] — "rolar para baixo" (voltar
+    /// para o fim/mensagens novas) diminui a distância, saturando em zero
+    /// (zero = fim da conversa, nunca fica "negativo").
     fn rolar_para_baixo(&mut self) {
-        let maximo = self.chat.mensagens().len().saturating_sub(1) as u16;
-        self.scroll = (self.scroll + 1).min(maximo);
+        self.scroll = self.scroll.saturating_sub(1);
     }
 
     /// Move o texto da caixa de entrada para o histórico como mensagem do
     /// usuário e abre o turno do agente — função pura, testável sem
     /// terminal/`Session` reais. Entrada vazia (ou só espaços) não envia
-    /// nada, devolve `None`.
+    /// nada, devolve `None`. Sempre volta o scroll para o fim da conversa
+    /// (mesmo comportamento de qualquer chat: enviar uma mensagem nova
+    /// mostra a mensagem nova, mesmo que o usuário tivesse rolado para
+    /// cima olhando histórico antigo).
     fn preparar_envio(&mut self) -> Option<String> {
         if self.entrada.trim().is_empty() {
             return None;
@@ -226,6 +236,7 @@ impl Estado {
         let texto = std::mem::take(&mut self.entrada);
         self.chat.registrar_mensagem_usuario(texto.clone());
         self.enviando = true;
+        self.scroll = 0;
         Some(texto)
     }
 }
@@ -289,6 +300,126 @@ fn mensagem_de_undo(
     }
 }
 
+/// Logo de abertura (puramente decorativo) — mostrado centralizado no
+/// histórico enquanto nenhuma mensagem foi trocada ainda; desaparece para
+/// sempre assim que a primeira mensagem é enviada (mesmo padrão de tela de
+/// boas-vindas de qualquer CLI interativa).
+const LOGO_ABERTURA: &[&str] = &[
+    "   ┌─────────────┐",
+    "   │  ◉       ◉  │",
+    "   │             │",
+    "   │      ▽      │",
+    "   └───┬─────┬───┘",
+    "       █     █",
+    "",
+    "      a g e n t r y",
+    "",
+    "  digite uma mensagem e Enter para começar",
+];
+
+/// Quebra `palavra` em pedaços de no máximo `largura` caracteres — só entra
+/// em jogo para uma "palavra" (sem espaço) mais larga que a coluna
+/// inteira (ex.: um caminho de arquivo longo); o caso comum (palavra cabe
+/// inteira) devolve um único pedaço, sem cópia extra.
+fn fatiar_palavra_longa(palavra: &str, largura: usize) -> Vec<String> {
+    if palavra.chars().count() <= largura {
+        return vec![palavra.to_string()];
+    }
+    palavra
+        .chars()
+        .collect::<Vec<_>>()
+        .chunks(largura.max(1))
+        .map(|pedaco| pedaco.iter().collect())
+        .collect()
+}
+
+/// Quebra `texto` em linhas que cabem em `largura` colunas (*word wrap*
+/// manual, greedy) — decisão deliberada de não usar
+/// `ratatui::widgets::Wrap` (achado num teste manual de usabilidade: sem
+/// nenhum wrap, texto mais largo que o terminal simplesmente desaparecia
+/// para fora da tela). Quebras de linha explícitas do próprio texto (`\n`,
+/// ex.: um bloco de código) são preservadas como limites de linha, nunca
+/// unidas numa só.
+fn quebrar_em_linhas(texto: &str, largura: usize) -> Vec<String> {
+    let largura = largura.max(1);
+    let mut saida = Vec::new();
+    for linha_original in texto.split('\n') {
+        let palavras: Vec<String> = linha_original
+            .split(' ')
+            .flat_map(|palavra| fatiar_palavra_longa(palavra, largura))
+            .collect();
+
+        let mut atual = String::new();
+        for palavra in palavras {
+            if atual.is_empty() {
+                atual = palavra;
+            } else if atual.chars().count() + 1 + palavra.chars().count() <= largura {
+                atual.push(' ');
+                atual.push_str(&palavra);
+            } else {
+                saida.push(std::mem::take(&mut atual));
+                atual = palavra;
+            }
+        }
+        saida.push(atual);
+    }
+    saida
+}
+
+/// Estilo por autor da mensagem — única "formatação" aplicada por ora
+/// (destacar quem falou); rendering de Markdown propriamente dito (negrito,
+/// blocos de código) fica para uma extensão futura, ver conversa de
+/// usabilidade. Linhas do marcador de tool call (`ChatState::aplicar_evento`,
+/// prefixo `⚙`) recebem um estilo próprio, discreto, independente do autor.
+fn estilo_da_mensagem(autor: Autor) -> Style {
+    match autor {
+        Autor::Usuario => Style::default().fg(Color::Cyan),
+        Autor::Agente => Style::default().fg(Color::White),
+    }
+}
+
+const ESTILO_MARCADOR_DE_TOOL: Style = Style::new()
+    .fg(Color::DarkGray)
+    .add_modifier(Modifier::ITALIC);
+
+/// Monta as linhas já quebradas/estilizadas do histórico inteiro, dado
+/// quantas colunas estão disponíveis — função pura (sem `Frame`), testável
+/// sem terminal real. Cada mensagem ganha um prefixo (`"usuário: "`/
+/// `"agente: "`) só na primeira linha; as linhas de continuação (por wrap)
+/// alinham por baixo do prefixo (recuo pendurado), sem repeti-lo.
+fn montar_linhas_do_historico(estado: &Estado, largura_disponivel: usize) -> Vec<Line<'static>> {
+    let mut linhas = Vec::new();
+    for mensagem in estado.chat.mensagens() {
+        let prefixo = match mensagem.autor {
+            Autor::Usuario => "usuário: ",
+            Autor::Agente => "agente: ",
+        };
+        let recuo = " ".repeat(prefixo.chars().count());
+        let largura_do_texto = largura_disponivel
+            .saturating_sub(prefixo.chars().count())
+            .max(1);
+        let estilo_base = estilo_da_mensagem(mensagem.autor);
+
+        for (indice, linha) in quebrar_em_linhas(&mensagem.texto, largura_do_texto)
+            .iter()
+            .enumerate()
+        {
+            let texto_da_linha = if indice == 0 {
+                format!("{prefixo}{linha}")
+            } else {
+                format!("{recuo}{linha}")
+            };
+            let estilo = if linha.trim_start().starts_with('⚙') {
+                ESTILO_MARCADOR_DE_TOOL
+            } else {
+                estilo_base
+            };
+            linhas.push(Line::styled(texto_da_linha, estilo));
+        }
+    }
+    linhas
+}
+
 /// Tela: histórico de chat (área rolável) em cima, caixa de entrada fixa
 /// embaixo — rodapé da caixa de entrada mostra [`rodape_da_entrada`]. Com o
 /// seletor de modelo aberto, um modal centralizado é desenhado por cima.
@@ -298,22 +429,36 @@ fn draw(frame: &mut Frame<'_>, estado: &Estado) {
         .constraints([Constraint::Min(3), Constraint::Length(3)])
         .split(frame.area());
 
-    let linhas: Vec<Line> = estado
-        .chat
-        .mensagens()
-        .iter()
-        .map(|mensagem| {
-            let prefixo = match mensagem.autor {
-                Autor::Usuario => "usuário: ",
-                Autor::Agente => "agente: ",
-            };
-            Line::from(format!("{prefixo}{}", mensagem.texto))
-        })
-        .collect();
-    let historico = Paragraph::new(linhas)
-        .block(Block::bordered().title(" agentry "))
-        .scroll((estado.scroll, 0));
-    frame.render_widget(historico, areas[0]);
+    // Largura/altura *internas* ao bloco com borda (2 colunas/linhas a
+    // menos que a área cheia) — mesmas contas usadas pelo `ratatui` para
+    // desenhar `Block::bordered()`.
+    let largura_interna = areas[0].width.saturating_sub(2) as usize;
+    let altura_interna = areas[0].height.saturating_sub(2) as usize;
+
+    if estado.chat.mensagens().is_empty() {
+        let preenchimento_vertical = altura_interna.saturating_sub(LOGO_ABERTURA.len()) / 2;
+        let mut linhas_do_logo = vec![Line::from(""); preenchimento_vertical];
+        linhas_do_logo.extend(LOGO_ABERTURA.iter().map(|linha| Line::from(*linha)));
+        let logo = Paragraph::new(linhas_do_logo)
+            .alignment(Alignment::Center)
+            .block(Block::bordered().title(" agentry "));
+        frame.render_widget(logo, areas[0]);
+    } else {
+        let linhas = montar_linhas_do_historico(estado, largura_interna);
+        // `estado.scroll` conta "quantas linhas rolar para cima a partir do
+        // fim" (0 = fim da conversa, sempre visível assim que uma mensagem
+        // nova chega — achado num teste manual de usabilidade: a conversa
+        // abria no topo, com a mensagem mais nova só visível depois de rolar
+        // manualmente até o fim). Convertido aqui para o deslocamento
+        // "a partir do topo" que a API do `ratatui` espera.
+        let deslocamento_maximo = linhas.len().saturating_sub(altura_interna.max(1));
+        let scroll_efetivo = (estado.scroll as usize).min(deslocamento_maximo);
+        let deslocamento_do_topo = (deslocamento_maximo - scroll_efetivo) as u16;
+        let historico = Paragraph::new(linhas)
+            .block(Block::bordered().title(" agentry "))
+            .scroll((deslocamento_do_topo, 0));
+        frame.render_widget(historico, areas[0]);
+    }
 
     let modo_auto = if estado.auto.load(Ordering::Relaxed) {
         " [auto]"
@@ -821,6 +966,93 @@ mod tests {
         Estado::new(RuntimeOverride::default(), Arc::new(AtomicBool::new(false)))
     }
 
+    // --- quebrar_em_linhas / fatiar_palavra_longa (achado de usabilidade:
+    // texto maior que a largura do terminal desaparecia da tela) ---
+
+    #[test]
+    fn quebrar_em_linhas_nao_quebra_texto_que_ja_cabe() {
+        assert_eq!(quebrar_em_linhas("oi tudo bem", 20), vec!["oi tudo bem"]);
+    }
+
+    #[test]
+    fn quebrar_em_linhas_quebra_no_espaco_mais_proximo_do_limite() {
+        assert_eq!(
+            quebrar_em_linhas("uma frase razoavelmente longa para quebrar", 10),
+            vec!["uma frase", "razoavelme", "nte longa", "para", "quebrar"]
+        );
+    }
+
+    #[test]
+    fn quebrar_em_linhas_preserva_quebras_de_linha_explicitas() {
+        assert_eq!(
+            quebrar_em_linhas("linha um\nlinha dois", 20),
+            vec!["linha um", "linha dois"]
+        );
+    }
+
+    #[test]
+    fn quebrar_em_linhas_preserva_linha_em_branco() {
+        assert_eq!(
+            quebrar_em_linhas("antes\n\ndepois", 20),
+            vec!["antes", "", "depois"]
+        );
+    }
+
+    #[test]
+    fn fatiar_palavra_longa_corta_uma_palavra_maior_que_a_largura_inteira() {
+        assert_eq!(
+            fatiar_palavra_longa("umapalavraenormesemespacos", 10),
+            vec!["umapalavra", "enormeseme", "spacos"]
+        );
+    }
+
+    #[test]
+    fn fatiar_palavra_longa_devolve_a_palavra_intacta_quando_ja_cabe() {
+        assert_eq!(fatiar_palavra_longa("oi", 10), vec!["oi"]);
+    }
+
+    #[test]
+    fn montar_linhas_do_historico_da_recuo_pendurado_nas_linhas_de_continuacao() {
+        let mut estado = estado_vazio();
+        estado.entrada = "uma mensagem razoavelmente comprida para quebrar em linhas".into();
+        estado.preparar_envio();
+
+        // "usuário: " tem 9 caracteres — largura pequena o bastante para
+        // forçar quebra em várias linhas.
+        let linhas = montar_linhas_do_historico(&estado, 20);
+
+        let primeira: String = linhas[0].to_string();
+        assert!(primeira.starts_with("usuário: "), "linha: {primeira:?}");
+        let segunda: String = linhas[1].to_string();
+        assert!(
+            segunda.starts_with("         "),
+            "continuação deveria começar com o mesmo recuo do prefixo, veio: {segunda:?}"
+        );
+        assert!(
+            !segunda.contains("usuário:"),
+            "prefixo não deve se repetir na continuação"
+        );
+    }
+
+    #[test]
+    fn montar_linhas_do_historico_estiliza_marcador_de_tool_de_forma_diferente() {
+        let mut estado = estado_vazio();
+        estado.entrada = "crie um arquivo".into();
+        estado.preparar_envio();
+        estado.chat.aplicar_evento(&StreamEvent::ToolCallStart {
+            id: "call_1".into(),
+            name: "fs_write".into(),
+        });
+
+        let linhas = montar_linhas_do_historico(&estado, 40);
+        let linha_do_marcador = linhas
+            .iter()
+            .find(|linha| linha.to_string().contains('⚙'))
+            .expect("deve haver uma linha com o marcador de tool");
+
+        assert_eq!(linha_do_marcador.style, ESTILO_MARCADOR_DE_TOOL);
+    }
+
     #[test]
     fn preparar_envio_move_o_texto_para_o_historico_e_marca_enviando() {
         let mut estado = estado_vazio();
@@ -855,12 +1087,14 @@ mod tests {
     }
 
     #[test]
-    fn rolar_para_cima_no_topo_permanece_em_zero() {
+    fn rolar_para_cima_aumenta_a_distancia_do_fim_da_conversa() {
         let mut estado = estado_vazio();
 
         estado.rolar_para_cima();
+        assert_eq!(estado.scroll, 1);
 
-        assert_eq!(estado.scroll, 0);
+        estado.rolar_para_cima();
+        assert_eq!(estado.scroll, 2);
     }
 
     #[test]
@@ -873,16 +1107,29 @@ mod tests {
     }
 
     #[test]
-    fn rolar_para_baixo_satura_no_numero_de_mensagens() {
+    fn rolar_para_baixo_nunca_fica_negativo_mesmo_depois_de_rolar_para_cima() {
         let mut estado = estado_vazio();
-        estado.entrada = "oi".into();
-        estado.preparar_envio(); // 2 mensagens (usuário + turno do agente)
+        estado.rolar_para_cima();
+        estado.rolar_para_cima();
 
         for _ in 0..10 {
             estado.rolar_para_baixo();
         }
 
-        assert_eq!(estado.scroll, 1);
+        assert_eq!(estado.scroll, 0);
+    }
+
+    #[test]
+    fn preparar_envio_reseta_o_scroll_para_o_fim_da_conversa() {
+        let mut estado = estado_vazio();
+        estado.rolar_para_cima();
+        estado.rolar_para_cima();
+        assert_eq!(estado.scroll, 2);
+
+        estado.entrada = "oi".into();
+        estado.preparar_envio();
+
+        assert_eq!(estado.scroll, 0);
     }
 
     #[test]

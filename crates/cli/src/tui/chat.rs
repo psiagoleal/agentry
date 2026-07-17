@@ -58,20 +58,31 @@ impl ChatState {
 
     /// Aplica um [`StreamEvent`] ao turno do agente em aberto (o último da
     /// lista) — `TextDelta` cresce o texto acumulado, `MessageEnd` marca o
-    /// turno como concluído. Sem turno aberto (nenhuma mensagem enviada
-    /// ainda), o evento é ignorado, não um erro. Outros eventos
-    /// (`MessageStart`, `ToolCallStart`/`Delta`) não têm representação
-    /// visual nesta ticket — confirmação de tool via widget é o MT-74.
+    /// turno como concluído, `ToolCallStart` acrescenta um marcador inline
+    /// (`⚙ usando <tool>...`) para dar alguma visibilidade de que o agente
+    /// está agindo, não só respondendo texto — achado num teste manual de
+    /// usabilidade (a TUI não mostrava nada enquanto o agente criava/editava
+    /// arquivos). `draw` (`crates/cli/src/tui/mod.rs`) estiliza essas linhas
+    /// de forma diferente do texto normal. `ToolCallDelta` continua sem
+    /// representação visual (fragmentos de JSON de argumento não são
+    /// legíveis). Sem turno aberto (nenhuma mensagem enviada ainda), o
+    /// evento é ignorado, não um erro.
     pub fn aplicar_evento(&mut self, evento: &StreamEvent) {
         let Some(ultima) = self.mensagens.last_mut() else {
             return;
         };
         match evento {
             StreamEvent::TextDelta { text } => ultima.texto.push_str(text),
+            StreamEvent::ToolCallStart { name, .. } => {
+                if !ultima.texto.is_empty() && !ultima.texto.ends_with('\n') {
+                    ultima.texto.push('\n');
+                }
+                ultima.texto.push_str("⚙ usando ");
+                ultima.texto.push_str(name);
+                ultima.texto.push_str("...\n");
+            }
             StreamEvent::MessageEnd { .. } => ultima.concluida = true,
-            StreamEvent::MessageStart
-            | StreamEvent::ToolCallStart { .. }
-            | StreamEvent::ToolCallDelta { .. } => {}
+            StreamEvent::MessageStart | StreamEvent::ToolCallDelta { .. } => {}
         }
     }
 
@@ -137,6 +148,41 @@ mod tests {
     }
 
     #[test]
+    fn tool_call_start_acrescenta_marcador_inline_visivel() {
+        let mut estado = ChatState::new();
+        estado.registrar_mensagem_usuario("crie um arquivo".into());
+
+        estado.aplicar_evento(&StreamEvent::ToolCallStart {
+            id: "call_1".into(),
+            name: "fs_write".into(),
+        });
+
+        assert_eq!(
+            estado.mensagens().last().unwrap().texto,
+            "⚙ usando fs_write...\n"
+        );
+    }
+
+    #[test]
+    fn tool_call_start_depois_de_texto_pula_linha_antes_do_marcador() {
+        let mut estado = ChatState::new();
+        estado.registrar_mensagem_usuario("oi".into());
+        estado.aplicar_evento(&StreamEvent::TextDelta {
+            text: "vou criar o arquivo".into(),
+        });
+
+        estado.aplicar_evento(&StreamEvent::ToolCallStart {
+            id: "call_1".into(),
+            name: "fs_write".into(),
+        });
+
+        assert_eq!(
+            estado.mensagens().last().unwrap().texto,
+            "vou criar o arquivo\n⚙ usando fs_write...\n"
+        );
+    }
+
+    #[test]
     fn message_end_marca_o_turno_como_concluido() {
         let mut estado = ChatState::new();
         estado.registrar_mensagem_usuario("oi".into());
@@ -159,15 +205,15 @@ mod tests {
     }
 
     #[test]
-    fn eventos_sem_representacao_visual_nao_alteram_o_texto() {
+    fn message_start_e_tool_call_delta_nao_tem_representacao_visual_propria() {
+        // `ToolCallStart` É visível (marcador inline, ver os testes
+        // `tool_call_start_*` acima) — só `MessageStart`/`ToolCallDelta`
+        // continuam sem efeito no texto (fragmentos de JSON de argumento
+        // não são legíveis).
         let mut estado = ChatState::new();
         estado.registrar_mensagem_usuario("oi".into());
 
         estado.aplicar_evento(&StreamEvent::MessageStart);
-        estado.aplicar_evento(&StreamEvent::ToolCallStart {
-            id: "1".into(),
-            name: "fs_read".into(),
-        });
         estado.aplicar_evento(&StreamEvent::ToolCallDelta {
             id: "1".into(),
             delta: "{}".into(),
