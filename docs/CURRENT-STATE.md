@@ -146,13 +146,30 @@ permissão/confirmação, revisão de *diff*, *streaming*/Markdown, rolagem, *on
 **todas as 5** referências pesquisadas; **nenhum *widget*/*tool* de lista de tarefas** é o gap
 mais consistente (3 de 5 ferramentas têm algo equivalente).
 
-**Fecha a Fase B (rodada 4/roadmap v0.15 inteiro: MT-96..103, todos concluídos).** Próximo
-passo: Fase C+ (redesenho da TUI informado pela pesquisa) — **aguardando o mantenedor revisar
-`docs/pesquisa-tui-referencias.md` e priorizar quais das 10 oportunidades viram ticket de
-verdade** antes de qualquer implementação começar (mesma disciplina de ADR-com-contexto-fresco
-do resto do projeto — não decidir sozinho o que implementar de uma lista de oportunidades sem
-confirmação, já que são mudanças de design de UI com gosto/prioridade do mantenedor
-envolvidos, não bugs a corrigir).
+**Fecha a Fase B (rodada 4/roadmap v0.15: MT-96..103, todos concluídos).**
+
+### Fase C — em andamento (`docs/roadmap-v0.15.md`, MT-104..110)
+
+Mantenedor revisou `docs/pesquisa-tui-referencias.md` e autorizou seguir, pedindo que as
+escolhas priorizem: (1) usabilidade pelo usuário, (2) evitar confusão com modelos menos
+capazes, (3) produtividade com segurança. Decisão registrada no plano de implementação desta
+rodada: três das 10 oportunidades da pesquisa atacadas agora — *tool* de lista de tarefas
+(`todo_write`) + *widget* de *checklist* na TUI, Markdown mínimo no histórico (blocos de código
++ negrito/código inline), painel de ajuda expandido + `/help`. As outras 6 (arquivo de
+*keybindings* do usuário, metadados no seletor de modelo, tema configurável, `Page Up`/`Down`,
+editor externo, comando `/review`) ficam para uma rodada futura, não descartadas.
+
+- MT-104 ✅ (`a479732`) — ADR-0034 (`Proposed`): `todo_write` sem efeito colateral, semântica
+  de substituição total por chamada, sem estado persistido no núcleo; renderização só na TUI
+  via reacumulação de fragmentos do lado dela (não muda o contrato de `StreamEvent` — uma
+  variante nova quebraria *matches* exaustivos em `session/mod.rs`/`tui/chat.rs`).
+- MT-105 ✅ (`e87baa6`) — `TodoWriteTool` em `crates/core/src/tools/todo.rs` (7 testes).
+- MT-106 ✅ (`71029f6`) — registrada em `main.rs` + `docs/usuario/uso.md`; verificado com
+  smoke-test real (mock HTTP): `todo_write` aparece na lista de tools mandada ao modelo (15 no
+  total, era 14).
+- MT-107 (em andamento) — renderização do *checklist* na TUI.
+- MT-108/109 (pendente) — Markdown mínimo (blocos de código; negrito/código inline).
+- MT-110 (pendente) — painel de ajuda (`?`) + `/help`.
 
 **Máquina de teste:** o mantenedor criou uma pasta `usage-test/` neste próprio Linux para
 testar com Ollama — sem acesso à VPN necessária para LiteLLM aqui (só no notebook Windows).

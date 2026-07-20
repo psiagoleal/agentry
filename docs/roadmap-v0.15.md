@@ -132,7 +132,7 @@ de *keybindings* do usuário, metadados no seletor de modelo, tema configurável
 `Down`, editor externo, comando `/review`) ficam candidatas para uma rodada futura, não
 descartadas. Decisão completa registrada no plano de implementação desta rodada.
 
-### MT-104: ADR-0034 — tool `todo_write`, sem estado persistido no núcleo
+### MT-104: ADR-0034 — tool `todo_write`, sem estado persistido no núcleo ✅ concluído (a479732)
 - **Objetivo:** `docs/adr/0034-tool-todo-write-sem-estado-persistido.md` (`Proposed`): nova
   *tool* sem efeito colateral, semântica de substituição total por chamada, renderização só na
   TUI (reacumulação de fragmentos do lado da TUI em vez de mudar o contrato de `StreamEvent`).
@@ -140,7 +140,7 @@ descartadas. Decisão completa registrada no plano de implementação desta roda
 - **Critério de aceite:** ADR segue o template (`skill adr-writer`).
 - **Depende de:** nenhum.
 
-### MT-105: `TodoWriteTool` no núcleo
+### MT-105: `TodoWriteTool` no núcleo ✅ concluído (e87baa6)
 - **Objetivo:** `crates/core/src/tools/todo.rs` — schema (`items: [{content, status}]`),
   `execute()` só valida estruturalmente e devolve confirmação; nenhum efeito colateral, nenhum
   estado persistido.
@@ -150,7 +150,7 @@ descartadas. Decisão completa registrada no plano de implementação desta roda
   tratado); confirmação menciona o número de itens.
 - **Depende de:** MT-104.
 
-### MT-106: Registro da tool + documentação
+### MT-106: Registro da tool + documentação ✅ concluído (71029f6)
 - **Objetivo:** `crates/cli/src/main.rs` registra `TodoWriteTool` (mesmo padrão de
   `SkillTool`/`AskUserTool`), antes de `register_subagent_tool` (entra na fiação dual-registry
   do MT-91 automaticamente). `docs/usuario/uso.md` ganha uma entrada na lista de *tools*.
