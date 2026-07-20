@@ -18,8 +18,11 @@ agentry-core = { path = "../core" }
 clap = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "io-std"] }
 ratatui = { workspace = true }
-
-[dev-dependencies]
+# Promovido de [dev-dependencies] pro MT-107 (ADR-0034): a TUI passa a
+# interpretar JSON de verdade (argumentos acumulados de `todo_write`) fora
+# de teste, não só nos testes -- não é dependência nova na árvore, `serde_json`
+# já é dependência direta de `agentry-core` (que `agentry` já depende de
+# qualquer forma), só uma promoção de escopo dentro do próprio workspace.
 serde_json = { workspace = true }
 
 [lints]

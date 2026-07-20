@@ -5,7 +5,46 @@
 //! (`crates/cli/src/tui/mod.rs`) só chama [`ChatState::registrar_mensagem_usuario`]/
 //! [`ChatState::aplicar_evento`] — nenhuma lógica de *streaming* mora aqui.
 
+use std::collections::HashMap;
+
 use agentry_core::model::StreamEvent;
+
+/// Interpreta `argumentos_json` (acumulado de `ToolCallDelta`) como os
+/// argumentos de `todo_write` e formata um *checklist* legível — `None`
+/// quando o JSON não interpreta (fragmentos ainda incompletos, ou um
+/// modelo confuso mandando algo malformado; achado real da rodada 4:
+/// modelos locais mais fracos às vezes erram a forma dos argumentos).
+/// Nunca entra em pânico — só `serde_json`/acesso a campo, tudo com
+/// `Option`. `[x]` concluído, `[~]` em andamento, `[ ]` pendente (também o
+/// padrão para um `status` desconhecido — degrada para "ainda não feito"
+/// em vez de esconder o item).
+fn formatar_checklist_todo(argumentos_json: &str) -> Option<String> {
+    let valor: serde_json::Value = serde_json::from_str(argumentos_json).ok()?;
+    let items = valor.get("items")?.as_array()?;
+    if items.is_empty() {
+        return None;
+    }
+
+    let mut saida = String::from("lista de tarefas:\n");
+    for item in items {
+        let conteudo = item.get("content")?.as_str()?;
+        let status = item
+            .get("status")
+            .and_then(|v| v.as_str())
+            .unwrap_or("pending");
+        let marcador = match status {
+            "completed" => "[x]",
+            "in_progress" => "[~]",
+            _ => "[ ]",
+        };
+        saida.push_str("  ");
+        saida.push_str(marcador);
+        saida.push(' ');
+        saida.push_str(conteudo);
+        saida.push('\n');
+    }
+    Some(saida)
+}
 
 /// Quem produziu uma [`Mensagem`] do histórico.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -23,10 +62,22 @@ pub struct Mensagem {
     pub concluida: bool,
 }
 
+/// Chamada de tool em andamento na mensagem aberta, reacumulada a partir de
+/// `ToolCallStart`/`ToolCallDelta` (MT-107, ADR-0034) — só existe para
+/// reconstituir os argumentos completos de `todo_write` ao final do turno
+/// (nenhuma outra tool precisa disso hoje: seus fragmentos de JSON
+/// continuam sem representação visual). Descartada a cada `MessageEnd`.
+#[derive(Debug)]
+struct ChamadaEmAndamento {
+    nome: String,
+    argumentos: String,
+}
+
 /// Histórico de mensagens da view de chat.
 #[derive(Debug, Default)]
 pub struct ChatState {
     mensagens: Vec<Mensagem>,
+    chamadas_em_andamento: HashMap<String, ChamadaEmAndamento>,
 }
 
 impl ChatState {
@@ -63,11 +114,36 @@ impl ChatState {
     /// está agindo, não só respondendo texto — achado num teste manual de
     /// usabilidade (a TUI não mostrava nada enquanto o agente criava/editava
     /// arquivos). `draw` (`crates/cli/src/tui/mod.rs`) estiliza essas linhas
-    /// de forma diferente do texto normal. `ToolCallDelta` continua sem
-    /// representação visual (fragmentos de JSON de argumento não são
-    /// legíveis). Sem turno aberto (nenhuma mensagem enviada ainda), o
-    /// evento é ignorado, não um erro.
+    /// de forma diferente do texto normal.
+    ///
+    /// `ToolCallStart`/`ToolCallDelta` também alimentam
+    /// [`Self::chamadas_em_andamento`] (MT-107, ADR-0034) — reacumula os
+    /// fragmentos de JSON do lado da TUI (mesma técnica do
+    /// `StreamAggregator` privado do núcleo, só que na camada de
+    /// renderização) só para reconstituir os argumentos de `todo_write` ao
+    /// `MessageEnd`; um *checklist* formatado é anexado ao turno quando o
+    /// JSON acumulado interpreta corretamente, silenciosamente ignorado
+    /// (sem pânico, sem erro exibido) quando não — o marcador genérico já
+    /// emitido continua sendo o único traço visível nesse caso. Nenhuma
+    /// outra tool usa esse mapa; seus fragmentos continuam sem
+    /// representação própria. Sem turno aberto (nenhuma mensagem enviada
+    /// ainda), o evento é ignorado, não um erro.
     pub fn aplicar_evento(&mut self, evento: &StreamEvent) {
+        if let StreamEvent::ToolCallStart { id, name } = evento {
+            self.chamadas_em_andamento.insert(
+                id.clone(),
+                ChamadaEmAndamento {
+                    nome: name.clone(),
+                    argumentos: String::new(),
+                },
+            );
+        }
+        if let StreamEvent::ToolCallDelta { id, delta } = evento {
+            if let Some(chamada) = self.chamadas_em_andamento.get_mut(id) {
+                chamada.argumentos.push_str(delta);
+            }
+        }
+
         let Some(ultima) = self.mensagens.last_mut() else {
             return;
         };
@@ -81,7 +157,21 @@ impl ChatState {
                 ultima.texto.push_str(name);
                 ultima.texto.push_str("...\n");
             }
-            StreamEvent::MessageEnd { .. } => ultima.concluida = true,
+            StreamEvent::MessageEnd { .. } => {
+                ultima.concluida = true;
+                for chamada in self.chamadas_em_andamento.values() {
+                    if chamada.nome != "todo_write" {
+                        continue;
+                    }
+                    if let Some(checklist) = formatar_checklist_todo(&chamada.argumentos) {
+                        if !ultima.texto.is_empty() && !ultima.texto.ends_with('\n') {
+                            ultima.texto.push('\n');
+                        }
+                        ultima.texto.push_str(&checklist);
+                    }
+                }
+                self.chamadas_em_andamento.clear();
+            }
             StreamEvent::MessageStart | StreamEvent::ToolCallDelta { .. } => {}
         }
     }
@@ -221,6 +311,151 @@ mod tests {
 
         assert_eq!(estado.mensagens().last().unwrap().texto, "");
         assert!(!estado.mensagens().last().unwrap().concluida);
+    }
+
+    // --- formatar_checklist_todo / integração com todo_write (MT-107,
+    // ADR-0034) ---
+
+    #[test]
+    fn formatar_checklist_todo_com_json_valido_monta_o_checklist() {
+        let json = r#"{"items":[
+            {"content":"ler o arquivo","status":"completed"},
+            {"content":"editar o arquivo","status":"in_progress"},
+            {"content":"rodar os testes","status":"pending"}
+        ]}"#;
+
+        let checklist = formatar_checklist_todo(json).expect("JSON válido deve formatar");
+
+        assert_eq!(
+            checklist,
+            "lista de tarefas:\n  [x] ler o arquivo\n  [~] editar o arquivo\n  [ ] rodar os testes\n"
+        );
+    }
+
+    #[test]
+    fn formatar_checklist_todo_com_json_invalido_devolve_none() {
+        assert_eq!(formatar_checklist_todo("isto não é json"), None);
+        assert_eq!(formatar_checklist_todo(r#"{"items": "não é array"}"#), None);
+        assert_eq!(
+            formatar_checklist_todo(r#"{"items":[{"status":"pending"}]}"#),
+            None,
+            "item sem 'content' invalida a lista inteira"
+        );
+    }
+
+    #[test]
+    fn formatar_checklist_todo_com_lista_vazia_devolve_none() {
+        assert_eq!(formatar_checklist_todo(r#"{"items":[]}"#), None);
+    }
+
+    #[test]
+    fn formatar_checklist_todo_status_desconhecido_vira_pendente() {
+        let json = r#"{"items":[{"content":"x","status":"algo-estranho"}]}"#;
+
+        let checklist = formatar_checklist_todo(json).unwrap();
+
+        assert_eq!(checklist, "lista de tarefas:\n  [ ] x\n");
+    }
+
+    #[test]
+    fn todo_write_com_json_valido_anexa_checklist_ao_turno() {
+        let mut estado = ChatState::new();
+        estado.registrar_mensagem_usuario("faça uma tarefa de vários passos".into());
+
+        estado.aplicar_evento(&StreamEvent::ToolCallStart {
+            id: "call_1".into(),
+            name: "todo_write".into(),
+        });
+        estado.aplicar_evento(&StreamEvent::ToolCallDelta {
+            id: "call_1".into(),
+            delta: r#"{"items":[{"content":"passo 1","#.into(),
+        });
+        estado.aplicar_evento(&StreamEvent::ToolCallDelta {
+            id: "call_1".into(),
+            delta: r#""status":"pending"}]}"#.into(),
+        });
+        estado.aplicar_evento(&StreamEvent::MessageEnd {
+            usage: Usage::default(),
+        });
+
+        let texto = &estado.mensagens().last().unwrap().texto;
+        assert!(texto.contains("⚙ usando todo_write..."));
+        assert!(texto.contains("[ ] passo 1"), "texto: {texto:?}");
+    }
+
+    #[test]
+    fn todo_write_com_json_invalido_nao_anexa_checklist() {
+        let mut estado = ChatState::new();
+        estado.registrar_mensagem_usuario("oi".into());
+
+        estado.aplicar_evento(&StreamEvent::ToolCallStart {
+            id: "call_1".into(),
+            name: "todo_write".into(),
+        });
+        estado.aplicar_evento(&StreamEvent::ToolCallDelta {
+            id: "call_1".into(),
+            delta: "isto não fecha o json".into(),
+        });
+        estado.aplicar_evento(&StreamEvent::MessageEnd {
+            usage: Usage::default(),
+        });
+
+        let texto = &estado.mensagens().last().unwrap().texto;
+        assert_eq!(
+            texto, "⚙ usando todo_write...\n",
+            "só o marcador genérico, sem pânico"
+        );
+    }
+
+    #[test]
+    fn tool_diferente_de_todo_write_nao_gera_checklist() {
+        let mut estado = ChatState::new();
+        estado.registrar_mensagem_usuario("leia um arquivo".into());
+
+        estado.aplicar_evento(&StreamEvent::ToolCallStart {
+            id: "call_1".into(),
+            name: "fs_read".into(),
+        });
+        estado.aplicar_evento(&StreamEvent::ToolCallDelta {
+            id: "call_1".into(),
+            delta: r#"{"items":[{"content":"x","status":"pending"}]}"#.into(),
+        });
+        estado.aplicar_evento(&StreamEvent::MessageEnd {
+            usage: Usage::default(),
+        });
+
+        let texto = &estado.mensagens().last().unwrap().texto;
+        assert_eq!(
+            texto, "⚙ usando fs_read...\n",
+            "argumentos de outra tool nunca viram checklist, mesmo parecendo válidos"
+        );
+    }
+
+    #[test]
+    fn mapa_de_chamadas_em_andamento_reseta_a_cada_message_end() {
+        let mut estado = ChatState::new();
+        estado.registrar_mensagem_usuario("primeira".into());
+        estado.aplicar_evento(&StreamEvent::ToolCallStart {
+            id: "call_1".into(),
+            name: "todo_write".into(),
+        });
+        estado.aplicar_evento(&StreamEvent::MessageEnd {
+            usage: Usage::default(),
+        });
+
+        // Segundo turno: um ToolCallDelta com o MESMO id de antes (não
+        // deveria existir na prática, mas prova que o mapa foi limpo) não
+        // reaproveita nada do turno anterior.
+        estado.registrar_mensagem_usuario("segunda".into());
+        estado.aplicar_evento(&StreamEvent::ToolCallDelta {
+            id: "call_1".into(),
+            delta: r#"{"items":[]}"#.into(),
+        });
+        estado.aplicar_evento(&StreamEvent::MessageEnd {
+            usage: Usage::default(),
+        });
+
+        assert_eq!(estado.mensagens().last().unwrap().texto, "");
     }
 
     #[test]
