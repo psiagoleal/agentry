@@ -41,7 +41,7 @@ use std::sync::Arc;
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
-use ratatui::text::Line;
+use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Clear, Paragraph};
 use ratatui::{DefaultTerminal, Frame};
 use tokio::sync::mpsc;
@@ -545,11 +545,11 @@ fn com_indentacao_se_primeira(
     }
 }
 
-/// Estilo por autor da mensagem — única "formatação" aplicada por ora
-/// (destacar quem falou); rendering de Markdown propriamente dito (negrito,
-/// blocos de código) fica para uma extensão futura, ver conversa de
-/// usabilidade. Linhas do marcador de tool call (`ChatState::aplicar_evento`,
-/// prefixo `⚙`) recebem um estilo próprio, discreto, independente do autor.
+/// Estilo por autor da mensagem — base sobre a qual [`estilo_para_enfase`]
+/// aplica negrito/código inline (MT-109); linhas do marcador de tool call
+/// (`ChatState::aplicar_evento`, prefixo `⚙`) e blocos de código cercados
+/// recebem um estilo próprio, independente do autor (ver
+/// [`ESTILO_MARCADOR_DE_TOOL`]/[`ESTILO_BLOCO_DE_CODIGO`]).
 fn estilo_da_mensagem(autor: Autor) -> Style {
     match autor {
         Autor::Usuario => Style::default().fg(Color::Cyan),
@@ -566,6 +566,183 @@ const ESTILO_MARCADOR_DE_TOOL: Style = Style::new()
 /// de verdade vinham cheias de blocos ` ```python ``` ` aparecendo
 /// literalmente, sem nenhuma distinção visual do texto normal.
 const ESTILO_BLOCO_DE_CODIGO: Style = Style::new().fg(Color::Green);
+
+/// Estilo de um trecho `` `código inline` `` (MT-109) — cor própria,
+/// independente do autor, igual ao marcador de tool e ao bloco de código
+/// cercado; distinta de [`ESTILO_BLOCO_DE_CODIGO`] só pra diferenciar
+/// visualmente "trecho de código dentro de uma frase" de "bloco de código
+/// isolado".
+const ESTILO_CODIGO_INLINE: Style = Style::new().fg(Color::Magenta);
+
+/// Grau de ênfase de um trecho de texto dentro de uma linha (MT-109) —
+/// resultado de [`tokenizar_enfase`], consumido por [`estilo_para_enfase`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Enfase {
+    Normal,
+    Negrito,
+    Codigo,
+}
+
+/// Combina o estilo base do autor com o grau de ênfase de um trecho —
+/// negrito preserva a cor do autor só acrescentando o modificador; código
+/// inline usa cor própria ([`ESTILO_CODIGO_INLINE`]), igual a qualquer
+/// outro destaque que independe de autor neste módulo.
+fn estilo_para_enfase(estilo_base: Style, enfase: Enfase) -> Style {
+    match enfase {
+        Enfase::Normal => estilo_base,
+        Enfase::Negrito => estilo_base.add_modifier(Modifier::BOLD),
+        Enfase::Codigo => ESTILO_CODIGO_INLINE,
+    }
+}
+
+/// Acha o índice de início da próxima ocorrência de `marcador` em `chars`,
+/// a partir de `from` (inclusive) — usado por [`tokenizar_enfase`] pra
+/// achar o fechamento de `**`/`` ` ``. `None` quando não há fechamento no
+/// restante de `chars` (marcador de abertura sem par na mesma linha).
+fn proxima_ocorrencia(chars: &[char], from: usize, marcador: &[char]) -> Option<usize> {
+    if marcador.is_empty() || from + marcador.len() > chars.len() {
+        return None;
+    }
+    (from..=chars.len() - marcador.len()).find(|&i| chars[i..i + marcador.len()] == *marcador)
+}
+
+/// Quebra `linha` em segmentos `(texto, ênfase)`, detectando
+/// `**negrito**` e `` `código inline` `` — só quando o marcador de
+/// abertura tem um **fechamento na mesma linha**; sem fechamento, o
+/// marcador fica literal (parte do texto `Normal`). Importante durante
+/// *streaming*: a cada *frame* o texto acumulado do turno pode ter um `**`
+/// ainda sem par, que só fecha em *frames* seguintes — tratar como
+/// literal até fechar evita negrito "vazando" pro resto da mensagem por
+/// engano. Não trata blocos de código cercados (` ``` `) — isso é
+/// responsabilidade de quem chama, por linha lógica inteira, antes de
+/// decidir se tokeniza ou não (ver `montar_linhas_do_historico`).
+fn tokenizar_enfase(linha: &str) -> Vec<(String, Enfase)> {
+    let chars: Vec<char> = linha.chars().collect();
+    let mut saida = Vec::new();
+    let mut atual = String::new();
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i] == '*' && chars.get(i + 1) == Some(&'*') {
+            if let Some(fim) = proxima_ocorrencia(&chars, i + 2, &['*', '*']) {
+                if !atual.is_empty() {
+                    saida.push((std::mem::take(&mut atual), Enfase::Normal));
+                }
+                saida.push((chars[i + 2..fim].iter().collect(), Enfase::Negrito));
+                i = fim + 2;
+                continue;
+            }
+        } else if chars[i] == '`' {
+            if let Some(fim) = proxima_ocorrencia(&chars, i + 1, &['`']) {
+                if !atual.is_empty() {
+                    saida.push((std::mem::take(&mut atual), Enfase::Normal));
+                }
+                saida.push((chars[i + 1..fim].iter().collect(), Enfase::Codigo));
+                i = fim + 1;
+                continue;
+            }
+        }
+        atual.push(chars[i]);
+        i += 1;
+    }
+    if !atual.is_empty() {
+        saida.push((atual, Enfase::Normal));
+    }
+    saida
+}
+
+/// Acrescenta `palavra` (com `enfase`) ao fim de `runs` — junta com o
+/// último *run* se a ênfase for igual (mesmo *run*, separado por espaço);
+/// caso contrário abre um *run* novo, cujo texto já começa com o espaço
+/// separador (garante exatamente um espaço entre palavras de ênfases
+/// diferentes sem duplicar lógica de junção depois). Auxiliar de
+/// [`quebrar_em_linhas_com_estilo`].
+fn empilhar_palavra_com_estilo(runs: &mut Vec<(String, Enfase)>, palavra: String, enfase: Enfase) {
+    match runs.last_mut() {
+        Some(ultimo) if ultimo.1 == enfase => {
+            ultimo.0.push(' ');
+            ultimo.0.push_str(&palavra);
+        }
+        _ => runs.push((format!(" {palavra}"), enfase)),
+    }
+}
+
+/// Prefixa o **primeiro** *run* de `runs` com `indentacao` só na primeira
+/// linha resultante do *wrap* de uma linha original (mesmo padrão de
+/// [`com_indentacao_se_primeira`], generalizado para múltiplos *runs*).
+fn com_indentacao_se_primeira_com_estilo(
+    indentacao: &str,
+    mut runs: Vec<(String, Enfase)>,
+    primeira_linha: &mut bool,
+) -> Vec<(String, Enfase)> {
+    if *primeira_linha {
+        *primeira_linha = false;
+        if !indentacao.is_empty() {
+            match runs.first_mut() {
+                Some(primeiro) => primeiro.0 = format!("{indentacao}{}", primeiro.0),
+                None => runs.push((indentacao.to_string(), Enfase::Normal)),
+            }
+        }
+    }
+    runs
+}
+
+/// Como [`quebrar_em_linhas`], mas preservando `**negrito**`/
+/// `` `código` `` como ênfase por palavra em vez de descartar a sintaxe
+/// (MT-109) — usado só fora de blocos de código cercados (blocos cercados
+/// continuam usando o *wrap* simples de sempre, ver
+/// `montar_linhas_do_historico`). Cada linha resultante já vem como
+/// sequência de *runs* prontos pra virar `Span`s, na ordem de
+/// renderização; a indentação à esquerda da linha original (mesmo achado
+/// do MT-108) é preservada só na primeira linha resultante.
+fn quebrar_em_linhas_com_estilo(texto: &str, largura: usize) -> Vec<Vec<(String, Enfase)>> {
+    let largura = largura.max(1);
+    let mut saida = Vec::new();
+    for linha_original in texto.split('\n') {
+        let aparado = linha_original.trim_start_matches(' ');
+        let tamanho_indentacao = linha_original.chars().count() - aparado.chars().count();
+        let indentacao: String = linha_original.chars().take(tamanho_indentacao).collect();
+        let largura_disponivel = largura.saturating_sub(tamanho_indentacao).max(1);
+
+        let palavras: Vec<(String, Enfase)> = tokenizar_enfase(aparado)
+            .into_iter()
+            .flat_map(|(texto_seg, enfase)| {
+                texto_seg
+                    .split(' ')
+                    .flat_map(move |palavra| fatiar_palavra_longa(palavra, largura_disponivel))
+                    .map(move |palavra| (palavra, enfase))
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+
+        let mut runs: Vec<(String, Enfase)> = Vec::new();
+        let mut largura_atual = 0usize;
+        let mut primeira_linha = true;
+        for (palavra, enfase) in palavras {
+            let tamanho_palavra = palavra.chars().count();
+            if runs.is_empty() {
+                largura_atual = tamanho_palavra;
+                runs.push((palavra, enfase));
+            } else if largura_atual + 1 + tamanho_palavra <= largura_disponivel {
+                largura_atual += 1 + tamanho_palavra;
+                empilhar_palavra_com_estilo(&mut runs, palavra, enfase);
+            } else {
+                saida.push(com_indentacao_se_primeira_com_estilo(
+                    &indentacao,
+                    std::mem::take(&mut runs),
+                    &mut primeira_linha,
+                ));
+                largura_atual = tamanho_palavra;
+                runs.push((palavra, enfase));
+            }
+        }
+        saida.push(com_indentacao_se_primeira_com_estilo(
+            &indentacao,
+            runs,
+            &mut primeira_linha,
+        ));
+    }
+    saida
+}
 
 /// Monta as linhas já quebradas/estilizadas do histórico inteiro, dado
 /// quantas colunas estão disponíveis — função pura (sem `Frame`), testável
@@ -600,22 +777,53 @@ fn montar_linhas_do_historico(estado: &Estado, largura_disponivel: usize) -> Vec
             if e_cerca {
                 dentro_de_bloco_de_codigo = !dentro_de_bloco_de_codigo;
             }
-            let estilo = if e_cerca || dentro_de_bloco_de_codigo {
-                ESTILO_BLOCO_DE_CODIGO
-            } else if linha_original.trim_start().starts_with('⚙') {
-                ESTILO_MARCADOR_DE_TOOL
-            } else {
-                estilo_base
-            };
 
-            for linha_quebrada in quebrar_em_linhas(linha_original, largura_do_texto) {
-                let texto_da_linha = if primeira_linha_da_mensagem {
-                    format!("{prefixo}{linha_quebrada}")
+            // Cercas/conteúdo de bloco de código e o marcador de tool em uso
+            // usam o *wrap* simples de sempre, sem tokenizar `**`/`` ` ``
+            // (dentro de um bloco de código esses caracteres são literais,
+            // nunca sintaxe de ênfase) — mesmo padrão de linha inteira com
+            // um só estilo já usado desde o MT-108.
+            if e_cerca || dentro_de_bloco_de_codigo {
+                for linha_quebrada in quebrar_em_linhas(linha_original, largura_do_texto) {
+                    let texto_da_linha = if primeira_linha_da_mensagem {
+                        format!("{prefixo}{linha_quebrada}")
+                    } else {
+                        format!("{recuo}{linha_quebrada}")
+                    };
+                    primeira_linha_da_mensagem = false;
+                    linhas.push(Line::styled(texto_da_linha, ESTILO_BLOCO_DE_CODIGO));
+                }
+                continue;
+            }
+            if linha_original.trim_start().starts_with('⚙') {
+                for linha_quebrada in quebrar_em_linhas(linha_original, largura_do_texto) {
+                    let texto_da_linha = if primeira_linha_da_mensagem {
+                        format!("{prefixo}{linha_quebrada}")
+                    } else {
+                        format!("{recuo}{linha_quebrada}")
+                    };
+                    primeira_linha_da_mensagem = false;
+                    linhas.push(Line::styled(texto_da_linha, ESTILO_MARCADOR_DE_TOOL));
+                }
+                continue;
+            }
+
+            // Texto normal (MT-109): `**negrito**`/`` `código` `` viram
+            // `Span`s próprios dentro da mesma `Line`, preservando a cor do
+            // autor como base.
+            for runs in quebrar_em_linhas_com_estilo(linha_original, largura_do_texto) {
+                let prefixo_da_linha = if primeira_linha_da_mensagem {
+                    prefixo.to_string()
                 } else {
-                    format!("{recuo}{linha_quebrada}")
+                    recuo.clone()
                 };
                 primeira_linha_da_mensagem = false;
-                linhas.push(Line::styled(texto_da_linha, estilo));
+
+                let mut spans = vec![Span::styled(prefixo_da_linha, estilo_base)];
+                spans.extend(runs.into_iter().map(|(texto, enfase)| {
+                    Span::styled(texto, estilo_para_enfase(estilo_base, enfase))
+                }));
+                linhas.push(Line::from(spans));
             }
         }
     }
@@ -1433,11 +1641,16 @@ mod tests {
 
         let linhas = montar_linhas_do_historico(&estado, 40);
         let estilo_de = |trecho: &str| {
-            linhas
+            let linha = linhas
                 .iter()
                 .find(|l| l.to_string().contains(trecho))
-                .unwrap_or_else(|| panic!("linha com {trecho:?} não encontrada"))
-                .style
+                .unwrap_or_else(|| panic!("linha com {trecho:?} não encontrada"));
+            let span = linha
+                .spans
+                .iter()
+                .find(|s| s.content.contains(trecho))
+                .unwrap_or_else(|| panic!("span com {trecho:?} não encontrado"));
+            linha.style.patch(span.style)
         };
 
         assert_eq!(estilo_de("antes"), estilo_da_mensagem(Autor::Agente));
@@ -1465,6 +1678,125 @@ mod tests {
             .expect("deve renderizar mesmo sem a cerca de fechamento");
 
         assert_eq!(linha_print.style, ESTILO_BLOCO_DE_CODIGO);
+    }
+
+    // --- tokenizar_enfase / quebrar_em_linhas_com_estilo / montar_linhas_do_historico
+    // com Markdown mínimo: **negrito** e `código inline` (MT-109) ---
+
+    #[test]
+    fn tokenizar_enfase_marca_negrito_fechado_na_mesma_linha() {
+        assert_eq!(
+            tokenizar_enfase("isto é **importante** aqui"),
+            vec![
+                ("isto é ".to_string(), Enfase::Normal),
+                ("importante".to_string(), Enfase::Negrito),
+                (" aqui".to_string(), Enfase::Normal),
+            ]
+        );
+    }
+
+    #[test]
+    fn tokenizar_enfase_marca_codigo_inline_fechado_na_mesma_linha() {
+        assert_eq!(
+            tokenizar_enfase("use `cargo test` aqui"),
+            vec![
+                ("use ".to_string(), Enfase::Normal),
+                ("cargo test".to_string(), Enfase::Codigo),
+                (" aqui".to_string(), Enfase::Normal),
+            ]
+        );
+    }
+
+    #[test]
+    fn tokenizar_enfase_negrito_nao_fechado_fica_literal() {
+        // Estado normal em pleno streaming: o `**` de fechamento ainda não
+        // chegou nesse frame.
+        assert_eq!(
+            tokenizar_enfase("isto tem ** solto"),
+            vec![("isto tem ** solto".to_string(), Enfase::Normal)]
+        );
+    }
+
+    #[test]
+    fn tokenizar_enfase_crase_nao_fechada_fica_literal() {
+        assert_eq!(
+            tokenizar_enfase("isto tem ` solto"),
+            vec![("isto tem ` solto".to_string(), Enfase::Normal)]
+        );
+    }
+
+    #[test]
+    fn tokenizar_enfase_mistura_negrito_codigo_e_normal_na_mesma_linha() {
+        assert_eq!(
+            tokenizar_enfase("**forte** e `codigo` e normal"),
+            vec![
+                ("forte".to_string(), Enfase::Negrito),
+                (" e ".to_string(), Enfase::Normal),
+                ("codigo".to_string(), Enfase::Codigo),
+                (" e normal".to_string(), Enfase::Normal),
+            ]
+        );
+    }
+
+    #[test]
+    fn quebrar_em_linhas_com_estilo_preserva_negrito_atraves_da_quebra_de_linha() {
+        let linhas = quebrar_em_linhas_com_estilo("**abcdefgh**", 5);
+
+        assert_eq!(
+            linhas,
+            vec![
+                vec![("abcde".to_string(), Enfase::Negrito)],
+                vec![("fgh".to_string(), Enfase::Negrito)],
+            ]
+        );
+    }
+
+    #[test]
+    fn montar_linhas_do_historico_estiliza_negrito_e_codigo_inline() {
+        let mut estado = estado_vazio();
+        estado.entrada = "explique".into();
+        estado.preparar_envio();
+        estado.chat.aplicar_evento(&StreamEvent::TextDelta {
+            text: "isto é **importante**, use `cargo test`".into(),
+        });
+
+        let linhas = montar_linhas_do_historico(&estado, 80);
+        let linha = linhas
+            .iter()
+            .find(|l| l.to_string().contains("importante"))
+            .expect("linha renderizada");
+        let estilo_de = |trecho: &str| {
+            linha
+                .spans
+                .iter()
+                .find(|s| s.content.contains(trecho))
+                .unwrap_or_else(|| panic!("span com {trecho:?} não encontrado"))
+                .style
+        };
+
+        let base = estilo_da_mensagem(Autor::Agente);
+        assert_eq!(estilo_de("isto é"), base);
+        assert_eq!(estilo_de("importante"), base.add_modifier(Modifier::BOLD));
+        assert_eq!(estilo_de("cargo test"), ESTILO_CODIGO_INLINE);
+    }
+
+    #[test]
+    fn montar_linhas_do_historico_marcador_nao_fechado_durante_streaming_fica_literal() {
+        let mut estado = estado_vazio();
+        estado.entrada = "explique".into();
+        estado.preparar_envio();
+        estado.chat.aplicar_evento(&StreamEvent::TextDelta {
+            text: "isto está em **negrito ainda sem fechar".into(),
+        });
+
+        let linhas = montar_linhas_do_historico(&estado, 80);
+        let texto = linhas
+            .iter()
+            .map(|l| l.to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(texto.contains("**negrito ainda sem fechar"));
     }
 
     // --- altura_da_entrada (achado de usabilidade: caixa de entrada sem
