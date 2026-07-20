@@ -167,7 +167,13 @@ editor externo, comando `/review`) ficam para uma rodada futura, não descartada
 - MT-106 ✅ (`71029f6`) — registrada em `main.rs` + `docs/usuario/uso.md`; verificado com
   smoke-test real (mock HTTP): `todo_write` aparece na lista de tools mandada ao modelo (15 no
   total, era 14).
-- MT-107 (em andamento) — renderização do *checklist* na TUI.
+- MT-107 ✅ (`c90ccee`) — *checklist* de `todo_write` na TUI: `ChatState` reacumula
+  fragmentos de `ToolCallDelta` num mapa transiente, formata `[x]`/`[~]`/`[ ]` ao
+  `MessageEnd`. `serde_json` promovido de `[dev-dependencies]` para `[dependencies]` em
+  `crates/cli/Cargo.toml` (mesma pegadinha `[[bin]]` do MT-78 — não é dependência nova na
+  árvore). Verificado com smoke-test real via `tmux`; como bônus, confirmou também que o teto
+  de turnos do ADR-0033 entra em ação sozinho quando o modelo fica chamando `todo_write` em
+  loop (parou em exatamente 25 turnos).
 - MT-108/109 (pendente) — Markdown mínimo (blocos de código; negrito/código inline).
 - MT-110 (pendente) — painel de ajuda (`?`) + `/help`.
 

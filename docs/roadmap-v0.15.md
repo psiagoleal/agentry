@@ -159,7 +159,7 @@ descartadas. Decisão completa registrada no plano de implementação desta roda
   limpo.
 - **Depende de:** MT-105.
 
-### MT-107: Renderização do *checklist* na TUI
+### MT-107: Renderização do *checklist* na TUI ✅ concluído (c90ccee)
 - **Objetivo:** `ChatState` ganha um mapa transiente (`id -> nome + argumentos acumulados`),
   populado por `ToolCallStart`/`ToolCallDelta`; ao `MessageEnd`, `todo_write` com JSON válido
   vira um bloco de *checklist* formatado (`[x]`/`[~]`/`[ ]`) anexado ao turno; JSON inválido é
