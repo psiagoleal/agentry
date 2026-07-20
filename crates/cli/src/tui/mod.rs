@@ -478,30 +478,71 @@ fn fatiar_palavra_longa(palavra: &str, largura: usize) -> Vec<String> {
 /// para fora da tela). Quebras de linha explícitas do próprio texto (`\n`,
 /// ex.: um bloco de código) são preservadas como limites de linha, nunca
 /// unidas numa só.
+///
+/// A indentação inicial (espaços à esquerda) de cada linha original é
+/// preservada na **primeira** linha resultante do *wrap* — achado num
+/// *smoke-test* real do MT-108 (bloco de código cercado): dividir a linha
+/// em palavras por espaço faz espaços à esquerda virarem "palavras" vazias,
+/// que o loop de *wrap* original simplesmente descartava, apagando
+/// indentação de código (`    print(...)` virava `print(...)`). Linhas de
+/// continuação (por *wrap*) não repetem a indentação — mesmo padrão de
+/// "sem repetir o prefixo" já usado pelo recuo pendurado da mensagem
+/// inteira; na prática pouco relevante, já que linhas de código raramente
+/// são longas o bastante para quebrar numa largura de terminal normal.
 fn quebrar_em_linhas(texto: &str, largura: usize) -> Vec<String> {
     let largura = largura.max(1);
     let mut saida = Vec::new();
     for linha_original in texto.split('\n') {
-        let palavras: Vec<String> = linha_original
+        let aparado = linha_original.trim_start_matches(' ');
+        let tamanho_indentacao = linha_original.chars().count() - aparado.chars().count();
+        let indentacao: String = linha_original.chars().take(tamanho_indentacao).collect();
+        let largura_disponivel = largura.saturating_sub(tamanho_indentacao).max(1);
+
+        let palavras: Vec<String> = aparado
             .split(' ')
-            .flat_map(|palavra| fatiar_palavra_longa(palavra, largura))
+            .flat_map(|palavra| fatiar_palavra_longa(palavra, largura_disponivel))
             .collect();
 
         let mut atual = String::new();
+        let mut primeira_linha = true;
         for palavra in palavras {
             if atual.is_empty() {
                 atual = palavra;
-            } else if atual.chars().count() + 1 + palavra.chars().count() <= largura {
+            } else if atual.chars().count() + 1 + palavra.chars().count() <= largura_disponivel {
                 atual.push(' ');
                 atual.push_str(&palavra);
             } else {
-                saida.push(std::mem::take(&mut atual));
+                saida.push(com_indentacao_se_primeira(
+                    &indentacao,
+                    std::mem::take(&mut atual),
+                    &mut primeira_linha,
+                ));
                 atual = palavra;
             }
         }
-        saida.push(atual);
+        saida.push(com_indentacao_se_primeira(
+            &indentacao,
+            atual,
+            &mut primeira_linha,
+        ));
     }
     saida
+}
+
+/// Prefixa `linha` com `indentacao` só se for a primeira linha resultante
+/// do *wrap* de uma linha original (e marca `primeira_linha` como `false`
+/// em seguida) — auxiliar de [`quebrar_em_linhas`].
+fn com_indentacao_se_primeira(
+    indentacao: &str,
+    linha: String,
+    primeira_linha: &mut bool,
+) -> String {
+    if *primeira_linha {
+        *primeira_linha = false;
+        format!("{indentacao}{linha}")
+    } else {
+        linha
+    }
 }
 
 /// Estilo por autor da mensagem — única "formatação" aplicada por ora
@@ -520,11 +561,25 @@ const ESTILO_MARCADOR_DE_TOOL: Style = Style::new()
     .fg(Color::DarkGray)
     .add_modifier(Modifier::ITALIC);
 
+/// Estilo de um bloco de código cercado (` ``` `) — MT-108, achado real dos
+/// testes manuais de usabilidade: respostas de modelos sem *tool-calling*
+/// de verdade vinham cheias de blocos ` ```python ``` ` aparecendo
+/// literalmente, sem nenhuma distinção visual do texto normal.
+const ESTILO_BLOCO_DE_CODIGO: Style = Style::new().fg(Color::Green);
+
 /// Monta as linhas já quebradas/estilizadas do histórico inteiro, dado
 /// quantas colunas estão disponíveis — função pura (sem `Frame`), testável
 /// sem terminal real. Cada mensagem ganha um prefixo (`"usuário: "`/
 /// `"agente: "`) só na primeira linha; as linhas de continuação (por wrap)
 /// alinham por baixo do prefixo (recuo pendurado), sem repeti-lo.
+///
+/// Blocos de código cercados (` ``` `) são detectados **antes** do *wrap*,
+/// linha lógica por linha lógica do texto bruto (uma máquina de estados
+/// simples: dentro/fora de um bloco) — todo o conteúdo entre duas cercas
+/// (inclusive elas) ganha [`ESTILO_BLOCO_DE_CODIGO`]; o *wrap* em si
+/// continua idêntico (`quebrar_em_linhas`), só aplicado por linha lógica em
+/// vez de na mensagem inteira de uma vez, pra manter o estado da máquina
+/// alinhado com o texto original.
 fn montar_linhas_do_historico(estado: &Estado, largura_disponivel: usize) -> Vec<Line<'static>> {
     let mut linhas = Vec::new();
     for mensagem in estado.chat.mensagens() {
@@ -538,21 +593,30 @@ fn montar_linhas_do_historico(estado: &Estado, largura_disponivel: usize) -> Vec
             .max(1);
         let estilo_base = estilo_da_mensagem(mensagem.autor);
 
-        for (indice, linha) in quebrar_em_linhas(&mensagem.texto, largura_do_texto)
-            .iter()
-            .enumerate()
-        {
-            let texto_da_linha = if indice == 0 {
-                format!("{prefixo}{linha}")
-            } else {
-                format!("{recuo}{linha}")
-            };
-            let estilo = if linha.trim_start().starts_with('⚙') {
+        let mut primeira_linha_da_mensagem = true;
+        let mut dentro_de_bloco_de_codigo = false;
+        for linha_original in mensagem.texto.split('\n') {
+            let e_cerca = linha_original.trim_start().starts_with("```");
+            if e_cerca {
+                dentro_de_bloco_de_codigo = !dentro_de_bloco_de_codigo;
+            }
+            let estilo = if e_cerca || dentro_de_bloco_de_codigo {
+                ESTILO_BLOCO_DE_CODIGO
+            } else if linha_original.trim_start().starts_with('⚙') {
                 ESTILO_MARCADOR_DE_TOOL
             } else {
                 estilo_base
             };
-            linhas.push(Line::styled(texto_da_linha, estilo));
+
+            for linha_quebrada in quebrar_em_linhas(linha_original, largura_do_texto) {
+                let texto_da_linha = if primeira_linha_da_mensagem {
+                    format!("{prefixo}{linha_quebrada}")
+                } else {
+                    format!("{recuo}{linha_quebrada}")
+                };
+                primeira_linha_da_mensagem = false;
+                linhas.push(Line::styled(texto_da_linha, estilo));
+            }
         }
     }
     linhas
@@ -1283,6 +1347,25 @@ mod tests {
     }
 
     #[test]
+    fn quebrar_em_linhas_preserva_indentacao_a_esquerda() {
+        // Achado num smoke-test real do MT-108: código indentado (Python)
+        // perdia a indentação inteira, já que espaços à esquerda viravam
+        // "palavras" vazias que o wrap descartava.
+        assert_eq!(
+            quebrar_em_linhas("    print('oi')", 40),
+            vec!["    print('oi')"]
+        );
+    }
+
+    #[test]
+    fn quebrar_em_linhas_preserva_indentacao_em_linha_dentro_de_texto_maior() {
+        assert_eq!(
+            quebrar_em_linhas("def ola():\n    print('oi')", 40),
+            vec!["def ola():", "    print('oi')"]
+        );
+    }
+
+    #[test]
     fn fatiar_palavra_longa_corta_uma_palavra_maior_que_a_largura_inteira() {
         assert_eq!(
             fatiar_palavra_longa("umapalavraenormesemespacos", 10),
@@ -1335,6 +1418,53 @@ mod tests {
             .expect("deve haver uma linha com o marcador de tool");
 
         assert_eq!(linha_do_marcador.style, ESTILO_MARCADOR_DE_TOOL);
+    }
+
+    // --- blocos de código cercado (MT-108) ---
+
+    #[test]
+    fn montar_linhas_do_historico_estiliza_bloco_de_codigo_cercado() {
+        let mut estado = estado_vazio();
+        estado.entrada = "mostre um exemplo".into();
+        estado.preparar_envio();
+        estado.chat.aplicar_evento(&StreamEvent::TextDelta {
+            text: "antes\n```\nprint(1)\n```\ndepois".into(),
+        });
+
+        let linhas = montar_linhas_do_historico(&estado, 40);
+        let estilo_de = |trecho: &str| {
+            linhas
+                .iter()
+                .find(|l| l.to_string().contains(trecho))
+                .unwrap_or_else(|| panic!("linha com {trecho:?} não encontrada"))
+                .style
+        };
+
+        assert_eq!(estilo_de("antes"), estilo_da_mensagem(Autor::Agente));
+        assert_eq!(estilo_de("```"), ESTILO_BLOCO_DE_CODIGO);
+        assert_eq!(estilo_de("print(1)"), ESTILO_BLOCO_DE_CODIGO);
+        assert_eq!(estilo_de("depois"), estilo_da_mensagem(Autor::Agente));
+    }
+
+    #[test]
+    fn bloco_de_codigo_nao_fechado_durante_streaming_nao_quebra_nada() {
+        // Ainda recebendo o texto (a cerca de fechamento não chegou) — a
+        // renderização acontece a cada frame, então isso é o estado normal
+        // no meio de uma resposta longa em streaming, não um erro.
+        let mut estado = estado_vazio();
+        estado.entrada = "mostre um exemplo".into();
+        estado.preparar_envio();
+        estado.chat.aplicar_evento(&StreamEvent::TextDelta {
+            text: "```python\nprint(1".into(),
+        });
+
+        let linhas = montar_linhas_do_historico(&estado, 40);
+        let linha_print = linhas
+            .iter()
+            .find(|l| l.to_string().contains("print(1"))
+            .expect("deve renderizar mesmo sem a cerca de fechamento");
+
+        assert_eq!(linha_print.style, ESTILO_BLOCO_DE_CODIGO);
     }
 
     // --- altura_da_entrada (achado de usabilidade: caixa de entrada sem
