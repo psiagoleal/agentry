@@ -180,7 +180,7 @@ descartadas. Decisão completa registrada no plano de implementação desta roda
   nada. *Smoke-test* real via `tmux`.
 - **Depende de:** nenhum.
 
-### MT-109: Negrito e código inline no histórico
+### MT-109: Negrito e código inline no histórico ✅ concluído (649ae8a)
 - **Objetivo:** `tokenizar_enfase` (linha a linha, marcadores só valem se **fechados** na mesma
   linha — resolve o caso de *streaming* com `**`/`` ` `` ainda sem par) + nova
   `quebrar_em_linhas_com_estilo` (*wrap* ciente de segmento) + `montar_linhas_do_historico`

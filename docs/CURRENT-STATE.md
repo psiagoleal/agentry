@@ -180,7 +180,15 @@ editor externo, comando `/review`) ficam para uma rodada futura, não descartada
   (espaços viravam "palavras" vazias no `split(' ')`) — código Python indentado perdia a
   indentação inteira; agora preservada na primeira linha resultante do *wrap*. Verificado com
   smoke-test real via `tmux` (bloco renderiza com indentação correta).
-- MT-109 (pendente) — negrito/código inline.
+- MT-109 ✅ (`649ae8a`) — negrito (`**texto**`) e código inline (`` `texto` ``) no histórico.
+  `tokenizar_enfase` só reconhece um marcador se ele **fecha na mesma linha** (marcador solto
+  em pleno *streaming* fica literal); `quebrar_em_linhas_com_estilo` faz o *wrap* preservando a
+  ênfase de cada palavra através de quebras de linha; `montar_linhas_do_historico` monta `Line`
+  com múltiplos `Span` no caminho de texto normal (blocos de código/marcador de tool continuam
+  no caminho de estilo único do MT-108, sem interação entre os dois). 8 testes novos (101 no
+  módulo `tui`, 601 no *workspace*). Verificado com smoke-test real via `tmux` + mock HTTP:
+  código ANSI de negrito (`\e[1m`) e magenta (`\e[38;5;5m`) confirmados no terminal, inclusive
+  um segundo trecho em negrito depois do primeiro (sem "vazamento" de estilo entre trechos).
 - MT-110 (pendente) — painel de ajuda (`?`) + `/help`.
 
 **Máquina de teste:** o mantenedor criou uma pasta `usage-test/` neste próprio Linux para
