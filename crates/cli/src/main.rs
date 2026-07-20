@@ -59,6 +59,7 @@ use agentry_core::tools::repo_map::{register_repo_map_tool, RepoMapTool};
 use agentry_core::tools::shell::{ShellBackgroundTool, ShellPolicy, ShellTool};
 use agentry_core::tools::skill::SkillTool;
 use agentry_core::tools::subagent::SubagentTool;
+use agentry_core::tools::todo::TodoWriteTool;
 use agentry_core::tools::web_fetch::{WebFetchTool, WEB_TOOL_USER_AGENT};
 use agentry_core::tools::web_search::WebSearchTool;
 use agentry_core::tools::ToolRegistry;
@@ -1042,6 +1043,7 @@ async fn main() {
     registry.register(Arc::new(ShellBackgroundTool::new(ShellPolicy::new(vec![]))));
     registry.register(Arc::new(SkillTool::new(skills_descobertas.clone())));
     registry.register(Arc::new(AskUserTool::new(prompter)));
+    registry.register(Arc::new(TodoWriteTool::new()));
     if let Some(web_fetch) = build_web_fetch_tool(&cfg, Arc::clone(&audit_sink)) {
         registry.register(Arc::new(web_fetch));
     }

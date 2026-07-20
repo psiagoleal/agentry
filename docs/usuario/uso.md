@@ -228,6 +228,13 @@ gera:
 - **`glob`** — busca arquivos por padrão de nome/caminho (`"**/*.rs"`), sem olhar conteúdo.
   Respeita [`.agentryignore`](configuracao.md#arquivo-de-ignore-do-agentry-agentryignore) como
   qualquer tool de arquivo.
+- **`todo_write`** — o agente declara/atualiza uma lista de passos da tarefa atual (cada
+  chamada substitui a lista inteira, não é incremental). Sem efeito colateral nenhum — não toca
+  arquivo/rede — e sem persistência entre turnos ou sessões: a lista existe só enquanto o
+  agente continuar redeclarando-a. Na TUI (`--tui`), aparece como um *checklist* (`[x]`/`[~]`/
+  `[ ]`) inline no histórico; no REPL/modo *one-shot* não tem representação visual própria
+  (mesma limitação dos demais indicadores de progresso de tool, ver
+  ["O que esperar da resposta"](#o-que-esperar-da-resposta) acima).
 - **`shell_background`** — roda um comando de shell sem bloquear o agente (ex.: um `dev
   server`), consulta a saída depois e finaliza quando quiser. Sob a **mesma** política de
   `permissions`/comando bloqueado por padrão do `shell_exec` — rodar em segundo plano não é
