@@ -40,3 +40,4 @@ Registros de decisões estruturais (ver skill `adr-writer`). Use
 | [0031](0031-subagentes-com-egresso-restrito.md) | Subagentes com classe de egresso restrita à sessão-mãe | Accepted |
 | [0032](0032-memoria-de-projeto-explicita.md) | Memória de projeto explícita entre sessões (`/remember`) | Accepted |
 | [0033](0033-teto-de-turnos-consecutivos-com-tool-call.md) | Teto de turnos consecutivos com tool-call, independente do orçamento de tokens | Accepted |
+| [0034](0034-tool-todo-write-sem-estado-persistido.md) | Tool `todo_write` — lista de tarefas explícita do agente, sem estado persistido no núcleo | Proposed |

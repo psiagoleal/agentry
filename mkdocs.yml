@@ -118,6 +118,7 @@ nav:
           - "0031 — Subagentes com egresso restrito": adr/0031-subagentes-com-egresso-restrito.md
           - "0032 — Memória de projeto explícita": adr/0032-memoria-de-projeto-explicita.md
           - "0033 — Teto de turnos consecutivos com tool-call": adr/0033-teto-de-turnos-consecutivos-com-tool-call.md
+          - "0034 — Tool todo_write sem estado persistido": adr/0034-tool-todo-write-sem-estado-persistido.md
       - Roadmap:
           - Mapa de longo prazo: roadmap-longo-prazo.md
           - v0.1: roadmap-v0.1.md
