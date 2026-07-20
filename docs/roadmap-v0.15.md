@@ -170,7 +170,7 @@ descartadas. Decisão completa registrada no plano de implementação desta roda
   `MessageEnd`. *Smoke-test* real via `tmux` + mock HTTP chamando `todo_write` de verdade.
 - **Depende de:** MT-105.
 
-### MT-108: Blocos de código cercado no histórico
+### MT-108: Blocos de código cercado no histórico ✅ concluído (ebe7394)
 - **Objetivo:** máquina de estados linha-a-linha (dentro/fora de um bloco ` ``` `) em
   `montar_linhas_do_historico`; linhas dentro do bloco continuam quebrando via
   `quebrar_em_linhas` normalmente, só ganham um estilo distinto.

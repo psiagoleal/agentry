@@ -174,7 +174,13 @@ editor externo, comando `/review`) ficam para uma rodada futura, não descartada
   árvore). Verificado com smoke-test real via `tmux`; como bônus, confirmou também que o teto
   de turnos do ADR-0033 entra em ação sozinho quando o modelo fica chamando `todo_write` em
   loop (parou em exatamente 25 turnos).
-- MT-108/109 (pendente) — Markdown mínimo (blocos de código; negrito/código inline).
+- MT-108 ✅ (`ebe7394`) — blocos de código cercado (` ``` `) com estilo distinto
+  (`Color::Green`), máquina de estados linha-a-linha antes do *wrap*. **Bug real encontrado e
+  corrigido no processo:** `quebrar_em_linhas` descartava silenciosamente indentação à esquerda
+  (espaços viravam "palavras" vazias no `split(' ')`) — código Python indentado perdia a
+  indentação inteira; agora preservada na primeira linha resultante do *wrap*. Verificado com
+  smoke-test real via `tmux` (bloco renderiza com indentação correta).
+- MT-109 (pendente) — negrito/código inline.
 - MT-110 (pendente) — painel de ajuda (`?`) + `/help`.
 
 **Máquina de teste:** o mantenedor criou uma pasta `usage-test/` neste próprio Linux para
