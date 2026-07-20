@@ -139,13 +139,20 @@ pub fn resolve(key: KeyEvent) -> Option<Action> {
 /// texto solto mantido à parte — a mesma tabela que resolve teclas também
 /// documenta a si mesma.
 pub fn legenda() -> String {
+    linhas().join(" · ")
+}
+
+/// Como [`legenda`], mas uma entrada (`tecla: descrição`) por elemento em
+/// vez de juntar tudo numa única linha — usado pelo painel de ajuda de tela
+/// cheia (MT-110), que mostra uma tecla por linha em vez do rodapé
+/// compacto.
+pub fn linhas() -> Vec<String> {
     let mut vistas = std::collections::HashSet::new();
     DEFINITIONS
         .iter()
         .filter(|def| vistas.insert(def.action))
         .map(|def| format!("{}: {}", rotulo_tecla(def.code), def.description))
-        .collect::<Vec<_>>()
-        .join(" · ")
+        .collect()
 }
 
 /// Rótulo curto de exibição de uma [`KeyCode`] — só as variantes usadas em
@@ -162,6 +169,11 @@ fn rotulo_tecla(code: KeyCode) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn linhas_juntas_com_separador_reproduz_legenda() {
+        assert_eq!(linhas().join(" · "), legenda());
+    }
 
     #[test]
     fn tabela_nao_tem_duas_acoes_para_a_mesma_tecla_default() {

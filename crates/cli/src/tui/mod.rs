@@ -232,6 +232,12 @@ struct Estado {
     /// movida para a *task* de streaming durante um turno em voo; ver
     /// [`disparar_turno`]). Renderizado no rodapé por [`draw`].
     usage_total: Usage,
+    /// `true` só enquanto o painel de ajuda de tela cheia está aberto
+    /// (`?` com a caixa de entrada vazia, MT-110) — mesmo padrão de
+    /// `seletor`/`solicitacao` (um modal por vez, com prioridade sobre a
+    /// digitação normal), mas sem estado próprio: o conteúdo vem sempre de
+    /// [`texto_de_ajuda`], então um `bool` já basta.
+    ajuda_aberta: bool,
 }
 
 impl Estado {
@@ -246,6 +252,7 @@ impl Estado {
             solicitacao: None,
             auto,
             usage_total: Usage::default(),
+            ajuda_aberta: false,
         }
     }
 
@@ -343,6 +350,66 @@ fn mensagem_de_undo(
     }
 }
 
+/// Comandos de barra suportados na TUI e uma descrição de uma linha cada —
+/// única fonte para o painel de ajuda (`?`) e o comando `/help` (MT-110).
+/// Lista própria da TUI, não compartilhada com o REPL de texto: `/model` e
+/// `/init` têm texto diferente aqui (ver a doc de
+/// [`processar_comando_de_texto`]), e o REPL não tem painel nenhum pra
+/// alimentar.
+const COMANDOS_DE_BARRA: &[(&str, &str)] = &[
+    ("/usage", "mostra o uso de tokens acumulado desta sessão"),
+    ("/undo", "desfaz o último fs_write/fs_edit (checkpoint)"),
+    ("/remember <fato>", "grava uma memória de projeto explícita"),
+    ("/compact", "compacta o histórico da sessão"),
+    ("/task-class <nome>", "troca a task-class ativa"),
+    (
+        "/provider <nome>",
+        "troca o provider, dentro dos candidatos já declarados na rota",
+    ),
+    ("/temperature <n>", "ajusta a temperature desta sessão"),
+    (
+        "/top_p <n>",
+        "ajusta o top_p (nucleus sampling) desta sessão",
+    ),
+    (
+        "/max_tokens <n>",
+        "ajusta o limite de tokens de saída desta sessão",
+    ),
+    (
+        "/system <texto>",
+        "ajusta o system prompt a partir da próxima mensagem",
+    ),
+    (
+        "/reasoning on|off",
+        "liga/desliga o raciocínio estendido, se o modelo suportar",
+    ),
+    (
+        "/model",
+        "não suportado na TUI — use Ctrl+P (seletor de modelo/provider)",
+    ),
+    ("/init", "não suportado na TUI (bootstrap de configuração)"),
+    ("/help", "mostra este painel de ajuda"),
+    ("/exit, /quit", "sai do modo TUI"),
+];
+
+/// Texto completo do painel de ajuda (`?` com a caixa de entrada vazia) e
+/// do comando `/help` — a mesma fonte para as duas superfícies, para nunca
+/// haver duas versões divergentes do texto de ajuda (MT-110).
+fn texto_de_ajuda() -> String {
+    let mut texto = String::from("atalhos de teclado:\n");
+    for linha in keybind::linhas() {
+        texto.push_str("  ");
+        texto.push_str(&linha);
+        texto.push('\n');
+    }
+    texto.push_str("\ncomandos:\n");
+    for (comando, descricao) in COMANDOS_DE_BARRA {
+        texto.push_str(&format!("  {comando}: {descricao}\n"));
+    }
+    texto.push_str("\n? com a caixa de entrada vazia abre este painel; Esc fecha.");
+    texto
+}
+
 /// Processa um comando de texto (`/usage`, `/undo`, `/remember`,
 /// `/compact`, `/task-class`, `/provider`, `/temperature`, `/top_p`,
 /// `/max_tokens`, `/system`, `/reasoning`) digitado na caixa de entrada da
@@ -424,6 +491,9 @@ async fn processar_comando_de_texto(
         return "/init não é suportado na TUI (bootstrap de configuração; rode fora de uma \
                 sessão interativa já em andamento)"
             .to_string();
+    }
+    if comando == "help" {
+        return texto_de_ajuda();
     }
 
     match repl::aplicar_comando(comando, overrides) {
@@ -951,7 +1021,7 @@ fn draw(frame: &mut Frame<'_>, estado: &Estado) {
     // usuário, sem widget sintético) — só faz sentido quando a caixa de
     // entrada é de fato o alvo do foco, isto é, nenhum modal por cima
     // (seletor de modelo/pergunta ao agente) está capturando o teclado.
-    if estado.seletor.is_none() && estado.solicitacao.is_none() {
+    if estado.seletor.is_none() && estado.solicitacao.is_none() && !estado.ajuda_aberta {
         let ultima_linha = linhas_entrada.len().saturating_sub(1);
         let linha_visivel = ultima_linha.saturating_sub(deslocamento_entrada as usize) as u16;
         let coluna = linhas_entrada
@@ -966,6 +1036,9 @@ fn draw(frame: &mut Frame<'_>, estado: &Estado) {
     }
     if let Some(solicitacao) = &estado.solicitacao {
         draw_solicitacao(frame, solicitacao);
+    }
+    if estado.ajuda_aberta {
+        draw_ajuda(frame);
     }
 }
 
@@ -1116,6 +1189,21 @@ fn draw_seletor(frame: &mut Frame<'_>, seletor: &SeletorDeModeloEstado) {
     );
     let lista = Paragraph::new(linhas).block(Block::bordered().title(titulo_lista));
     frame.render_widget(lista, layout[1]);
+}
+
+/// Painel de ajuda de tela cheia (`?` com a caixa de entrada vazia, MT-110)
+/// — mesmo texto de [`texto_de_ajuda`] usado pelo comando `/help`, sem
+/// rolagem própria (lista curta o bastante pra caber num terminal comum;
+/// fora de escopo desta ticket).
+fn draw_ajuda(frame: &mut Frame<'_>) {
+    let area = area_centralizada(80, 80, frame.area());
+    frame.render_widget(Clear, area);
+    let linhas: Vec<Line> = texto_de_ajuda()
+        .lines()
+        .map(|linha| Line::from(linha.to_string()))
+        .collect();
+    let painel = Paragraph::new(linhas).block(Block::bordered().title(" ajuda (Esc fecha) "));
+    frame.render_widget(painel, area);
 }
 
 /// Ponto de entrada do modo TUI (`--tui`) — recebe a mesma `Session`/
@@ -1334,6 +1422,12 @@ async fn loop_eventos(
                             }
                         },
                     }
+                } else if estado.ajuda_aberta {
+                    match acao {
+                        Some(Action::Quit) => return Ok(()),
+                        Some(Action::Cancel) => estado.ajuda_aberta = false,
+                        _ => {}
+                    }
                 } else if estado.seletor.is_some() {
                     match acao {
                         Some(Action::Quit) => return Ok(()),
@@ -1446,6 +1540,18 @@ async fn loop_eventos(
                             }
                         }
                         None => match key.code {
+                            // `?` com a caixa de entrada vazia abre o painel de
+                            // ajuda em vez de digitar o caractere (MT-110) —
+                            // com texto já digitado, `?` continua sendo um
+                            // caractere normal (mesmo padrão do Gemini CLI,
+                            // pesquisa do MT-103): não há como digitar um `?`
+                            // de verdade numa mensagem sem essa condição.
+                            KeyCode::Char('?')
+                                if e_apenas_digitacao(key.modifiers)
+                                    && estado.entrada.is_empty() =>
+                            {
+                                estado.ajuda_aberta = true;
+                            }
                             KeyCode::Backspace => {
                                 estado.entrada.pop();
                             }
@@ -1797,6 +1903,36 @@ mod tests {
             .join("\n");
 
         assert!(texto.contains("**negrito ainda sem fechar"));
+    }
+
+    // --- texto_de_ajuda / painel de ajuda (`?`) + `/help`, MT-110 ---
+
+    #[test]
+    fn texto_de_ajuda_lista_atalhos_e_comandos() {
+        let texto = texto_de_ajuda();
+
+        assert!(texto.contains("atalhos de teclado:"));
+        assert!(texto.contains("comandos:"));
+        for (comando, _descricao) in COMANDOS_DE_BARRA {
+            assert!(
+                texto.contains(comando),
+                "comando {comando:?} ausente do texto de ajuda"
+            );
+        }
+        for linha in keybind::linhas() {
+            assert!(
+                texto.contains(&linha),
+                "atalho {linha:?} ausente do texto de ajuda"
+            );
+        }
+    }
+
+    #[test]
+    fn texto_de_ajuda_avisa_que_model_e_init_nao_sao_suportados_na_tui() {
+        let texto = texto_de_ajuda();
+
+        assert!(texto.contains("/model") && texto.contains("não suportado na TUI"));
+        assert!(texto.contains("/init") && texto.contains("não suportado na TUI"));
     }
 
     // --- altura_da_entrada (achado de usabilidade: caixa de entrada sem
@@ -2457,6 +2593,34 @@ mod tests {
 
         assert!(mensagem.contains("Ctrl+P"), "mensagem: {mensagem:?}");
         assert_eq!(overrides.model, None, "não deve tentar mudar o modelo");
+    }
+
+    #[tokio::test]
+    async fn comando_help_devolve_o_mesmo_texto_do_painel() {
+        let mock = Arc::new(MockProvider::new("mock"));
+        let mut sessao = sessao_de_teste(mock.clone());
+        let router = router_com_task_class("chat", mock);
+        let dir = TempDir::new();
+        let checkpoint_store = agentry_core::checkpoint::CheckpointStore::new(dir.path());
+        let mut overrides = RuntimeOverride::default();
+        let mut task_class = "chat".to_string();
+
+        let mensagem = processar_comando_de_texto(
+            "help",
+            &mut sessao,
+            &router,
+            &mut overrides,
+            &mut task_class,
+            &checkpoint_store,
+            dir.path(),
+        )
+        .await;
+
+        assert_eq!(
+            mensagem,
+            texto_de_ajuda(),
+            "/help deve devolver exatamente o texto do painel -- fonte única"
+        );
     }
 
     #[tokio::test]
