@@ -193,7 +193,7 @@ descartadas. Decisão completa registrada no plano de implementação desta roda
 - **Fora de escopo:** cabeçalhos, listas, links, itálico, tabelas.
 - **Depende de:** nenhum (independente do MT-108).
 
-### MT-110: Painel de ajuda (`?`) + comando `/help`
+### MT-110: Painel de ajuda (`?`) + comando `/help` ✅ concluído (cfd8a8d)
 - **Objetivo:** `?` com a caixa de entrada vazia abre um painel de tela cheia (tabela de
   *keybindings* + lista de comandos `/` com descrição de uma linha, incluindo o aviso sobre
   `/model`/`/init`); `?` com texto já digitado continua digitando normalmente. `/help` em

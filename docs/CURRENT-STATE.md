@@ -148,7 +148,7 @@ mais consistente (3 de 5 ferramentas têm algo equivalente).
 
 **Fecha a Fase B (rodada 4/roadmap v0.15: MT-96..103, todos concluídos).**
 
-### Fase C — em andamento (`docs/roadmap-v0.15.md`, MT-104..110)
+### Fase C — concluída (`docs/roadmap-v0.15.md`, MT-104..110, todos ✅)
 
 Mantenedor revisou `docs/pesquisa-tui-referencias.md` e autorizou seguir, pedindo que as
 escolhas priorizem: (1) usabilidade pelo usuário, (2) evitar confusão com modelos menos
@@ -189,7 +189,16 @@ editor externo, comando `/review`) ficam para uma rodada futura, não descartada
   módulo `tui`, 601 no *workspace*). Verificado com smoke-test real via `tmux` + mock HTTP:
   código ANSI de negrito (`\e[1m`) e magenta (`\e[38;5;5m`) confirmados no terminal, inclusive
   um segundo trecho em negrito depois do primeiro (sem "vazamento" de estilo entre trechos).
-- MT-110 (pendente) — painel de ajuda (`?`) + `/help`.
+- MT-110 ✅ (`cfd8a8d`) — painel de ajuda: `?` com a caixa de entrada vazia abre um painel de
+  tela cheia (nova `keybind::linhas()`, fatorada de `legenda()`, + lista `COMANDOS_DE_BARRA` com
+  descrição de uma linha cada, incluindo o aviso de que `/model`/`/init` não são suportados na
+  TUI); `?` com texto já digitado continua digitando normalmente (mesmo padrão do Gemini CLI,
+  MT-103). `/help` devolve exatamente o mesmo texto (`texto_de_ajuda`) como mensagem de sistema
+  — fonte única entre painel e comando. 187 testes no bin `agentry` (105 no módulo `tui`), 605
+  no *workspace*. Verificado com smoke-test real via `tmux`: painel abre/fecha, `?` com texto já
+  digitado vira caractere normal, `/help` imprime o mesmo conteúdo do painel.
+
+**Fecha a Fase C (rodada 4/roadmap v0.15: MT-104..110, todos concluídos).**
 
 **Máquina de teste:** o mantenedor criou uma pasta `usage-test/` neste próprio Linux para
 testar com Ollama — sem acesso à VPN necessária para LiteLLM aqui (só no notebook Windows).
