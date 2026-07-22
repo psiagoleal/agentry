@@ -245,6 +245,15 @@ struct Estado {
     /// binário, custo pequeno mas desnecessário de repetir a cada frame
     /// enquanto o histórico está vazio.
     logo: Vec<Line<'static>>,
+    /// Distância rolada a partir do **topo** do modal de confirmação de
+    /// tool (MT-112) — achado real de usabilidade: o modal mostrava
+    /// `argumentos: {json}` como uma única `Line` sem *wrap*, então um
+    /// comando de shell mais longo simplesmente desaparecia além da
+    /// largura do modal, sem nenhum jeito de ver o resto. Zerada sempre que
+    /// uma **nova** confirmação chega (`rx_humano.recv()`); não usa a
+    /// mesma convenção "distância do fim" do histórico principal porque o
+    /// conteúdo do modal é estático (não cresce enquanto está aberto).
+    scroll_confirmacao: u16,
 }
 
 impl Estado {
@@ -261,6 +270,7 @@ impl Estado {
             usage_total: Usage::default(),
             ajuda_aberta: false,
             logo: logo::linhas(),
+            scroll_confirmacao: 0,
         }
     }
 
@@ -1026,7 +1036,7 @@ fn draw(frame: &mut Frame<'_>, estado: &Estado) {
         draw_seletor(frame, seletor);
     }
     if let Some(solicitacao) = &estado.solicitacao {
-        draw_solicitacao(frame, solicitacao);
+        draw_solicitacao(frame, solicitacao, estado.scroll_confirmacao);
     }
     if estado.ajuda_aberta {
         draw_ajuda(frame);
@@ -1038,7 +1048,40 @@ fn draw(frame: &mut Frame<'_>, estado: &Estado) {
 /// seletor de modelo, embora os dois não coexistam na prática: um pedido
 /// de confirmação só existe com um turno em voo, quando o seletor já está
 /// bloqueado por falta de `Session` disponível).
-fn draw_solicitacao(frame: &mut Frame<'_>, solicitacao: &SolicitacaoAtiva) {
+/// Monta o conteúdo do modal de confirmação de tool — função pura (sem
+/// `Frame`), testável sem terminal real. `diff.is_some()` (ex.:
+/// `fs_write`/`fs_edit`) mostra o *diff* pronto; senão mostra os argumentos
+/// brutos da chamada, **sempre quebrados em linhas** que cabem em
+/// `largura_interna` (MT-112) — achado real de usabilidade: sem *wrap*, um
+/// comando de shell mais longo que a largura do modal simplesmente
+/// desaparecia, já que `Paragraph` sem `.wrap()` clipa em vez de quebrar
+/// linha sozinho (mesmo motivo do MT-97 na caixa de entrada).
+fn linhas_de_confirmacao(
+    call: &ToolCall,
+    diff: Option<&[LinhaDiff]>,
+    largura_interna: usize,
+) -> Vec<Line<'static>> {
+    let mut linhas = vec![Line::from(format!("tool: {}", call.name))];
+    match diff {
+        Some(linhas_diff) if !linhas_diff.is_empty() => {
+            linhas.push(Line::from(""));
+            linhas.extend(linhas_diff.iter().map(linha_de_diff));
+        }
+        _ => {
+            let argumentos = format!("argumentos: {}", call.arguments);
+            linhas.extend(
+                quebrar_em_linhas(&argumentos, largura_interna)
+                    .into_iter()
+                    .map(Line::from),
+            );
+        }
+    }
+    linhas.push(Line::from(""));
+    linhas.push(Line::from("Enter aprova · Esc recusa · ↑↓ rola"));
+    linhas
+}
+
+fn draw_solicitacao(frame: &mut Frame<'_>, solicitacao: &SolicitacaoAtiva, scroll: u16) {
     match solicitacao {
         SolicitacaoAtiva::Confirmacao { call, diff, .. } => {
             // Área maior que a de confirmação genérica — o diff de um
@@ -1046,20 +1089,16 @@ fn draw_solicitacao(frame: &mut Frame<'_>, solicitacao: &SolicitacaoAtiva) {
             // modal compacto original.
             let area = area_centralizada(70, 60, frame.area());
             frame.render_widget(Clear, area);
-            let mut linhas = vec![Line::from(format!("tool: {}", call.name))];
-            match diff {
-                Some(linhas_diff) if !linhas_diff.is_empty() => {
-                    linhas.push(Line::from(""));
-                    linhas.extend(linhas_diff.iter().map(linha_de_diff));
-                }
-                _ => {
-                    linhas.push(Line::from(format!("argumentos: {}", call.arguments)));
-                }
-            }
-            linhas.push(Line::from(""));
-            linhas.push(Line::from("Enter aprova · Esc recusa"));
+            let largura_interna = area.width.saturating_sub(2) as usize;
+            let linhas = linhas_de_confirmacao(call, diff.as_deref(), largura_interna.max(1));
+
+            let altura_interna = area.height.saturating_sub(2) as usize;
+            let deslocamento_maximo = (linhas.len().saturating_sub(altura_interna.max(1))) as u16;
+            let scroll_efetivo = scroll.min(deslocamento_maximo);
+
             let paragrafo = Paragraph::new(linhas)
-                .block(Block::bordered().title(" confirmar execução de tool "));
+                .block(Block::bordered().title(" confirmar execução de tool "))
+                .scroll((scroll_efetivo, 0));
             frame.render_widget(paragrafo, area);
         }
         SolicitacaoAtiva::Pergunta {
@@ -1338,6 +1377,24 @@ async fn loop_eventos(
                             Some(Action::Cancel) => {
                                 let _ = responder.send(false);
                             }
+                            Some(Action::ScrollDown) => {
+                                estado.scroll_confirmacao =
+                                    estado.scroll_confirmacao.saturating_add(1);
+                                estado.solicitacao = Some(SolicitacaoAtiva::Confirmacao {
+                                    call,
+                                    diff,
+                                    responder,
+                                });
+                            }
+                            Some(Action::ScrollUp) => {
+                                estado.scroll_confirmacao =
+                                    estado.scroll_confirmacao.saturating_sub(1);
+                                estado.solicitacao = Some(SolicitacaoAtiva::Confirmacao {
+                                    call,
+                                    diff,
+                                    responder,
+                                });
+                            }
                             _ => {
                                 estado.solicitacao = Some(SolicitacaoAtiva::Confirmacao {
                                     call,
@@ -1577,6 +1634,7 @@ async fn loop_eventos(
                 // rodando dentro de `Session::run_streaming`) — nunca do
                 // laço de eventos, então não há conflito com um
                 // `solicitacao` já em aberto (só um turno em voo por vez).
+                estado.scroll_confirmacao = 0;
                 estado.solicitacao = Some(match pedido {
                     PedidoHumano::Confirmacao {
                         call,
@@ -1924,6 +1982,68 @@ mod tests {
 
         assert!(texto.contains("/model") && texto.contains("não suportado na TUI"));
         assert!(texto.contains("/init") && texto.contains("não suportado na TUI"));
+    }
+
+    // --- linhas_de_confirmacao (achado de usabilidade: comando de shell
+    // mais longo que o modal simplesmente desaparecia, sem wrap nem
+    // rolagem, MT-112) ---
+
+    fn tool_call_de_teste(comando: &str) -> ToolCall {
+        ToolCall {
+            id: "1".into(),
+            name: "shell_exec".into(),
+            arguments: serde_json::json!({ "command": comando }),
+        }
+    }
+
+    #[test]
+    fn linhas_de_confirmacao_quebra_um_comando_mais_longo_que_o_modal() {
+        let comando = "mkdir -p dados && printf 'a,b,c\\n1,2,3\\n4,5,6\\n' > dados/exemplo.csv";
+        let call = tool_call_de_teste(comando);
+
+        let linhas = linhas_de_confirmacao(&call, None, 20);
+        let texto_completo = linhas
+            .iter()
+            .map(|l| l.to_string())
+            .collect::<Vec<_>>()
+            .join("");
+
+        // Só as linhas do corpo dos argumentos precisam respeitar a
+        // largura -- a primeira ("tool: ...") e as duas últimas (linha em
+        // branco + dica fixa "Enter aprova...") não fazem parte do texto
+        // quebrado por `quebrar_em_linhas`.
+        let corpo = &linhas[1..linhas.len() - 2];
+        assert!(
+            corpo.iter().all(|l| l.to_string().chars().count() <= 20),
+            "nenhuma linha do corpo deve ultrapassar a largura do modal: {corpo:?}"
+        );
+        assert!(
+            texto_completo.contains("mkdir"),
+            "início do comando deve estar presente"
+        );
+        assert!(
+            texto_completo.contains("dados/exemplo.csv"),
+            "fim do comando não pode ter sido cortado: {texto_completo:?}"
+        );
+    }
+
+    #[test]
+    fn linhas_de_confirmacao_com_diff_ignora_argumentos_brutos() {
+        let call = tool_call_de_teste("irrelevante");
+        let diff = vec![LinhaDiff::Adicionada("+ nova linha".into())];
+
+        let linhas = linhas_de_confirmacao(&call, Some(&diff), 40);
+        let texto = linhas
+            .iter()
+            .map(|l| l.to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(texto.contains("nova linha"));
+        assert!(
+            !texto.contains("argumentos:"),
+            "com diff disponível, não deve mostrar o JSON bruto"
+        );
     }
 
     // --- altura_da_entrada (achado de usabilidade: caixa de entrada sem
