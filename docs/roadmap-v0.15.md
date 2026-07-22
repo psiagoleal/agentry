@@ -238,6 +238,40 @@ releitura em cor de verdade do logo oficial do projeto (`assets/logo/agentry-log
 
 ---
 
+## Fase E — modal de confirmação sempre mostra o comando completo
+
+Pedido ad-hoc do mantenedor: um teste real (pedido de criar pasta + CSV) mostrou que o modal
+de confirmação de tool (`ask`) cortava o comando de shell além da largura do modal, sem
+nenhum jeito de ver o resto.
+
+### MT-112: Modal de confirmação sempre mostra o comando completo ✅ concluído (2715a3b)
+- **Objetivo:** `argumentos: {json}` do modal de confirmação (`SolicitacaoAtiva::Confirmacao`)
+  vira uma única `Line` sem *wrap* — `Paragraph` sem `.wrap()` clipa em vez de quebrar linha
+  sozinho (mesmo achado do MT-97). `linhas_de_confirmacao` (nova, função pura) sempre quebra
+  os argumentos via `quebrar_em_linhas`; o modal ganha rolagem própria
+  (`Estado::scroll_confirmacao`, zerada a cada nova confirmação) para o caso de um comando tão
+  longo que nem cabe na altura do modal já quebrado.
+- **Arquivos no escopo:** `crates/cli/src/tui/mod.rs`.
+- **Critério de aceite:** testes — comando mais longo que o modal aparece por inteiro,
+  quebrado em várias linhas; modal com *diff* disponível não mostra o JSON bruto. *Smoke-test*
+  real via `tmux` + mock HTTP com um comando de ~140 caracteres.
+- **Depende de:** nenhum.
+
+**Fora de escopo desta rodada (adiado, não descartado):** mostrar um preview do comando +
+saída completa no **corpo da conversa** (não só no modal de confirmação), com
+expandir/recolher — acompanhando o pedido, mas com duas partes de custo bem diferente: (a)
+preview do comando reaproveita a mesma técnica de reacumulação de argumentos já usada pelo
+`todo_write` (MT-107), sem mudança de arquitetura; (b) mostrar a **saída** da tool exigiria
+expor `ToolResult` ao `on_event` da TUI, que hoje só recebe eventos do que o **modelo**
+transmite (texto/tool-calls) — a execução da tool acontece dentro de
+`Session::after_response`, sem nenhum gancho de evento. Isso é uma decisão de arquitetura de
+verdade (nova variante de `StreamEvent` quebra *matches* exaustivos em `session/mod.rs` e
+`tui/chat.rs`, mesmo trade-off já documentado no ADR-0034) — não decidida ainda, aguardando
+definição do mecanismo de expandir/recolher (tecla vs. clique de mouse, que sacrifica seleção
+nativa de texto no terminal).
+
+---
+
 ## Sequência crítica
 
 ```
@@ -248,4 +282,5 @@ MT-104 → MT-105 → MT-106/MT-107  (Fase C, tool de todo)
 MT-108, MT-109                   (Fase C, Markdown — independentes entre si)
 MT-110                           (Fase C, ajuda — independente)
 MT-111                           (Fase D, logo — independente)
+MT-112                           (Fase E, modal de confirmação — independente)
 ```

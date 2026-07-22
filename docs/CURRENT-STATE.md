@@ -228,6 +228,30 @@ nova, já que a logo é estática (só protocolos de imagem valeriam a pena para
   Verificado com smoke-test real via `tmux` com e sem `COLORTERM=truecolor` — captura ANSI
   convertida em imagem confirmou visualmente que o ícone bate com o logo oficial.
 
+### Fase E — modal de confirmação sempre mostra o comando completo ✅ concluída (MT-112)
+
+Pedido ad-hoc do mantenedor, achado num teste real: pediu ao modelo para criar uma pasta e um
+CSV, e o modal de confirmação (`ask`) não mostrava o comando de shell completo.
+
+- MT-112 ✅ (`2715a3b`) — causa raiz: `argumentos: {json}` virava uma única `Line` sem *wrap*
+  (`Paragraph` sem `.wrap()` clipa, mesmo achado do MT-97) — um comando mais longo que a
+  largura do modal simplesmente desaparecia além da borda. `linhas_de_confirmacao` (nova,
+  função pura) sempre quebra os argumentos; modal ganhou rolagem própria
+  (`Estado::scroll_confirmacao`, zerada a cada nova confirmação, `↑`/`↓` tratados no branco
+  `Confirmacao` do loop de eventos) para comandos longos demais mesmo já quebrados. 2 testes
+  novos, 194 no bin `agentry`, 612 no *workspace*. Verificado com smoke-test real via `tmux` +
+  mock HTTP: comando de ~140 caracteres aparece por inteiro.
+
+**Fora de escopo desta rodada (adiado, não descartado):** preview do comando + saída completa
+no **corpo da conversa**, com expandir/recolher (pedido do mantenedor, inspirado no Claude
+Code CLI). Preview do comando é viável sem mudança de arquitetura (mesma técnica de
+reacumulação do `todo_write`, MT-107); mostrar a **saída** da tool exigiria expor
+`ToolResult` ao `on_event` da TUI, que hoje só vê o que o modelo transmite — a execução da
+tool roda dentro de `Session::after_response`, sem gancho de evento nenhum. Decisão de
+arquitetura real (nova variante de `StreamEvent`, mesmo trade-off do ADR-0034), ainda não
+tomada; falta também definir o mecanismo de expandir/recolher (tecla vs. clique de mouse, que
+sacrifica seleção nativa de texto no terminal).
+
 ## Último turno
 
 - **Data:** 2026-07-16
