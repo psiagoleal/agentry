@@ -203,6 +203,31 @@ editor externo, comando `/review`) ficam para uma rodada futura, não descartada
 **Máquina de teste:** o mantenedor criou uma pasta `usage-test/` neste próprio Linux para
 testar com Ollama — sem acesso à VPN necessária para LiteLLM aqui (só no notebook Windows).
 
+### Fase D — logo de abertura ✅ concluída (`docs/roadmap-v0.15.md`, MT-111)
+
+Pedido ad-hoc do mantenedor: substituir o robô ASCII da tela de abertura por uma releitura em
+cor de verdade do logo oficial do projeto (`assets/logo/agentry-logo-fonte.png` — chapéu de
+detetive, robô com torso "A" luminoso, ícone de terminal). Investigação prévia (sem código)
+distinguiu duas abordagens bem diferentes de custo: protocolos de imagem de verdade (Sixel/
+Kitty graphics protocol, exigiriam dependência nova `ratatui-image`+`image`, e são **menos**
+portáveis que a alternativa) vs. halfblock/truecolor (`▀` com `fg`/`bg` por célula, técnica de
+`chafa`/`viu`) pré-renderizado *offline* — decisão registrada aqui: halfblock, zero dependência
+nova, já que a logo é estática (só protocolos de imagem valeriam a pena para imagem
+**dinâmica**, sem caso de uso hoje).
+
+- MT-111 ✅ (`af001bd`) — `crates/cli/src/tui/logo.rs` (novo): ícone recortado do logo oficial
+  (sem o texto "AGENTRY"/subtítulo do arquivo original, ilegível nessa resolução — renderizado
+  à parte como texto de terminal nítido, igual sempre foi), pré-processado por
+  `assets/logo/gerar-logo-icone.py` (Pillow, offline, não roda no `cargo build`) e embutido via
+  `include_bytes!` (`crates/cli/assets/logo-icone.rgb`, 44x30px). *Fallback* para o robô ASCII
+  original quando o terminal não anuncia `COLORTERM=truecolor`/`24bit` ou tem `NO_COLOR` setado
+  — heurística (`decide_truecolor`) fatorada como função pura testável sem mutar variável de
+  ambiente (evitando `unsafe` do Rust 1.82+ em `std::env::set_var`). `LOGO_ABERTURA` removido de
+  `tui/mod.rs`; `Estado` ganha campo `logo` montado uma única vez em `Estado::new` (não
+  recalculado a cada `draw()`). 5 testes novos, 192 no bin `agentry`, 610 no *workspace*.
+  Verificado com smoke-test real via `tmux` com e sem `COLORTERM=truecolor` — captura ANSI
+  convertida em imagem confirmou visualmente que o ícone bate com o logo oficial.
+
 ## Último turno
 
 - **Data:** 2026-07-16

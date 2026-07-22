@@ -206,6 +206,38 @@ descartadas. Decisão completa registrada no plano de implementação desta roda
 
 ---
 
+## Fase D — logo de abertura em halfblock/truecolor
+
+Pedido ad-hoc do mantenedor (fora do escopo original da Fase C, mesma disciplina de
+ticket/DoD/*smoke-test*): substituir o robô ASCII simples da tela de abertura por uma
+releitura em cor de verdade do logo oficial do projeto (`assets/logo/agentry-logo-fonte.png`).
+
+### MT-111: Logo de abertura em halfblock/truecolor com fallback ASCII ✅ concluído (af001bd)
+- **Objetivo:** ícone do logo oficial (chapéu + robô + terminal, sem o texto "AGENTRY"/subtítulo
+  do arquivo original — ilegível nessa resolução, renderizado à parte como texto de terminal
+  nítido) pré-processado *offline* (`assets/logo/gerar-logo-icone.py`, não roda como parte do
+  `cargo build`) e embutido como asset binário (`crates/cli/assets/logo-icone.rgb`, via
+  `include_bytes!`) — **nenhuma dependência nova**, sem decodificador de imagem em runtime.
+  Renderizado como halfblock/truecolor (`▀` com `fg`=pixel de cima, `bg`=pixel de baixo, técnica
+  de `chafa`/`viu`), com *fallback* para um robô em ASCII simples quando o terminal não anuncia
+  suporte a 24 bits de cor (`COLORTERM=truecolor`/`24bit`) ou `NO_COLOR` está setado.
+- **Arquivos no escopo:** novo `crates/cli/src/tui/logo.rs`, `crates/cli/assets/logo-icone.rgb`
+  (novo), `assets/logo/` (novo, fonte + script gerador, fora da árvore do crate), `crates/cli/src/tui/mod.rs`
+  (`LOGO_ABERTURA` removido, `Estado` ganha campo `logo` montado uma vez em `Estado::new`).
+- **Critério de aceite:** testes — tamanho do asset bate com `LARGURA*ALTURA_PX*3`; núcleo puro
+  da heurística de *truecolor* (`decide_truecolor`) testado sem mutar variável de ambiente
+  (evita `unsafe` do Rust 1.82+); *fallback* ASCII nunca fica vazio. *Smoke-test* real via `tmux`
+  com e sem `COLORTERM=truecolor` — confirmado visualmente (captura ANSI convertida em imagem)
+  que o ícone colorido bate com o logo oficial e que o *fallback* ASCII aparece sem cor quando
+  o sinal de *truecolor* está ausente.
+- **Fora de escopo:** redimensionamento adaptativo ao tamanho do terminal (resolução fixa,
+  44x30px/15 linhas); protocolos de imagem de verdade (Sixel/Kitty graphics protocol) — avaliados
+  e descartados para este caso por serem menos portáveis que halfblock/truecolor e exigirem
+  dependência nova (`ratatui-image` + `image`), sem caso de uso concreto além desta logo estática.
+- **Depende de:** nenhum.
+
+---
+
 ## Sequência crítica
 
 ```
@@ -215,4 +247,5 @@ MT-103                           (Fase B)
 MT-104 → MT-105 → MT-106/MT-107  (Fase C, tool de todo)
 MT-108, MT-109                   (Fase C, Markdown — independentes entre si)
 MT-110                           (Fase C, ajuda — independente)
+MT-111                           (Fase D, logo — independente)
 ```
