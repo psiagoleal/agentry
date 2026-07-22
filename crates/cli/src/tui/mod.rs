@@ -30,6 +30,7 @@ mod ask_user;
 mod chat;
 pub(crate) mod diff;
 mod keybind;
+mod logo;
 mod model_picker;
 
 pub use ask_user::TuiPrompter;
@@ -238,6 +239,12 @@ struct Estado {
     /// digitação normal), mas sem estado próprio: o conteúdo vem sempre de
     /// [`texto_de_ajuda`], então um `bool` já basta.
     ajuda_aberta: bool,
+    /// Linhas da tela de abertura (MT-111), montadas uma única vez em
+    /// [`Estado::new`] em vez de recalculadas a cada `draw()` — o ícone
+    /// colorido reconstrói um `Vec<Span>` por linha a partir do asset
+    /// binário, custo pequeno mas desnecessário de repetir a cada frame
+    /// enquanto o histórico está vazio.
+    logo: Vec<Line<'static>>,
 }
 
 impl Estado {
@@ -253,6 +260,7 @@ impl Estado {
             auto,
             usage_total: Usage::default(),
             ajuda_aberta: false,
+            logo: logo::linhas(),
         }
     }
 
@@ -507,23 +515,6 @@ async fn processar_comando_de_texto(
         Err(erro) => erro,
     }
 }
-
-/// Logo de abertura (puramente decorativo) — mostrado centralizado no
-/// histórico enquanto nenhuma mensagem foi trocada ainda; desaparece para
-/// sempre assim que a primeira mensagem é enviada (mesmo padrão de tela de
-/// boas-vindas de qualquer CLI interativa).
-const LOGO_ABERTURA: &[&str] = &[
-    "   ┌─────────────┐",
-    "   │  ◉       ◉  │",
-    "   │             │",
-    "   │      ▽      │",
-    "   └───┬─────┬───┘",
-    "       █     █",
-    "",
-    "      a g e n t r y",
-    "",
-    "  digite uma mensagem e Enter para começar",
-];
 
 /// Quebra `palavra` em pedaços de no máximo `largura` caracteres — só entra
 /// em jogo para uma "palavra" (sem espaço) mais larga que a coluna
@@ -960,9 +951,9 @@ fn draw(frame: &mut Frame<'_>, estado: &Estado) {
     let altura_interna = areas[0].height.saturating_sub(2) as usize;
 
     if estado.chat.mensagens().is_empty() {
-        let preenchimento_vertical = altura_interna.saturating_sub(LOGO_ABERTURA.len()) / 2;
+        let preenchimento_vertical = altura_interna.saturating_sub(estado.logo.len()) / 2;
         let mut linhas_do_logo = vec![Line::from(""); preenchimento_vertical];
-        linhas_do_logo.extend(LOGO_ABERTURA.iter().map(|linha| Line::from(*linha)));
+        linhas_do_logo.extend(estado.logo.iter().cloned());
         let logo = Paragraph::new(linhas_do_logo)
             .alignment(Alignment::Center)
             .block(Block::bordered().title(" agentry "));
