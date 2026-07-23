@@ -252,6 +252,24 @@ arquitetura real (nova variante de `StreamEvent`, mesmo trade-off do ADR-0034), 
 tomada; falta também definir o mecanismo de expandir/recolher (tecla vs. clique de mouse, que
 sacrifica seleção nativa de texto no terminal).
 
+### Fase F — em andamento (`docs/roadmap-v0.15.md`, MT-113..117, ADR-0035)
+
+Mantenedor decidiu as duas questões em aberto da Fase E: reestruturar `after_response` (canal
+de saída por mutação, mesmo padrão de `consumed: &mut Usage`) em vez de reacumulação
+client-side, e usar clique de mouse pra expandir/recolher — `Shift`+arraste continua
+selecionando texto nativamente, convenção do próprio emulador de terminal, nenhum código
+nosso precisa cobrir isso; só precisa ativar `EnableMouseCapture`/`DisableMouseCapture`
+(`crossterm`, já disponível via `ratatui`, sem dependência nova) de forma limpa em todo
+caminho de saída, inclusive pânico.
+
+- MT-113 ✅ (`9196064`) — ADR-0035 (`Accepted`): nova variante `StreamEvent::ToolCallResult`;
+  *blast radius* verificado antes de decidir (só duas correspondências exaustivas em produção:
+  `StreamAggregator::apply`, `ChatState::aplicar_evento` — bem menor que o caso do MT-107, e
+  aqui sem alternativa, já que a saída de uma tool não existe nos argumentos). Quebrado em
+  MT-114 (núcleo) → MT-115 (`Mensagem` vira blocos) → MT-116 (renderização
+  recolhido/expandido) → MT-117 (captura de mouse de verdade).
+- MT-114..117 (pendentes).
+
 ## Último turno
 
 - **Data:** 2026-07-16
