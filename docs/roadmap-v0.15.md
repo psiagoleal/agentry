@@ -272,6 +272,83 @@ nativa de texto no terminal).
 
 ---
 
+## Fase F — saída de tool visível na TUI, blocos expansíveis por clique (ADR-0035)
+
+Mantenedor decidiu: reestruturar `after_response` para expor os resultados de tool executados
+(em vez de uma variante "reacumulada" no estilo `todo_write`) e usar clique de mouse para
+expandir/recolher — `Shift`+arraste continua selecionando texto nativamente (convenção do
+próprio emulador de terminal, sem código nosso). Cinco tickets, em sequência (cada um só faz
+sentido depois do anterior).
+
+### MT-113: ADR-0035 (`Accepted`) — saída de tool visível na TUI, blocos expansíveis por clique
+- **Objetivo:** registrar a decisão acima — nova variante `StreamEvent::ToolCallResult`,
+  `after_response` reestruturado com canal de saída por mutação, `Mensagem` vira blocos
+  estruturados, captura de mouse para expandir/recolher com `Shift`+arraste preservando seleção
+  nativa. *Blast radius* da variante nova verificado antes de decidir (só duas correspondências
+  exaustivas em produção: `StreamAggregator::apply` e `ChatState::aplicar_evento`).
+- **Arquivos no escopo:** `docs/adr/0035-*.md` (novo), `docs/adr/README.md`, `mkdocs.yml`.
+- **Depende de:** nenhum.
+
+### MT-114: `StreamEvent::ToolCallResult` + `after_response` expõe resultados executados
+- **Objetivo:** nova variante `StreamEvent::ToolCallResult { id, content, is_error }`
+  (`crates/core/src/model/mod.rs`). `Session::after_response` ganha `resultados: &mut
+  Vec<ToolResult>` (mesmo padrão de `consumed: &mut Usage`, já existente), populado no laço que
+  executa cada `ToolCall`. `Session::run` (REPL/*one-shot*) passa um `Vec` descartável — sem
+  paridade nova aí, mesma decisão do MT-107. `Session::run_streaming` drena o `Vec` logo após
+  cada chamada a `after_response` e emite um `ToolCallResult` por item via `on_event`.
+  `StreamAggregator::apply` ganha um braço no-op para a variante nova (resultado de tool não é
+  parte da mensagem do modelo sendo acumulada).
+- **Arquivos no escopo:** `crates/core/src/model/mod.rs`, `crates/core/src/session/mod.rs`.
+- **Critério de aceite:** testes — `run_streaming` com uma tool-call real emite
+  `ToolCallResult` com o `id`/`content`/`is_error` corretos, na ordem certa (depois do
+  `ToolCallStart`/`ToolCallDelta`, antes do próximo turno); `run` (não-*streaming*) continua
+  funcionando sem nenhuma mudança de comportamento observável.
+- **Fora de escopo:** qualquer mudança de renderização na TUI (próximo ticket).
+- **Depende de:** nenhum.
+
+### MT-115: `Mensagem` vira blocos (texto + chamadas de tool), não uma `String` só
+- **Objetivo:** `ChatState`/`Mensagem` passam a representar o turno do agente como uma
+  sequência de blocos (texto corrido intercalado com blocos de chamada de tool —
+  id/nome/argumentos acumulados/resultado quando chegar/estado de expansão), em vez do texto
+  corrido único de hoje com o marcador `⚙ usando <tool>...` embutido no meio da `String`.
+  `montar_linhas_do_historico` (MT-108/109, Markdown mínimo) passa a iterar blocos de texto em
+  vez de uma `String` inteira — Markdown continua funcionando igual, só a fonte dos dados muda.
+- **Arquivos no escopo:** `crates/cli/src/tui/chat.rs`, `crates/cli/src/tui/mod.rs`.
+- **Critério de aceite:** testes — histórico com texto+tool-call+texto renderiza igual a antes
+  visualmente (regressão zero no Markdown/recuo pendurado); `ToolCallResult` chegando associa o
+  resultado ao bloco certo pelo `id`. *Smoke-test* real via `tmux`.
+- **Fora de escopo:** UI de expandir/recolher em si (ainda sem clique — vem no MT-117).
+- **Depende de:** MT-114.
+
+### MT-116: Renderização do bloco de tool — recolhido (preview) vs. expandido (completo)
+- **Objetivo:** bloco recolhido mostra `⚙ tool: <nome> — <início do comando>…` (uma linha);
+  expandido mostra o comando completo (reaproveitando o *wrap* já existente) e a saída completa
+  da tool (com estilo de erro distinto quando `is_error`). Comportamento de expansão em si
+  controlado por um campo de estado por bloco (`expandido: bool`), sem UI de clique ainda —
+  este ticket só garante que os dois estados renderizam certo dado o campo já setado.
+- **Arquivos no escopo:** `crates/cli/src/tui/chat.rs`, `crates/cli/src/tui/mod.rs`.
+- **Critério de aceite:** testes — bloco recolhido não mostra a saída nem o comando completo;
+  bloco expandido mostra os dois; erro (`is_error`) tem estilo visualmente distinto.
+- **Depende de:** MT-115.
+
+### MT-117: Captura de mouse — clique expande/recolhe, `Shift`+arraste seleciona nativamente
+- **Objetivo:** `crossterm::event::{EnableMouseCapture, DisableMouseCapture}` (já disponível
+  via `ratatui`, sem dependência nova) ativada após `ratatui::try_init`, desativada em **todo**
+  caminho de saída — inclusive pânico (`ratatui::try_init`/`restore` não cobrem isso sozinhos,
+  precisa de verificação manual, não só teste automatizado). Laço de eventos passa a tratar
+  `Event::Mouse` além de `Event::Key`; clique num bloco de tool (identificado por
+  linha/coluna → bloco, usando a mesma área do histórico já calculada em `draw`) alterna
+  `expandido`.
+- **Arquivos no escopo:** `crates/cli/src/tui/mod.rs`.
+- **Critério de aceite:** testes — função pura de "linha/coluna clicada → qual bloco" (sem
+  `Frame` real); *smoke-test* manual real (não só `tmux` capturado — precisa de clique de
+  verdade) confirmando: clique expande/recolhe, `Shift`+arraste ainda seleciona texto nativo no
+  terminal do mantenedor, captura de mouse desliga limpa ao sair (`/exit`, `Ctrl+C`, e um pânico
+  forçado).
+- **Depende de:** MT-116.
+
+---
+
 ## Sequência crítica
 
 ```
@@ -283,4 +360,5 @@ MT-108, MT-109                   (Fase C, Markdown — independentes entre si)
 MT-110                           (Fase C, ajuda — independente)
 MT-111                           (Fase D, logo — independente)
 MT-112                           (Fase E, modal de confirmação — independente)
+MT-113 → MT-114 → MT-115 → MT-116 → MT-117 (Fase F, saída de tool na TUI, ADR-0035, sequencial)
 ```

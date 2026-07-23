@@ -119,6 +119,7 @@ nav:
           - "0032 — Memória de projeto explícita": adr/0032-memoria-de-projeto-explicita.md
           - "0033 — Teto de turnos consecutivos com tool-call": adr/0033-teto-de-turnos-consecutivos-com-tool-call.md
           - "0034 — Tool todo_write sem estado persistido": adr/0034-tool-todo-write-sem-estado-persistido.md
+          - "0035 — Saída de tool visível na TUI com blocos expansíveis": adr/0035-saida-de-tool-visivel-na-tui-com-blocos-expansiveis.md
       - Roadmap:
           - Mapa de longo prazo: roadmap-longo-prazo.md
           - v0.1: roadmap-v0.1.md
