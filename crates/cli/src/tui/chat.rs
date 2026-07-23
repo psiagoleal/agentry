@@ -5,8 +5,6 @@
 //! (`crates/cli/src/tui/mod.rs`) só chama [`ChatState::registrar_mensagem_usuario`]/
 //! [`ChatState::aplicar_evento`] — nenhuma lógica de *streaming* mora aqui.
 
-use std::collections::HashMap;
-
 use agentry_core::model::StreamEvent;
 
 /// Interpreta `argumentos_json` (acumulado de `ToolCallDelta`) como os
@@ -53,44 +51,80 @@ pub enum Autor {
     Agente,
 }
 
-/// Um turno do histórico: quem falou, o texto acumulado até agora, e se o
-/// turno já terminou (`StreamEvent::MessageEnd`).
+/// Um trecho de conteúdo de uma [`Mensagem`] (ADR-0035/MT-115) — texto
+/// corrido ou uma chamada de tool, cada uma com seu próprio ciclo de vida
+/// (`id`/nome conhecidos desde `ToolCallStart`, argumentos acumulados por
+/// `ToolCallDelta`, resultado quando/se `ToolCallResult` chegar). Substituiu
+/// a `String` única de antes do MT-115 — necessário para dar suporte real a
+/// recolher/expandir uma chamada de tool (escopo do MT-116/117): uma
+/// `String` com o marcador embutido no meio do texto não tem como
+/// "endereçar" o pedaço certo pra trocar de conteúdo.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Bloco {
+    Texto(String),
+    Tool {
+        id: String,
+        nome: String,
+        argumentos: String,
+        resultado: Option<(String, bool)>,
+        expandido: bool,
+    },
+}
+
+/// Um turno do histórico: quem falou, os blocos acumulados até agora, e se
+/// o turno já terminou (`StreamEvent::MessageEnd`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Mensagem {
     pub autor: Autor,
-    pub texto: String,
+    pub blocos: Vec<Bloco>,
     pub concluida: bool,
 }
 
-/// Chamada de tool em andamento na mensagem aberta, reacumulada a partir de
-/// `ToolCallStart`/`ToolCallDelta` (MT-107, ADR-0034) — só existe para
-/// reconstituir os argumentos completos de `todo_write` ao final do turno
-/// (nenhuma outra tool precisa disso hoje: seus fragmentos de JSON
-/// continuam sem representação visual). Descartada a cada `MessageEnd`.
-#[derive(Debug)]
-struct ChamadaEmAndamento {
-    nome: String,
-    argumentos: String,
+impl Mensagem {
+    /// Texto visível equivalente ao que a mensagem inteira mostrava antes
+    /// do MT-115 — concatena os blocos de texto e, para cada bloco de
+    /// tool, a mesma linha de marcador `⚙ usando <nome>...` de sempre,
+    /// seguida do *checklist* de `todo_write` quando os argumentos
+    /// acumulados já interpretam (MT-107/ADR-0034). Calculado sob demanda
+    /// em vez de anexado ao texto no `MessageEnd` — evita ter que decidir
+    /// "já anexei esse *checklist* ou não" quando o mesmo turno tem
+    /// múltiplas rodadas de tool-call (blocos não são mais limpos a cada
+    /// `MessageEnd`, diferente do antigo `chamadas_em_andamento`).
+    ///
+    /// Estado de expansão/resultado ainda não influencia esta saída — é
+    /// escopo do MT-116. Existe pra [`super::montar_linhas_do_historico`]
+    /// continuar processando uma `String` só, sem mudar sua lógica de
+    /// Markdown/wrap neste ticket (regressão visual zero).
+    pub(crate) fn texto_visivel(&self) -> String {
+        let mut saida = String::new();
+        for bloco in &self.blocos {
+            match bloco {
+                Bloco::Texto(texto) => saida.push_str(texto),
+                Bloco::Tool {
+                    nome, argumentos, ..
+                } => {
+                    if !saida.is_empty() && !saida.ends_with('\n') {
+                        saida.push('\n');
+                    }
+                    saida.push_str("⚙ usando ");
+                    saida.push_str(nome);
+                    saida.push_str("...\n");
+                    if nome == "todo_write" {
+                        if let Some(checklist) = formatar_checklist_todo(argumentos) {
+                            saida.push_str(&checklist);
+                        }
+                    }
+                }
+            }
+        }
+        saida
+    }
 }
 
 /// Histórico de mensagens da view de chat.
 #[derive(Debug, Default)]
 pub struct ChatState {
     mensagens: Vec<Mensagem>,
-    chamadas_em_andamento: HashMap<String, ChamadaEmAndamento>,
-    /// Resultados de tool já executados (`StreamEvent::ToolCallResult`,
-    /// ADR-0035/MT-114), por `id` de chamada — armazenamento só de
-    /// passagem para este ticket (o consumo/exibição de verdade, e a
-    /// decisão de quando limpar cada entrada, é escopo do MT-115, que vai
-    /// substituir o texto corrido de `Mensagem` por blocos estruturados).
-    /// **Deliberadamente não compartilha o ciclo de vida de
-    /// `chamadas_em_andamento`**: aquele mapa é limpo a cada `MessageEnd`
-    /// (MT-107), mas o resultado de uma tool chega **depois** do
-    /// `MessageEnd` do turno que a chamou (`Session::run_streaming` emite
-    /// `ToolCallResult` só depois de repassar os eventos do turno) — se
-    /// reaproveitássemos o mesmo mapa, a entrada já teria sido apagada
-    /// antes do resultado chegar.
-    resultados_de_tools: HashMap<String, (String, bool)>,
 }
 
 impl ChatState {
@@ -110,107 +144,123 @@ impl ChatState {
     pub fn registrar_mensagem_usuario(&mut self, texto: String) {
         self.mensagens.push(Mensagem {
             autor: Autor::Usuario,
-            texto,
+            blocos: vec![Bloco::Texto(texto)],
             concluida: true,
         });
         self.mensagens.push(Mensagem {
             autor: Autor::Agente,
-            texto: String::new(),
+            blocos: Vec::new(),
             concluida: false,
         });
     }
 
     /// Aplica um [`StreamEvent`] ao turno do agente em aberto (o último da
-    /// lista) — `TextDelta` cresce o texto acumulado, `MessageEnd` marca o
-    /// turno como concluído, `ToolCallStart` acrescenta um marcador inline
-    /// (`⚙ usando <tool>...`) para dar alguma visibilidade de que o agente
-    /// está agindo, não só respondendo texto — achado num teste manual de
-    /// usabilidade (a TUI não mostrava nada enquanto o agente criava/editava
-    /// arquivos). `draw` (`crates/cli/src/tui/mod.rs`) estiliza essas linhas
-    /// de forma diferente do texto normal.
+    /// lista) — `TextDelta` cresce o bloco de texto corrente (ou abre um
+    /// novo, se o último bloco for uma chamada de tool), `ToolCallStart`
+    /// abre um novo [`Bloco::Tool`] (`draw`, em `crates/cli/src/tui/mod.rs`,
+    /// ainda o renderiza como o marcador `⚙ usando <tool>...` de sempre —
+    /// achado num teste manual de usabilidade: a TUI não mostrava nada
+    /// enquanto o agente criava/editava arquivos), `ToolCallDelta` acumula
+    /// nos argumentos do bloco correspondente (por `id`), `MessageEnd`
+    /// marca o turno como concluído.
     ///
-    /// `ToolCallStart`/`ToolCallDelta` também alimentam
-    /// [`Self::chamadas_em_andamento`] (MT-107, ADR-0034) — reacumula os
-    /// fragmentos de JSON do lado da TUI (mesma técnica do
-    /// `StreamAggregator` privado do núcleo, só que na camada de
-    /// renderização) só para reconstituir os argumentos de `todo_write` ao
-    /// `MessageEnd`; um *checklist* formatado é anexado ao turno quando o
-    /// JSON acumulado interpreta corretamente, silenciosamente ignorado
-    /// (sem pânico, sem erro exibido) quando não — o marcador genérico já
-    /// emitido continua sendo o único traço visível nesse caso. Nenhuma
-    /// outra tool usa esse mapa; seus fragmentos continuam sem
-    /// representação própria. Sem turno aberto (nenhuma mensagem enviada
-    /// ainda), o evento é ignorado, não um erro.
+    /// `ToolCallResult` (ADR-0035/MT-114) é tratado à parte, **antes** de
+    /// pegar a última mensagem: o resultado de uma tool chega **depois**
+    /// do `MessageEnd` do turno que a pediu, mas ainda dentro do mesmo
+    /// turno de usuário (`Session::run_streaming` só fecha esta mensagem
+    /// quando o usuário manda a próxima) — então o bloco correspondente
+    /// ainda está na mensagem em aberto na prática, mas a busca varre todas
+    /// as mensagens (mais recente primeiro) por segurança, em vez de supor
+    /// essa ordem. Sem turno aberto (nenhuma mensagem enviada ainda), todo
+    /// evento é ignorado, não um erro.
     pub fn aplicar_evento(&mut self, evento: &StreamEvent) {
-        if let StreamEvent::ToolCallStart { id, name } = evento {
-            self.chamadas_em_andamento.insert(
-                id.clone(),
-                ChamadaEmAndamento {
-                    nome: name.clone(),
-                    argumentos: String::new(),
-                },
-            );
-        }
-        if let StreamEvent::ToolCallDelta { id, delta } = evento {
-            if let Some(chamada) = self.chamadas_em_andamento.get_mut(id) {
-                chamada.argumentos.push_str(delta);
+        if let StreamEvent::ToolCallResult {
+            id,
+            content,
+            is_error,
+        } = evento
+        {
+            for mensagem in self.mensagens.iter_mut().rev() {
+                let alvo = mensagem
+                    .blocos
+                    .iter_mut()
+                    .rev()
+                    .find_map(|bloco| match bloco {
+                        Bloco::Tool {
+                            id: bid, resultado, ..
+                        } if bid == id => Some(resultado),
+                        _ => None,
+                    });
+                if let Some(resultado) = alvo {
+                    *resultado = Some((content.clone(), *is_error));
+                    return;
+                }
             }
+            return;
         }
 
         let Some(ultima) = self.mensagens.last_mut() else {
             return;
         };
         match evento {
-            StreamEvent::TextDelta { text } => ultima.texto.push_str(text),
-            StreamEvent::ToolCallStart { name, .. } => {
-                if !ultima.texto.is_empty() && !ultima.texto.ends_with('\n') {
-                    ultima.texto.push('\n');
+            StreamEvent::MessageStart => {}
+            StreamEvent::TextDelta { text } => match ultima.blocos.last_mut() {
+                Some(Bloco::Texto(acumulado)) => acumulado.push_str(text),
+                _ => ultima.blocos.push(Bloco::Texto(text.clone())),
+            },
+            StreamEvent::ToolCallStart { id, name } => {
+                ultima.blocos.push(Bloco::Tool {
+                    id: id.clone(),
+                    nome: name.clone(),
+                    argumentos: String::new(),
+                    resultado: None,
+                    expandido: false,
+                });
+            }
+            StreamEvent::ToolCallDelta { id, delta } => {
+                let bloco = ultima
+                    .blocos
+                    .iter_mut()
+                    .rev()
+                    .find_map(|bloco| match bloco {
+                        Bloco::Tool {
+                            id: bid,
+                            argumentos,
+                            ..
+                        } if bid == id => Some(argumentos),
+                        _ => None,
+                    });
+                if let Some(argumentos) = bloco {
+                    argumentos.push_str(delta);
                 }
-                ultima.texto.push_str("⚙ usando ");
-                ultima.texto.push_str(name);
-                ultima.texto.push_str("...\n");
             }
             StreamEvent::MessageEnd { .. } => {
                 ultima.concluida = true;
-                for chamada in self.chamadas_em_andamento.values() {
-                    if chamada.nome != "todo_write" {
-                        continue;
-                    }
-                    if let Some(checklist) = formatar_checklist_todo(&chamada.argumentos) {
-                        if !ultima.texto.is_empty() && !ultima.texto.ends_with('\n') {
-                            ultima.texto.push('\n');
-                        }
-                        ultima.texto.push_str(&checklist);
-                    }
-                }
-                self.chamadas_em_andamento.clear();
             }
-            StreamEvent::MessageStart | StreamEvent::ToolCallDelta { .. } => {}
-            StreamEvent::ToolCallResult {
-                id,
-                content,
-                is_error,
-            } => {
-                self.resultados_de_tools
-                    .insert(id.clone(), (content.clone(), *is_error));
+            StreamEvent::ToolCallResult { .. } => {
+                unreachable!("tratado acima, antes do `last_mut`")
             }
         }
     }
 
-    /// Marca o turno em aberto como concluído, anexando `mensagem` ao texto
-    /// acumulado — usado quando `Session::run_streaming` devolve `Err`
-    /// (falha do provider/router/reviewer): o turno nunca fica pendurado
-    /// indefinidamente como "ainda respondendo". Sem turno aberto, é
-    /// ignorado (mesmo padrão de `aplicar_evento`).
+    /// Marca o turno em aberto como concluído, anexando `mensagem` como um
+    /// novo bloco de texto — usado quando `Session::run_streaming` devolve
+    /// `Err` (falha do provider/router/reviewer): o turno nunca fica
+    /// pendurado indefinidamente como "ainda respondendo". Sempre um bloco
+    /// **novo** (nunca anexado a um bloco de tool em aberto, que não faria
+    /// sentido). Sem turno aberto, é ignorado (mesmo padrão de
+    /// `aplicar_evento`).
     pub fn marcar_erro(&mut self, mensagem: &str) {
         let Some(ultima) = self.mensagens.last_mut() else {
             return;
         };
-        if !ultima.texto.is_empty() {
-            ultima.texto.push_str("\n\n");
+        let mut texto_erro = String::new();
+        if !ultima.blocos.is_empty() {
+            texto_erro.push_str("\n\n");
         }
-        ultima.texto.push_str("[erro] ");
-        ultima.texto.push_str(mensagem);
+        texto_erro.push_str("[erro] ");
+        texto_erro.push_str(mensagem);
+        ultima.blocos.push(Bloco::Texto(texto_erro));
         ultima.concluida = true;
     }
 
@@ -222,7 +272,7 @@ impl ChatState {
     pub fn registrar_mensagem_sistema(&mut self, texto: String) {
         self.mensagens.push(Mensagem {
             autor: Autor::Agente,
-            texto,
+            blocos: vec![Bloco::Texto(texto)],
             concluida: true,
         });
     }
@@ -240,10 +290,10 @@ mod tests {
 
         assert_eq!(estado.mensagens().len(), 2);
         assert_eq!(estado.mensagens()[0].autor, Autor::Usuario);
-        assert_eq!(estado.mensagens()[0].texto, "oi");
+        assert_eq!(estado.mensagens()[0].texto_visivel(), "oi");
         assert!(estado.mensagens()[0].concluida);
         assert_eq!(estado.mensagens()[1].autor, Autor::Agente);
-        assert_eq!(estado.mensagens()[1].texto, "");
+        assert_eq!(estado.mensagens()[1].texto_visivel(), "");
         assert!(!estado.mensagens()[1].concluida);
     }
 
@@ -255,7 +305,7 @@ mod tests {
         estado.aplicar_evento(&StreamEvent::TextDelta { text: "ol".into() });
         estado.aplicar_evento(&StreamEvent::TextDelta { text: "á!".into() });
 
-        assert_eq!(estado.mensagens().last().unwrap().texto, "olá!");
+        assert_eq!(estado.mensagens().last().unwrap().texto_visivel(), "olá!");
     }
 
     #[test]
@@ -269,7 +319,7 @@ mod tests {
         });
 
         assert_eq!(
-            estado.mensagens().last().unwrap().texto,
+            estado.mensagens().last().unwrap().texto_visivel(),
             "⚙ usando fs_write...\n"
         );
     }
@@ -288,7 +338,7 @@ mod tests {
         });
 
         assert_eq!(
-            estado.mensagens().last().unwrap().texto,
+            estado.mensagens().last().unwrap().texto_visivel(),
             "vou criar o arquivo\n⚙ usando fs_write...\n"
         );
     }
@@ -330,7 +380,7 @@ mod tests {
             delta: "{}".into(),
         });
 
-        assert_eq!(estado.mensagens().last().unwrap().texto, "");
+        assert_eq!(estado.mensagens().last().unwrap().texto_visivel(), "");
         assert!(!estado.mensagens().last().unwrap().concluida);
     }
 
@@ -399,7 +449,7 @@ mod tests {
             usage: Usage::default(),
         });
 
-        let texto = &estado.mensagens().last().unwrap().texto;
+        let texto = estado.mensagens().last().unwrap().texto_visivel();
         assert!(texto.contains("⚙ usando todo_write..."));
         assert!(texto.contains("[ ] passo 1"), "texto: {texto:?}");
     }
@@ -421,7 +471,7 @@ mod tests {
             usage: Usage::default(),
         });
 
-        let texto = &estado.mensagens().last().unwrap().texto;
+        let texto = estado.mensagens().last().unwrap().texto_visivel();
         assert_eq!(
             texto, "⚙ usando todo_write...\n",
             "só o marcador genérico, sem pânico"
@@ -445,7 +495,7 @@ mod tests {
             usage: Usage::default(),
         });
 
-        let texto = &estado.mensagens().last().unwrap().texto;
+        let texto = estado.mensagens().last().unwrap().texto_visivel();
         assert_eq!(
             texto, "⚙ usando fs_read...\n",
             "argumentos de outra tool nunca viram checklist, mesmo parecendo válidos"
@@ -453,7 +503,7 @@ mod tests {
     }
 
     #[test]
-    fn mapa_de_chamadas_em_andamento_reseta_a_cada_message_end() {
+    fn tool_call_delta_com_id_de_turno_anterior_nao_vaza_para_o_turno_novo() {
         let mut estado = ChatState::new();
         estado.registrar_mensagem_usuario("primeira".into());
         estado.aplicar_evento(&StreamEvent::ToolCallStart {
@@ -465,8 +515,10 @@ mod tests {
         });
 
         // Segundo turno: um ToolCallDelta com o MESMO id de antes (não
-        // deveria existir na prática, mas prova que o mapa foi limpo) não
-        // reaproveita nada do turno anterior.
+        // deveria existir na prática) não acha nenhum bloco de tool na
+        // mensagem nova (`registrar_mensagem_usuario` sempre abre
+        // `blocos: Vec::new()`) -- é ignorado, mesmo padrão de um id
+        // desconhecido.
         estado.registrar_mensagem_usuario("segunda".into());
         estado.aplicar_evento(&StreamEvent::ToolCallDelta {
             id: "call_1".into(),
@@ -476,11 +528,26 @@ mod tests {
             usage: Usage::default(),
         });
 
-        assert_eq!(estado.mensagens().last().unwrap().texto, "");
+        assert_eq!(estado.mensagens().last().unwrap().texto_visivel(), "");
     }
 
     // --- ToolCallResult (ADR-0035/MT-114) -- armazenamento de passagem,
     // consumo/exibição de verdade só a partir do MT-115 ---
+
+    /// Acha o bloco de tool com `id` na mensagem mais recente que o contém
+    /// e devolve seu `resultado` -- auxiliar de teste (não existe acessor
+    /// público equivalente, por enquanto: consumo real do resultado é
+    /// escopo do MT-116).
+    fn resultado_de(estado: &ChatState, id: &str) -> Option<(String, bool)> {
+        estado.mensagens().iter().rev().find_map(|mensagem| {
+            mensagem.blocos.iter().find_map(|bloco| match bloco {
+                Bloco::Tool {
+                    id: bid, resultado, ..
+                } if bid == id => resultado.clone(),
+                _ => None,
+            })
+        })
+    }
 
     #[test]
     fn tool_call_result_fica_disponivel_por_id() {
@@ -494,7 +561,7 @@ mod tests {
             usage: Usage::default(),
         });
 
-        assert_eq!(estado.resultados_de_tools.get("call_1"), None);
+        assert_eq!(resultado_de(&estado, "call_1"), None);
 
         estado.aplicar_evento(&StreamEvent::ToolCallResult {
             id: "call_1".into(),
@@ -503,16 +570,17 @@ mod tests {
         });
 
         assert_eq!(
-            estado.resultados_de_tools.get("call_1"),
-            Some(&("arquivo criado".to_string(), false))
+            resultado_de(&estado, "call_1"),
+            Some(("arquivo criado".to_string(), false))
         );
     }
 
     #[test]
     fn tool_call_result_sobrevive_ao_message_end_do_proprio_turno() {
-        // Diferente de `chamadas_em_andamento` (limpo a cada MessageEnd),
-        // o resultado chega DEPOIS do MessageEnd do turno que pediu a
-        // tool -- não pode ser perdido por causa dessa limpeza.
+        // O bloco de tool continua na mesma mensagem em aberto -- o
+        // resultado chega DEPOIS do MessageEnd do turno que pediu a tool,
+        // mas antes do próximo `registrar_mensagem_usuario`, então ainda
+        // encontra o bloco certo.
         let mut estado = ChatState::new();
         estado.registrar_mensagem_usuario("crie um arquivo".into());
         estado.aplicar_evento(&StreamEvent::ToolCallStart {
@@ -529,15 +597,15 @@ mod tests {
         });
 
         assert_eq!(
-            estado.resultados_de_tools.get("call_1"),
-            Some(&("erro: permissão negada".to_string(), true))
+            resultado_de(&estado, "call_1"),
+            Some(("erro: permissão negada".to_string(), true))
         );
     }
 
     #[test]
     fn resultado_de_tool_desconhecido_e_none() {
         let estado = ChatState::new();
-        assert_eq!(estado.resultados_de_tools.get("nunca-existiu"), None);
+        assert_eq!(resultado_de(&estado, "nunca-existiu"), None);
     }
 
     #[test]
@@ -552,8 +620,9 @@ mod tests {
 
         let ultima = estado.mensagens().last().unwrap();
         assert!(ultima.concluida);
-        assert!(ultima.texto.contains("começando a respo"));
-        assert!(ultima.texto.contains("erro do provider: timeout"));
+        let texto = ultima.texto_visivel();
+        assert!(texto.contains("começando a respo"));
+        assert!(texto.contains("erro do provider: timeout"));
     }
 
     #[test]
@@ -574,7 +643,10 @@ mod tests {
         estado.registrar_mensagem_sistema("[undo] 'a.txt' restaurado".into());
 
         assert_eq!(estado.mensagens().len(), 1);
-        assert_eq!(estado.mensagens()[0].texto, "[undo] 'a.txt' restaurado");
+        assert_eq!(
+            estado.mensagens()[0].texto_visivel(),
+            "[undo] 'a.txt' restaurado"
+        );
         assert!(estado.mensagens()[0].concluida);
     }
 
@@ -593,11 +665,14 @@ mod tests {
             3,
             "mensagem de sistema é um turno novo, não anexado ao turno do agente em voo"
         );
-        assert_eq!(estado.mensagens()[1].texto, "respondendo...");
+        assert_eq!(estado.mensagens()[1].texto_visivel(), "respondendo...");
         assert!(
             !estado.mensagens()[1].concluida,
             "o turno do agente em voo continua em aberto, intocado"
         );
-        assert_eq!(estado.mensagens()[2].texto, "[undo] 'a.txt' restaurado");
+        assert_eq!(
+            estado.mensagens()[2].texto_visivel(),
+            "[undo] 'a.txt' restaurado"
+        );
     }
 }

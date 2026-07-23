@@ -843,7 +843,13 @@ fn montar_linhas_do_historico(estado: &Estado, largura_disponivel: usize) -> Vec
 
         let mut primeira_linha_da_mensagem = true;
         let mut dentro_de_bloco_de_codigo = false;
-        for linha_original in mensagem.texto.split('\n') {
+        // `texto_visivel` reconstrói a mesma `String` que `Mensagem.texto`
+        // era antes do MT-115 (ADR-0035) -- a lógica de Markdown/wrap
+        // abaixo não muda, só a fonte dos dados (blocos estruturados em
+        // vez de uma `String` só, necessário pro MT-116/117 saber qual
+        // chamada de tool corresponde a qual marcador).
+        let texto_visivel = mensagem.texto_visivel();
+        for linha_original in texto_visivel.split('\n') {
             let e_cerca = linha_original.trim_start().starts_with("```");
             if e_cerca {
                 dentro_de_bloco_de_codigo = !dentro_de_bloco_de_codigo;
@@ -2201,7 +2207,7 @@ mod tests {
         assert_eq!(estado.entrada, "");
         assert!(estado.enviando);
         assert_eq!(estado.chat.mensagens().len(), 2);
-        assert_eq!(estado.chat.mensagens()[0].texto, "oi");
+        assert_eq!(estado.chat.mensagens()[0].texto_visivel(), "oi");
     }
 
     #[test]
