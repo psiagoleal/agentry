@@ -306,7 +306,7 @@ sentido depois do anterior).
 - **Fora de escopo:** qualquer mudança de renderização na TUI (próximo ticket).
 - **Depende de:** nenhum.
 
-### MT-115: `Mensagem` vira blocos (texto + chamadas de tool), não uma `String` só
+### MT-115: `Mensagem` vira blocos (texto + chamadas de tool), não uma `String` só ✅ concluído (797e5eb)
 - **Objetivo:** `ChatState`/`Mensagem` passam a representar o turno do agente como uma
   sequência de blocos (texto corrido intercalado com blocos de chamada de tool —
   id/nome/argumentos acumulados/resultado quando chegar/estado de expansão), em vez do texto

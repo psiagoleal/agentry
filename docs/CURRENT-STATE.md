@@ -280,7 +280,20 @@ caminho de saída, inclusive pânico.
   (contagem de eventos mudou), 197 no bin `agentry`, 406 na lib `core`, 615 no *workspace*.
   Verificado com smoke-test real via `tmux` + mock HTTP: marcador `⚙ usando fs_read...`
   continua aparecendo normalmente, nenhuma regressão visual.
-- MT-115..117 (pendentes).
+- MT-115 ✅ (`797e5eb`) — `Mensagem` deixa de ser uma `String` só e vira `Vec<Bloco>`, onde
+  `Bloco` é `Texto(String)` ou `Tool{id,nome,argumentos,resultado,expandido}` — substitui o
+  marcador embutido no meio de uma `String` corrida, necessário pra dar suporte real a
+  recolher/expandir (MT-116/117: uma `String` com o marcador embutido não tem como "endereçar"
+  o pedaço certo pra trocar de conteúdo). `chamadas_em_andamento`/`resultados_de_tools`
+  (gambiarras temporárias do MT-107/114) removidos — os dados agora vivem direto no bloco.
+  `Mensagem::texto_visivel()` reconstrói a mesma `String` de antes (marcador + *checklist* do
+  `todo_write`), calculada sob demanda em vez de anexada no `MessageEnd` — elimina o problema
+  de "já anexei esse *checklist* ou não" quando o mesmo turno tem múltiplas rodadas de
+  tool-call. `montar_linhas_do_historico` (MT-108/109) consome `texto_visivel()` — lógica de
+  Markdown/*wrap* intocada, regressão visual zero. Todos os 22 testes de `chat.rs` adaptados.
+  197 no bin `agentry`, 615 no *workspace*. Verificado com smoke-test real via `tmux`: marcador
+  de tool e negrito/código inline continuam renderizando idêntico a antes.
+- MT-116..117 (pendentes).
 
 ## Último turno
 
