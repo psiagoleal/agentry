@@ -293,7 +293,19 @@ caminho de saída, inclusive pânico.
   Markdown/*wrap* intocada, regressão visual zero. Todos os 22 testes de `chat.rs` adaptados.
   197 no bin `agentry`, 615 no *workspace*. Verificado com smoke-test real via `tmux`: marcador
   de tool e negrito/código inline continuam renderizando idêntico a antes.
-- MT-116..117 (pendentes).
+- MT-116 ✅ (`a20b9e7`) — `montar_linhas_do_historico` passa a iterar `mensagem.blocos`
+  diretamente (`texto_visivel()`, ponte temporária do MT-115, removida — não sobrevivia ao
+  requisito deste ticket de decidir a saída por bloco conforme `expandido`). Nova
+  `linhas_logicas_do_bloco_de_tool` unifica três casos: `todo_write` sempre mostra o
+  *checklist* (ignora `expandido` — já é ao mesmo tempo resumido e completo, sem regressão);
+  recolhido é uma linha só `⚙ tool: <nome> — <início dos argumentos>…`, nunca mostra comando
+  completo nem saída mesmo com resultado já disponível (achado real de usabilidade — comando
+  de `shell_exec` ficava escondido atrás de um marcador genérico); expandido mostra tudo, com
+  `ESTILO_ERRO_DE_TOOL` distinto quando `is_error`. Campo `expandido: bool` ainda sem nenhuma
+  forma de ser alternado pelo usuário — isso é o MT-117 (clique de mouse). 7 testes novos, 204
+  no bin `agentry`, 622 no *workspace*. Verificado com smoke-test real via `tmux` + mock HTTP:
+  preview de uma linha aparece no corpo da conversa antes mesmo da confirmação da tool.
+- MT-117 (pendente) — captura de mouse, único ticket restante da Fase F.
 
 ## Último turno
 

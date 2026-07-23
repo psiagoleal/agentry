@@ -320,7 +320,7 @@ sentido depois do anterior).
 - **Fora de escopo:** UI de expandir/recolher em si (ainda sem clique — vem no MT-117).
 - **Depende de:** MT-114.
 
-### MT-116: Renderização do bloco de tool — recolhido (preview) vs. expandido (completo)
+### MT-116: Renderização do bloco de tool — recolhido (preview) vs. expandido (completo) ✅ concluído (a20b9e7)
 - **Objetivo:** bloco recolhido mostra `⚙ tool: <nome> — <início do comando>…` (uma linha);
   expandido mostra o comando completo (reaproveitando o *wrap* já existente) e a saída completa
   da tool (com estilo de erro distinto quando `is_error`). Comportamento de expansão em si
