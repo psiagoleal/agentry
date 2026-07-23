@@ -289,7 +289,7 @@ sentido depois do anterior).
 - **Arquivos no escopo:** `docs/adr/0035-*.md` (novo), `docs/adr/README.md`, `mkdocs.yml`.
 - **Depende de:** nenhum.
 
-### MT-114: `StreamEvent::ToolCallResult` + `after_response` expõe resultados executados
+### MT-114: `StreamEvent::ToolCallResult` + `after_response` expõe resultados executados ✅ concluído (61a7bec)
 - **Objetivo:** nova variante `StreamEvent::ToolCallResult { id, content, is_error }`
   (`crates/core/src/model/mod.rs`). `Session::after_response` ganha `resultados: &mut
   Vec<ToolResult>` (mesmo padrão de `consumed: &mut Usage`, já existente), populado no laço que

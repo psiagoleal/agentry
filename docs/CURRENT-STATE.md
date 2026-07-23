@@ -268,7 +268,19 @@ caminho de saída, inclusive pânico.
   aqui sem alternativa, já que a saída de uma tool não existe nos argumentos). Quebrado em
   MT-114 (núcleo) → MT-115 (`Mensagem` vira blocos) → MT-116 (renderização
   recolhido/expandido) → MT-117 (captura de mouse de verdade).
-- MT-114..117 (pendentes).
+- MT-114 ✅ (`61a7bec`) — `StreamEvent::ToolCallResult{id,content,is_error}` (campos espelham
+  `ToolResult`, nome da tool não viaja de novo). `StreamAggregator::apply` ganha braço no-op.
+  `Session::after_response` ganha `resultados: &mut Vec<ToolResult>` (mesmo padrão de
+  `consumed: &mut Usage`); `run` (REPL/*one-shot*) descarta, `run_streaming` drena e emite via
+  `on_event`, sempre depois do `ToolCallStart`/`ToolCallDelta`/`MessageEnd` do turno que pediu a
+  chamada. `ChatState` ganha `resultados_de_tools: HashMap<id,(content,is_error)>` —
+  armazenamento de passagem, deliberadamente com ciclo de vida separado de
+  `chamadas_em_andamento` (que é limpo a cada `MessageEnd`, mas o resultado chega **depois**).
+  Consumo/exibição de verdade é escopo do MT-115. 5 testes novos, 2 existentes atualizados
+  (contagem de eventos mudou), 197 no bin `agentry`, 406 na lib `core`, 615 no *workspace*.
+  Verificado com smoke-test real via `tmux` + mock HTTP: marcador `⚙ usando fs_read...`
+  continua aparecendo normalmente, nenhuma regressão visual.
+- MT-115..117 (pendentes).
 
 ## Último turno
 
