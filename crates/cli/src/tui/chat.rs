@@ -16,7 +16,7 @@ use agentry_core::model::StreamEvent;
 /// `Option`. `[x]` concluído, `[~]` em andamento, `[ ]` pendente (também o
 /// padrão para um `status` desconhecido — degrada para "ainda não feito"
 /// em vez de esconder o item).
-fn formatar_checklist_todo(argumentos_json: &str) -> Option<String> {
+pub(crate) fn formatar_checklist_todo(argumentos_json: &str) -> Option<String> {
     let valor: serde_json::Value = serde_json::from_str(argumentos_json).ok()?;
     let items = valor.get("items")?.as_array()?;
     if items.is_empty() {
@@ -78,47 +78,6 @@ pub struct Mensagem {
     pub autor: Autor,
     pub blocos: Vec<Bloco>,
     pub concluida: bool,
-}
-
-impl Mensagem {
-    /// Texto visível equivalente ao que a mensagem inteira mostrava antes
-    /// do MT-115 — concatena os blocos de texto e, para cada bloco de
-    /// tool, a mesma linha de marcador `⚙ usando <nome>...` de sempre,
-    /// seguida do *checklist* de `todo_write` quando os argumentos
-    /// acumulados já interpretam (MT-107/ADR-0034). Calculado sob demanda
-    /// em vez de anexado ao texto no `MessageEnd` — evita ter que decidir
-    /// "já anexei esse *checklist* ou não" quando o mesmo turno tem
-    /// múltiplas rodadas de tool-call (blocos não são mais limpos a cada
-    /// `MessageEnd`, diferente do antigo `chamadas_em_andamento`).
-    ///
-    /// Estado de expansão/resultado ainda não influencia esta saída — é
-    /// escopo do MT-116. Existe pra [`super::montar_linhas_do_historico`]
-    /// continuar processando uma `String` só, sem mudar sua lógica de
-    /// Markdown/wrap neste ticket (regressão visual zero).
-    pub(crate) fn texto_visivel(&self) -> String {
-        let mut saida = String::new();
-        for bloco in &self.blocos {
-            match bloco {
-                Bloco::Texto(texto) => saida.push_str(texto),
-                Bloco::Tool {
-                    nome, argumentos, ..
-                } => {
-                    if !saida.is_empty() && !saida.ends_with('\n') {
-                        saida.push('\n');
-                    }
-                    saida.push_str("⚙ usando ");
-                    saida.push_str(nome);
-                    saida.push_str("...\n");
-                    if nome == "todo_write" {
-                        if let Some(checklist) = formatar_checklist_todo(argumentos) {
-                            saida.push_str(&checklist);
-                        }
-                    }
-                }
-            }
-        }
-        saida
-    }
 }
 
 /// Histórico de mensagens da view de chat.
@@ -283,6 +242,39 @@ mod tests {
     use super::*;
     use agentry_core::model::Usage;
 
+    /// Reconstrói uma `String` equivalente ao que `Mensagem.texto` era
+    /// antes do MT-115 (ADR-0035) — só pra conveniência dos testes deste
+    /// módulo, que checam o conteúdo acumulado sem se importar com estado
+    /// de expansão (isso quem testa é `montar_linhas_do_historico`, em
+    /// `crates/cli/src/tui/mod.rs`, MT-116). Não existe equivalente em
+    /// código de produção: a renderização de verdade itera `blocos`
+    /// diretamente, porque precisa saber o estado de expansão de cada
+    /// bloco de tool pra decidir o que mostrar.
+    fn texto_visivel_de_teste(mensagem: &Mensagem) -> String {
+        let mut saida = String::new();
+        for bloco in &mensagem.blocos {
+            match bloco {
+                Bloco::Texto(texto) => saida.push_str(texto),
+                Bloco::Tool {
+                    nome, argumentos, ..
+                } => {
+                    if !saida.is_empty() && !saida.ends_with('\n') {
+                        saida.push('\n');
+                    }
+                    saida.push_str("⚙ usando ");
+                    saida.push_str(nome);
+                    saida.push_str("...\n");
+                    if nome == "todo_write" {
+                        if let Some(checklist) = formatar_checklist_todo(argumentos) {
+                            saida.push_str(&checklist);
+                        }
+                    }
+                }
+            }
+        }
+        saida
+    }
+
     #[test]
     fn registrar_mensagem_usuario_abre_um_turno_vazio_para_o_agente() {
         let mut estado = ChatState::new();
@@ -290,10 +282,10 @@ mod tests {
 
         assert_eq!(estado.mensagens().len(), 2);
         assert_eq!(estado.mensagens()[0].autor, Autor::Usuario);
-        assert_eq!(estado.mensagens()[0].texto_visivel(), "oi");
+        assert_eq!(texto_visivel_de_teste(&estado.mensagens()[0]), "oi");
         assert!(estado.mensagens()[0].concluida);
         assert_eq!(estado.mensagens()[1].autor, Autor::Agente);
-        assert_eq!(estado.mensagens()[1].texto_visivel(), "");
+        assert_eq!(texto_visivel_de_teste(&estado.mensagens()[1]), "");
         assert!(!estado.mensagens()[1].concluida);
     }
 
@@ -305,7 +297,10 @@ mod tests {
         estado.aplicar_evento(&StreamEvent::TextDelta { text: "ol".into() });
         estado.aplicar_evento(&StreamEvent::TextDelta { text: "á!".into() });
 
-        assert_eq!(estado.mensagens().last().unwrap().texto_visivel(), "olá!");
+        assert_eq!(
+            texto_visivel_de_teste(estado.mensagens().last().unwrap()),
+            "olá!"
+        );
     }
 
     #[test]
@@ -319,7 +314,7 @@ mod tests {
         });
 
         assert_eq!(
-            estado.mensagens().last().unwrap().texto_visivel(),
+            texto_visivel_de_teste(estado.mensagens().last().unwrap()),
             "⚙ usando fs_write...\n"
         );
     }
@@ -338,7 +333,7 @@ mod tests {
         });
 
         assert_eq!(
-            estado.mensagens().last().unwrap().texto_visivel(),
+            texto_visivel_de_teste(estado.mensagens().last().unwrap()),
             "vou criar o arquivo\n⚙ usando fs_write...\n"
         );
     }
@@ -380,7 +375,10 @@ mod tests {
             delta: "{}".into(),
         });
 
-        assert_eq!(estado.mensagens().last().unwrap().texto_visivel(), "");
+        assert_eq!(
+            texto_visivel_de_teste(estado.mensagens().last().unwrap()),
+            ""
+        );
         assert!(!estado.mensagens().last().unwrap().concluida);
     }
 
@@ -449,7 +447,7 @@ mod tests {
             usage: Usage::default(),
         });
 
-        let texto = estado.mensagens().last().unwrap().texto_visivel();
+        let texto = texto_visivel_de_teste(estado.mensagens().last().unwrap());
         assert!(texto.contains("⚙ usando todo_write..."));
         assert!(texto.contains("[ ] passo 1"), "texto: {texto:?}");
     }
@@ -471,7 +469,7 @@ mod tests {
             usage: Usage::default(),
         });
 
-        let texto = estado.mensagens().last().unwrap().texto_visivel();
+        let texto = texto_visivel_de_teste(estado.mensagens().last().unwrap());
         assert_eq!(
             texto, "⚙ usando todo_write...\n",
             "só o marcador genérico, sem pânico"
@@ -495,7 +493,7 @@ mod tests {
             usage: Usage::default(),
         });
 
-        let texto = estado.mensagens().last().unwrap().texto_visivel();
+        let texto = texto_visivel_de_teste(estado.mensagens().last().unwrap());
         assert_eq!(
             texto, "⚙ usando fs_read...\n",
             "argumentos de outra tool nunca viram checklist, mesmo parecendo válidos"
@@ -528,7 +526,10 @@ mod tests {
             usage: Usage::default(),
         });
 
-        assert_eq!(estado.mensagens().last().unwrap().texto_visivel(), "");
+        assert_eq!(
+            texto_visivel_de_teste(estado.mensagens().last().unwrap()),
+            ""
+        );
     }
 
     // --- ToolCallResult (ADR-0035/MT-114) -- armazenamento de passagem,
@@ -620,7 +621,7 @@ mod tests {
 
         let ultima = estado.mensagens().last().unwrap();
         assert!(ultima.concluida);
-        let texto = ultima.texto_visivel();
+        let texto = texto_visivel_de_teste(ultima);
         assert!(texto.contains("começando a respo"));
         assert!(texto.contains("erro do provider: timeout"));
     }
@@ -644,7 +645,7 @@ mod tests {
 
         assert_eq!(estado.mensagens().len(), 1);
         assert_eq!(
-            estado.mensagens()[0].texto_visivel(),
+            texto_visivel_de_teste(&estado.mensagens()[0]),
             "[undo] 'a.txt' restaurado"
         );
         assert!(estado.mensagens()[0].concluida);
@@ -665,13 +666,16 @@ mod tests {
             3,
             "mensagem de sistema é um turno novo, não anexado ao turno do agente em voo"
         );
-        assert_eq!(estado.mensagens()[1].texto_visivel(), "respondendo...");
+        assert_eq!(
+            texto_visivel_de_teste(&estado.mensagens()[1]),
+            "respondendo..."
+        );
         assert!(
             !estado.mensagens()[1].concluida,
             "o turno do agente em voo continua em aberto, intocado"
         );
         assert_eq!(
-            estado.mensagens()[2].texto_visivel(),
+            texto_visivel_de_teste(&estado.mensagens()[2]),
             "[undo] 'a.txt' restaurado"
         );
     }

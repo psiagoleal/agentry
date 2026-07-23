@@ -53,7 +53,7 @@ use agentry_core::session::{Session, SessionError, SessionOutcome};
 
 use crate::repl;
 use crate::tool_executor::PedidoHumano;
-use chat::{Autor, ChatState};
+use chat::{Autor, Bloco, ChatState};
 use diff::LinhaDiff;
 use keybind::Action;
 use model_picker::CandidatoExibicao;
@@ -645,6 +645,12 @@ const ESTILO_BLOCO_DE_CODIGO: Style = Style::new().fg(Color::Green);
 /// isolado".
 const ESTILO_CODIGO_INLINE: Style = Style::new().fg(Color::Magenta);
 
+/// Estilo da saída de uma chamada de tool que falhou (`is_error`, MT-116,
+/// ADR-0035) — vermelho, mesma cor de linha removida no *diff*
+/// (`linha_de_diff`), pra ficar visualmente inconfundível de uma saída
+/// bem-sucedida.
+const ESTILO_ERRO_DE_TOOL: Style = Style::new().fg(Color::Red);
+
 /// Grau de ênfase de um trecho de texto dentro de uma linha (MT-109) —
 /// resultado de [`tokenizar_enfase`], consumido por [`estilo_para_enfase`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -843,65 +849,172 @@ fn montar_linhas_do_historico(estado: &Estado, largura_disponivel: usize) -> Vec
 
         let mut primeira_linha_da_mensagem = true;
         let mut dentro_de_bloco_de_codigo = false;
-        // `texto_visivel` reconstrói a mesma `String` que `Mensagem.texto`
-        // era antes do MT-115 (ADR-0035) -- a lógica de Markdown/wrap
-        // abaixo não muda, só a fonte dos dados (blocos estruturados em
-        // vez de uma `String` só, necessário pro MT-116/117 saber qual
-        // chamada de tool corresponde a qual marcador).
-        let texto_visivel = mensagem.texto_visivel();
-        for linha_original in texto_visivel.split('\n') {
-            let e_cerca = linha_original.trim_start().starts_with("```");
-            if e_cerca {
-                dentro_de_bloco_de_codigo = !dentro_de_bloco_de_codigo;
-            }
 
-            // Cercas/conteúdo de bloco de código e o marcador de tool em uso
-            // usam o *wrap* simples de sempre, sem tokenizar `**`/`` ` ``
-            // (dentro de um bloco de código esses caracteres são literais,
-            // nunca sintaxe de ênfase) — mesmo padrão de linha inteira com
-            // um só estilo já usado desde o MT-108.
-            if e_cerca || dentro_de_bloco_de_codigo {
-                for linha_quebrada in quebrar_em_linhas(linha_original, largura_do_texto) {
-                    let texto_da_linha = if primeira_linha_da_mensagem {
-                        format!("{prefixo}{linha_quebrada}")
-                    } else {
-                        format!("{recuo}{linha_quebrada}")
-                    };
-                    primeira_linha_da_mensagem = false;
-                    linhas.push(Line::styled(texto_da_linha, ESTILO_BLOCO_DE_CODIGO));
+        for bloco in &mensagem.blocos {
+            match bloco {
+                Bloco::Texto(texto) => {
+                    for linha_original in texto.split('\n') {
+                        let e_cerca = linha_original.trim_start().starts_with("```");
+                        if e_cerca {
+                            dentro_de_bloco_de_codigo = !dentro_de_bloco_de_codigo;
+                        }
+
+                        // Cercas/conteúdo de bloco de código usam o *wrap*
+                        // simples de sempre, sem tokenizar `**`/`` ` ``
+                        // (dentro de um bloco de código esses caracteres são
+                        // literais, nunca sintaxe de ênfase) — mesmo padrão
+                        // de linha inteira com um só estilo já usado desde o
+                        // MT-108.
+                        if e_cerca || dentro_de_bloco_de_codigo {
+                            for linha_quebrada in
+                                quebrar_em_linhas(linha_original, largura_do_texto)
+                            {
+                                let texto_da_linha = if primeira_linha_da_mensagem {
+                                    format!("{prefixo}{linha_quebrada}")
+                                } else {
+                                    format!("{recuo}{linha_quebrada}")
+                                };
+                                primeira_linha_da_mensagem = false;
+                                linhas.push(Line::styled(texto_da_linha, ESTILO_BLOCO_DE_CODIGO));
+                            }
+                            continue;
+                        }
+
+                        // Texto normal (MT-109): `**negrito**`/`` `código` ``
+                        // viram `Span`s próprios dentro da mesma `Line`,
+                        // preservando a cor do autor como base.
+                        for runs in quebrar_em_linhas_com_estilo(linha_original, largura_do_texto) {
+                            let prefixo_da_linha = if primeira_linha_da_mensagem {
+                                prefixo.to_string()
+                            } else {
+                                recuo.clone()
+                            };
+                            primeira_linha_da_mensagem = false;
+
+                            let mut spans = vec![Span::styled(prefixo_da_linha, estilo_base)];
+                            spans.extend(runs.into_iter().map(|(texto, enfase)| {
+                                Span::styled(texto, estilo_para_enfase(estilo_base, enfase))
+                            }));
+                            linhas.push(Line::from(spans));
+                        }
+                    }
                 }
-                continue;
-            }
-            if linha_original.trim_start().starts_with('⚙') {
-                for linha_quebrada in quebrar_em_linhas(linha_original, largura_do_texto) {
-                    let texto_da_linha = if primeira_linha_da_mensagem {
-                        format!("{prefixo}{linha_quebrada}")
-                    } else {
-                        format!("{recuo}{linha_quebrada}")
-                    };
-                    primeira_linha_da_mensagem = false;
-                    linhas.push(Line::styled(texto_da_linha, ESTILO_MARCADOR_DE_TOOL));
+                Bloco::Tool {
+                    nome,
+                    argumentos,
+                    resultado,
+                    expandido,
+                    ..
+                } => {
+                    for (linha_logica, estilo) in linhas_logicas_do_bloco_de_tool(
+                        nome,
+                        argumentos,
+                        resultado.as_ref(),
+                        *expandido,
+                    ) {
+                        for linha_quebrada in quebrar_em_linhas(&linha_logica, largura_do_texto) {
+                            let texto_da_linha = if primeira_linha_da_mensagem {
+                                format!("{prefixo}{linha_quebrada}")
+                            } else {
+                                format!("{recuo}{linha_quebrada}")
+                            };
+                            primeira_linha_da_mensagem = false;
+                            linhas.push(Line::styled(texto_da_linha, estilo));
+                        }
+                    }
                 }
-                continue;
             }
+        }
+    }
+    linhas
+}
 
-            // Texto normal (MT-109): `**negrito**`/`` `código` `` viram
-            // `Span`s próprios dentro da mesma `Line`, preservando a cor do
-            // autor como base.
-            for runs in quebrar_em_linhas_com_estilo(linha_original, largura_do_texto) {
-                let prefixo_da_linha = if primeira_linha_da_mensagem {
-                    prefixo.to_string()
-                } else {
-                    recuo.clone()
-                };
-                primeira_linha_da_mensagem = false;
+/// Largura máxima (em caracteres) do início do comando mostrado no
+/// *preview* de um bloco de tool recolhido (MT-116) — curto o bastante pra
+/// caber numa linha só na maioria dos terminais, mesmo com o prefixo
+/// `"agente: "` e o rótulo `"⚙ tool: <nome> — "` já consumindo espaço.
+const LARGURA_DO_PREVIEW_DE_TOOL: usize = 40;
 
-                let mut spans = vec![Span::styled(prefixo_da_linha, estilo_base)];
-                spans.extend(runs.into_iter().map(|(texto, enfase)| {
-                    Span::styled(texto, estilo_para_enfase(estilo_base, enfase))
-                }));
-                linhas.push(Line::from(spans));
-            }
+/// Monta as linhas lógicas (ainda sem *wrap*) de um bloco de chamada de
+/// tool, cada uma já com o estilo que deve receber — unifica os três casos
+/// possíveis antes do *wrap* comum (mesmo `quebrar_em_linhas` usado em
+/// todo o resto do histórico):
+///
+/// - **`todo_write`**: sempre o marcador + o *checklist* formatado (MT-107,
+///   ADR-0034), **sem** distinção recolhido/expandido — um *checklist* já é
+///   ao mesmo tempo a versão resumida e completa, expandir não acrescentaria
+///   nada. Mantém o comportamento de sempre, sem regressão.
+/// - **Recolhido** (qualquer outra tool, `expandido == false`): uma linha só,
+///   `⚙ tool: <nome> — <início dos argumentos>…` — não mostra nem o comando
+///   completo nem a saída (MT-116, achado real de usabilidade: o comando de
+///   uma tool como `shell_exec` ficava escondido atrás de um marcador
+///   genérico, sem nenhuma pista do que de fato rodou).
+/// - **Expandido**: nome, argumentos completos (reaproveitando o *wrap* já
+///   existente) e a saída completa da tool, se já chegou
+///   (`StreamEvent::ToolCallResult`, MT-114) — com [`ESTILO_ERRO_DE_TOOL`]
+///   distinto quando `is_error`, nunca confundível com uma saída
+///   bem-sucedida.
+fn linhas_logicas_do_bloco_de_tool(
+    nome: &str,
+    argumentos: &str,
+    resultado: Option<&(String, bool)>,
+    expandido: bool,
+) -> Vec<(String, Style)> {
+    if nome == "todo_write" {
+        let mut linhas = vec![(format!("⚙ usando {nome}..."), ESTILO_MARCADOR_DE_TOOL)];
+        if let Some(checklist) = chat::formatar_checklist_todo(argumentos) {
+            linhas.extend(
+                checklist
+                    .trim_end_matches('\n')
+                    .split('\n')
+                    .map(|linha| (linha.to_string(), ESTILO_MARCADOR_DE_TOOL)),
+            );
+        }
+        return linhas;
+    }
+
+    if !expandido {
+        let preview: String = argumentos
+            .chars()
+            .take(LARGURA_DO_PREVIEW_DE_TOOL)
+            .collect();
+        let reticencias = if argumentos.chars().count() > LARGURA_DO_PREVIEW_DE_TOOL {
+            "…"
+        } else {
+            ""
+        };
+        return vec![(
+            format!("⚙ tool: {nome} — {preview}{reticencias}"),
+            ESTILO_MARCADOR_DE_TOOL,
+        )];
+    }
+
+    let mut linhas = vec![
+        (
+            format!("⚙ tool: {nome} (expandido)"),
+            ESTILO_MARCADOR_DE_TOOL,
+        ),
+        (format!("comando: {argumentos}"), ESTILO_MARCADOR_DE_TOOL),
+    ];
+    match resultado {
+        Some((conteudo, true)) => {
+            linhas.push(("saída (erro):".to_string(), ESTILO_MARCADOR_DE_TOOL));
+            linhas.extend(
+                conteudo
+                    .split('\n')
+                    .map(|linha| (linha.to_string(), ESTILO_ERRO_DE_TOOL)),
+            );
+        }
+        Some((conteudo, false)) => {
+            linhas.push(("saída:".to_string(), ESTILO_MARCADOR_DE_TOOL));
+            linhas.extend(
+                conteudo
+                    .split('\n')
+                    .map(|linha| (linha.to_string(), ESTILO_BLOCO_DE_CODIGO)),
+            );
+        }
+        None => {
+            linhas.push(("(ainda executando...)".to_string(), ESTILO_MARCADOR_DE_TOOL));
         }
     }
     linhas
@@ -1789,6 +1902,138 @@ mod tests {
         assert_eq!(linha_do_marcador.style, ESTILO_MARCADOR_DE_TOOL);
     }
 
+    // --- linhas_logicas_do_bloco_de_tool (MT-116, ADR-0035): recolhido vs.
+    // expandido, achado real de usabilidade -- o comando de uma tool como
+    // shell_exec ficava escondido atrás de um marcador genérico ---
+
+    #[test]
+    fn bloco_de_tool_recolhido_mostra_so_um_preview_do_comando() {
+        let comando = "a".repeat(100);
+        let linhas = linhas_logicas_do_bloco_de_tool("shell_exec", &comando, None, false);
+
+        assert_eq!(linhas.len(), 1, "recolhido é sempre uma linha só");
+        let (texto, estilo) = &linhas[0];
+        assert_eq!(*estilo, ESTILO_MARCADOR_DE_TOOL);
+        assert!(texto.starts_with("⚙ tool: shell_exec — "));
+        assert!(
+            texto.chars().count() < comando.chars().count(),
+            "não pode conter o comando inteiro: {texto:?}"
+        );
+        assert!(texto.ends_with('…'), "corte sinalizado com reticências");
+    }
+
+    #[test]
+    fn bloco_de_tool_recolhido_nao_mostra_a_saida_mesmo_ja_disponivel() {
+        let linhas = linhas_logicas_do_bloco_de_tool(
+            "shell_exec",
+            "echo oi",
+            Some(&("saida sensivel".to_string(), false)),
+            false,
+        );
+
+        let texto_completo: String = linhas.iter().map(|(t, _)| t.as_str()).collect();
+        assert!(
+            !texto_completo.contains("saida sensivel"),
+            "recolhido nunca mostra a saída, mesmo com resultado já disponível"
+        );
+    }
+
+    #[test]
+    fn bloco_de_tool_expandido_mostra_comando_completo_e_saida() {
+        let comando = "a".repeat(100);
+        let linhas = linhas_logicas_do_bloco_de_tool(
+            "shell_exec",
+            &comando,
+            Some(&("tudo certo".to_string(), false)),
+            true,
+        );
+
+        let texto_completo: String = linhas.iter().map(|(t, _)| t.as_str()).collect();
+        assert!(
+            texto_completo.contains(&comando),
+            "expandido mostra o comando inteiro, sem cortar"
+        );
+        assert!(texto_completo.contains("tudo certo"));
+        assert!(
+            linhas
+                .iter()
+                .any(|(t, estilo)| t == "tudo certo" && *estilo == ESTILO_BLOCO_DE_CODIGO),
+            "saída bem-sucedida usa o mesmo estilo de bloco de código"
+        );
+    }
+
+    #[test]
+    fn bloco_de_tool_expandido_com_erro_usa_estilo_distinto() {
+        let linhas = linhas_logicas_do_bloco_de_tool(
+            "shell_exec",
+            "rm -rf /nada",
+            Some(&("permissão negada".to_string(), true)),
+            true,
+        );
+
+        assert!(
+            linhas
+                .iter()
+                .any(|(t, estilo)| t == "permissão negada" && *estilo == ESTILO_ERRO_DE_TOOL),
+            "erro tem estilo visualmente distinto de uma saída bem-sucedida"
+        );
+    }
+
+    #[test]
+    fn bloco_de_tool_expandido_sem_resultado_ainda_avisa_que_esta_executando() {
+        let linhas = linhas_logicas_do_bloco_de_tool("shell_exec", "sleep 10", None, true);
+
+        let texto_completo: String = linhas.iter().map(|(t, _)| t.as_str()).collect();
+        assert!(texto_completo.contains("ainda executando"));
+    }
+
+    #[test]
+    fn bloco_de_todo_write_ignora_estado_de_expansao() {
+        let argumentos = r#"{"items":[{"content":"x","status":"pending"}]}"#;
+        let recolhido = linhas_logicas_do_bloco_de_tool("todo_write", argumentos, None, false);
+        let expandido = linhas_logicas_do_bloco_de_tool("todo_write", argumentos, None, true);
+
+        assert_eq!(
+            recolhido, expandido,
+            "todo_write sempre mostra o checklist, não tem estado recolhido/expandido"
+        );
+        let texto_completo: String = recolhido.iter().map(|(t, _)| t.as_str()).collect();
+        assert!(texto_completo.contains("[ ] x"));
+    }
+
+    #[test]
+    fn montar_linhas_do_historico_nao_vaza_saida_de_tool_quando_recolhido() {
+        // Integração via o pipeline real de eventos (ToolCallStart +
+        // ToolCallResult, MT-114/115): mesmo com o resultado já disponível
+        // no bloco, a renderização (sempre recolhida por padrão, sem
+        // clique ainda -- MT-117) não deve vazar a saída.
+        let mut estado = estado_vazio();
+        estado.entrada = "rode um comando".into();
+        estado.preparar_envio();
+        estado.chat.aplicar_evento(&StreamEvent::ToolCallStart {
+            id: "call_1".into(),
+            name: "shell_exec".into(),
+        });
+        estado.chat.aplicar_evento(&StreamEvent::ToolCallDelta {
+            id: "call_1".into(),
+            delta: r#"{"command":"echo oi"}"#.into(),
+        });
+        estado.chat.aplicar_evento(&StreamEvent::ToolCallResult {
+            id: "call_1".into(),
+            content: "saida-que-nao-pode-vazar".into(),
+            is_error: false,
+        });
+
+        let linhas = montar_linhas_do_historico(&estado, 80);
+        let texto_completo: String = linhas.iter().map(|l| l.to_string()).collect();
+
+        assert!(texto_completo.contains("⚙ tool: shell_exec —"));
+        assert!(
+            !texto_completo.contains("saida-que-nao-pode-vazar"),
+            "saída não deve vazar num bloco recolhido: {texto_completo:?}"
+        );
+    }
+
     // --- blocos de código cercado (MT-108) ---
 
     #[test]
@@ -2207,7 +2452,10 @@ mod tests {
         assert_eq!(estado.entrada, "");
         assert!(estado.enviando);
         assert_eq!(estado.chat.mensagens().len(), 2);
-        assert_eq!(estado.chat.mensagens()[0].texto_visivel(), "oi");
+        assert_eq!(
+            estado.chat.mensagens()[0].blocos,
+            vec![Bloco::Texto("oi".to_string())]
+        );
     }
 
     #[test]
