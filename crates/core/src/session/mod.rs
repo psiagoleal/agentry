@@ -180,6 +180,11 @@ impl StreamAggregator {
                 }
             }
             StreamEvent::MessageEnd { usage } => self.usage = *usage,
+            // Resultado de uma tool já executada (ADR-0035/MT-114) não é
+            // parte da mensagem do *modelo* sendo acumulada aqui -- é uma
+            // notificação de canal lateral, emitida por quem chama
+            // `after_response`, não por este agregador.
+            StreamEvent::ToolCallResult { .. } => {}
         }
     }
 
@@ -610,6 +615,15 @@ impl Session {
     /// estourou, e — se houver tool-calls e orçamento restante — executa cada
     /// uma e acrescenta a observação ao histórico como mensagem `Tool`.
     ///
+    /// `resultados` (ADR-0035/MT-114) recebe uma cópia de cada [`ToolResult`]
+    /// executado nesta chamada, na ordem de execução — mesmo padrão de
+    /// parâmetro de saída por mutação já usado por `consumed: &mut Usage`.
+    /// `Session::run` (não-*streaming*) passa um `Vec` descartável;
+    /// `Session::run_streaming` drena e emite cada um como
+    /// [`StreamEvent::ToolCallResult`] via `on_event`. Fica vazio sempre que
+    /// esta chamada não executa nenhuma tool (ex.: resposta final sem
+    /// tool-calls, ou parada por orçamento/teto de turnos antes de executar).
+    ///
     /// Devolve `Some(outcome)` quando o loop deve parar neste turno.
     async fn after_response(
         &mut self,
@@ -617,6 +631,7 @@ impl Session {
         turn_usage: Usage,
         consumed: &mut Usage,
         turns: u32,
+        resultados: &mut Vec<ToolResult>,
     ) -> Option<SessionOutcome> {
         *consumed = Usage {
             input_tokens: consumed.input_tokens + turn_usage.input_tokens,
@@ -667,6 +682,7 @@ impl Session {
         let mut result_blocks = Vec::with_capacity(tool_calls.len());
         for call in &tool_calls {
             let result = self.executor.execute(call).await;
+            resultados.push(result.clone());
             result_blocks.push(ContentBlock::ToolResult(result));
         }
         self.messages.push(Message {
@@ -868,8 +884,18 @@ impl Session {
                 .chat(request)
                 .await
                 .map_err(SessionError::Provider)?;
+            // `run` não é *streaming* -- não há `on_event` pra emitir
+            // `StreamEvent::ToolCallResult`, então os resultados executados
+            // são descartados aqui (mesma decisão de escopo do MT-107: sem
+            // paridade de exibição de tool fora da TUI).
             let Some(mut outcome) = self
-                .after_response(response.message, response.usage, &mut consumed, turns)
+                .after_response(
+                    response.message,
+                    response.usage,
+                    &mut consumed,
+                    turns,
+                    &mut Vec::new(),
+                )
                 .await
             else {
                 continue;
@@ -973,16 +999,33 @@ impl Session {
             }
             let (message, turn_usage) = aggregator.into_message();
 
+            let mut resultados_de_tools = Vec::new();
             let Some(mut outcome) = self
-                .after_response(message, turn_usage, &mut consumed, turns)
+                .after_response(
+                    message,
+                    turn_usage,
+                    &mut consumed,
+                    turns,
+                    &mut resultados_de_tools,
+                )
                 .await
             else {
                 // Turno com tool-calls, não é a resposta final — nenhuma
                 // checagem de saída se aplica; repassa os eventos originais
                 // em lote (mesmo conteúdo do modo ao vivo, só atrasado até o
-                // fim do turno).
+                // fim do turno), depois o resultado de cada tool já
+                // executada (ADR-0035/MT-114) -- sempre depois do
+                // `ToolCallStart`/`ToolCallDelta` correspondente, nunca
+                // antes.
                 for evento in &eventos_do_turno {
                     on_event(evento);
+                }
+                for resultado in &resultados_de_tools {
+                    on_event(&StreamEvent::ToolCallResult {
+                        id: resultado.call_id.clone(),
+                        content: resultado.content.clone(),
+                        is_error: resultado.is_error,
+                    });
                 }
                 continue;
             };
@@ -1381,16 +1424,32 @@ mod tests {
         let mut session = Session::new(route(mock), executor.clone(), TokenBudget::new(1000));
         session.push_user_message("leia a.txt");
 
-        let mut eventos_recebidos = 0usize;
+        let mut eventos_recebidos = Vec::new();
         let outcome = session
-            .run_streaming(|_evento| eventos_recebidos += 1, &router_vazio())
+            .run_streaming(
+                |evento| eventos_recebidos.push(evento.clone()),
+                &router_vazio(),
+            )
             .await
             .expect("loop de streaming deve completar");
 
         assert_eq!(outcome.reason, StopReason::Done);
         assert_eq!(outcome.usage.total(), 14);
         assert_eq!(executor.chamadas.load(Ordering::SeqCst), 1);
-        assert_eq!(eventos_recebidos, 8, "4 eventos por turno, 2 turnos");
+        assert_eq!(
+            eventos_recebidos.len(),
+            9,
+            "4 eventos do 1o turno + ToolCallResult (ADR-0035/MT-114) + 4 do 2o turno"
+        );
+        assert_eq!(
+            eventos_recebidos[4],
+            StreamEvent::ToolCallResult {
+                id: "call-1".into(),
+                content: "ok".into(),
+                is_error: false,
+            },
+            "resultado da tool vem logo depois dos eventos do turno que a pediu"
+        );
 
         let historico = session.messages();
         assert_eq!(historico[1].role, Role::Assistant);
@@ -2568,8 +2627,9 @@ mod tests {
         assert!(outcome.guardrail_hits.is_empty(), "nenhuma regra casou");
 
         // Turno 1 (tool-call) repassado em lote, exatamente como veio do
-        // provider; turno 2 (final, Allowed) via eventos sintéticos.
-        assert_eq!(eventos.len(), 7);
+        // provider, seguido do resultado da tool (ADR-0035/MT-114); turno 2
+        // (final, Allowed) via eventos sintéticos.
+        assert_eq!(eventos.len(), 8);
         assert_eq!(eventos[0], StreamEvent::MessageStart);
         assert_eq!(
             eventos[1],
@@ -2578,13 +2638,21 @@ mod tests {
                 name: "fs_read".into(),
             }
         );
-        assert_eq!(eventos[4], StreamEvent::MessageStart);
         assert_eq!(
-            eventos[5],
+            eventos[4],
+            StreamEvent::ToolCallResult {
+                id: "call-1".into(),
+                content: "ok".into(),
+                is_error: false,
+            }
+        );
+        assert_eq!(eventos[5], StreamEvent::MessageStart);
+        assert_eq!(
+            eventos[6],
             StreamEvent::TextDelta {
                 text: "tudo certo".into()
             }
         );
-        assert!(matches!(eventos[6], StreamEvent::MessageEnd { .. }));
+        assert!(matches!(eventos[7], StreamEvent::MessageEnd { .. }));
     }
 }

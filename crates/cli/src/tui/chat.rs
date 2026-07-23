@@ -78,6 +78,19 @@ struct ChamadaEmAndamento {
 pub struct ChatState {
     mensagens: Vec<Mensagem>,
     chamadas_em_andamento: HashMap<String, ChamadaEmAndamento>,
+    /// Resultados de tool já executados (`StreamEvent::ToolCallResult`,
+    /// ADR-0035/MT-114), por `id` de chamada — armazenamento só de
+    /// passagem para este ticket (o consumo/exibição de verdade, e a
+    /// decisão de quando limpar cada entrada, é escopo do MT-115, que vai
+    /// substituir o texto corrido de `Mensagem` por blocos estruturados).
+    /// **Deliberadamente não compartilha o ciclo de vida de
+    /// `chamadas_em_andamento`**: aquele mapa é limpo a cada `MessageEnd`
+    /// (MT-107), mas o resultado de uma tool chega **depois** do
+    /// `MessageEnd` do turno que a chamou (`Session::run_streaming` emite
+    /// `ToolCallResult` só depois de repassar os eventos do turno) — se
+    /// reaproveitássemos o mesmo mapa, a entrada já teria sido apagada
+    /// antes do resultado chegar.
+    resultados_de_tools: HashMap<String, (String, bool)>,
 }
 
 impl ChatState {
@@ -173,6 +186,14 @@ impl ChatState {
                 self.chamadas_em_andamento.clear();
             }
             StreamEvent::MessageStart | StreamEvent::ToolCallDelta { .. } => {}
+            StreamEvent::ToolCallResult {
+                id,
+                content,
+                is_error,
+            } => {
+                self.resultados_de_tools
+                    .insert(id.clone(), (content.clone(), *is_error));
+            }
         }
     }
 
@@ -456,6 +477,67 @@ mod tests {
         });
 
         assert_eq!(estado.mensagens().last().unwrap().texto, "");
+    }
+
+    // --- ToolCallResult (ADR-0035/MT-114) -- armazenamento de passagem,
+    // consumo/exibição de verdade só a partir do MT-115 ---
+
+    #[test]
+    fn tool_call_result_fica_disponivel_por_id() {
+        let mut estado = ChatState::new();
+        estado.registrar_mensagem_usuario("crie um arquivo".into());
+        estado.aplicar_evento(&StreamEvent::ToolCallStart {
+            id: "call_1".into(),
+            name: "fs_write".into(),
+        });
+        estado.aplicar_evento(&StreamEvent::MessageEnd {
+            usage: Usage::default(),
+        });
+
+        assert_eq!(estado.resultados_de_tools.get("call_1"), None);
+
+        estado.aplicar_evento(&StreamEvent::ToolCallResult {
+            id: "call_1".into(),
+            content: "arquivo criado".into(),
+            is_error: false,
+        });
+
+        assert_eq!(
+            estado.resultados_de_tools.get("call_1"),
+            Some(&("arquivo criado".to_string(), false))
+        );
+    }
+
+    #[test]
+    fn tool_call_result_sobrevive_ao_message_end_do_proprio_turno() {
+        // Diferente de `chamadas_em_andamento` (limpo a cada MessageEnd),
+        // o resultado chega DEPOIS do MessageEnd do turno que pediu a
+        // tool -- não pode ser perdido por causa dessa limpeza.
+        let mut estado = ChatState::new();
+        estado.registrar_mensagem_usuario("crie um arquivo".into());
+        estado.aplicar_evento(&StreamEvent::ToolCallStart {
+            id: "call_1".into(),
+            name: "fs_write".into(),
+        });
+        estado.aplicar_evento(&StreamEvent::MessageEnd {
+            usage: Usage::default(),
+        });
+        estado.aplicar_evento(&StreamEvent::ToolCallResult {
+            id: "call_1".into(),
+            content: "erro: permissão negada".into(),
+            is_error: true,
+        });
+
+        assert_eq!(
+            estado.resultados_de_tools.get("call_1"),
+            Some(&("erro: permissão negada".to_string(), true))
+        );
+    }
+
+    #[test]
+    fn resultado_de_tool_desconhecido_e_none() {
+        let estado = ChatState::new();
+        assert_eq!(estado.resultados_de_tools.get("nunca-existiu"), None);
     }
 
     #[test]

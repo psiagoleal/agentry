@@ -171,6 +171,23 @@ pub enum StreamEvent {
         /// Uso de tokens da interação.
         usage: Usage,
     },
+    /// Resultado de uma chamada de tool já executada (ADR-0035, MT-114) —
+    /// emitido por [`crate::session::Session::run_streaming`] logo depois
+    /// de `Session::after_response` executar a tool, correlacionado ao
+    /// `ToolCallStart`/`ToolCallDelta` correspondente pelo mesmo `id`. O
+    /// nome da tool não viaja de novo aqui — quem consome já viu o nome no
+    /// `ToolCallStart`. Sem equivalente em [`crate::session::Session::run`]
+    /// (não-*streaming*): a execução de tools é a mesma em ambos os modos,
+    /// só não há `on_event` em `run` para emitir isso.
+    ToolCallResult {
+        /// Identificador da chamada correspondente (mesmo `id` do
+        /// `ToolCallStart`/`ToolCallDelta`, e de [`ToolResult::call_id`]).
+        id: String,
+        /// Conteúdo textual do resultado (saída da tool ou descrição do erro).
+        content: String,
+        /// Indica se a execução falhou.
+        is_error: bool,
+    },
 }
 
 #[cfg(test)]
