@@ -305,7 +305,24 @@ caminho de saída, inclusive pânico.
   forma de ser alternado pelo usuário — isso é o MT-117 (clique de mouse). 7 testes novos, 204
   no bin `agentry`, 622 no *workspace*. Verificado com smoke-test real via `tmux` + mock HTTP:
   preview de uma linha aparece no corpo da conversa antes mesmo da confirmação da tool.
-- MT-117 (pendente) — captura de mouse, único ticket restante da Fase F.
+- MT-117 ✅ (`3f5d292`) — `EnableMouseCapture`/`DisableMouseCapture` ativada após
+  `ratatui::try_init`, desativada em todo caminho de saída (normal e pânico —
+  `instalar_panic_hook_para_mouse` estende o *panic hook* que o próprio `try_init` já instala,
+  mesmo padrão `take_hook`/`set_hook` encadeado). `montar_linhas_do_historico_com_alvos`
+  emparelha cada `Line` com um `AlvoDeClique` (mensagem+bloco) na primeira linha de um bloco de
+  tool; `montar_layout_do_historico` unifica linhas+*padding*+*scroll* numa função só, consultada
+  tanto por `draw` quanto por `bloco_clicado` — nunca divergem sobre "qual linha é qual bloco".
+  `bloco_clicado` recalcula esse layout a partir do tamanho *atual* do terminal (consultado no
+  momento do clique), sem cache/desatualização. `ChatState::alternar_expansao` (novo) alterna
+  `expandido` no bloco certo. `Shift`+arraste continua selecionando texto nativamente sem nenhum
+  código nosso — convenção do próprio emulador de terminal. 9 testes novos, 209 no bin
+  `agentry`, 627 no *workspace*. Verificado com smoke-test real via `tmux` injetando sequências
+  SGR de mouse cruas (clique de verdade): expande, recolhe de novo, saída limpa restaura o
+  terminal sem artefatos. **Pendente de verificação do próprio mantenedor** (não automatizável
+  aqui): `Shift`+arraste preservando seleção nativa no terminal real dele, e comportamento num
+  pânico forçado.
+
+**Fecha a Fase F (ADR-0035: MT-113..117, todos concluídos).**
 
 ## Último turno
 

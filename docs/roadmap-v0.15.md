@@ -331,7 +331,7 @@ sentido depois do anterior).
   bloco expandido mostra os dois; erro (`is_error`) tem estilo visualmente distinto.
 - **Depende de:** MT-115.
 
-### MT-117: Captura de mouse — clique expande/recolhe, `Shift`+arraste seleciona nativamente
+### MT-117: Captura de mouse — clique expande/recolhe, `Shift`+arraste seleciona nativamente ✅ concluído (3f5d292)
 - **Objetivo:** `crossterm::event::{EnableMouseCapture, DisableMouseCapture}` (já disponível
   via `ratatui`, sem dependência nova) ativada após `ratatui::try_init`, desativada em **todo**
   caminho de saída — inclusive pânico (`ratatui::try_init`/`restore` não cobrem isso sozinhos,
@@ -346,6 +346,12 @@ sentido depois do anterior).
   terminal do mantenedor, captura de mouse desliga limpa ao sair (`/exit`, `Ctrl+C`, e um pânico
   forçado).
 - **Depende de:** MT-116.
+
+**Fecha a Fase F (ADR-0035: MT-113..117, todos concluídos).** Verificado com clique de mouse
+de verdade (sequências SGR cruas injetadas via `tmux`, não só automação de teclado): expande,
+recolhe de novo, saída limpa. `Shift`+arraste e comportamento num pânico forçado ficam
+pendentes de verificação do próprio mantenedor no terminal real dele (não automatizável neste
+ambiente).
 
 ---
 
