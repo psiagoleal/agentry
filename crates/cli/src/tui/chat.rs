@@ -235,6 +235,21 @@ impl ChatState {
             concluida: true,
         });
     }
+
+    /// Alterna `expandido` do bloco de tool no índice dado (MT-117, clique
+    /// de mouse) — silenciosamente ignorado se os índices não existirem ou
+    /// o bloco não for uma chamada de tool (nunca pânico por um clique
+    /// desalinhado, ex.: o histórico mudou entre o clique chegar e ser
+    /// processado).
+    pub(crate) fn alternar_expansao(&mut self, indice_mensagem: usize, indice_bloco: usize) {
+        if let Some(Bloco::Tool { expandido, .. }) = self
+            .mensagens
+            .get_mut(indice_mensagem)
+            .and_then(|mensagem| mensagem.blocos.get_mut(indice_bloco))
+        {
+            *expandido = !*expandido;
+        }
+    }
 }
 
 #[cfg(test)]
@@ -678,5 +693,48 @@ mod tests {
             texto_visivel_de_teste(&estado.mensagens()[2]),
             "[undo] 'a.txt' restaurado"
         );
+    }
+
+    // --- alternar_expansao (MT-117, ADR-0035): clique de mouse alterna
+    // expandido -- nunca pânico por índice desalinhado ---
+
+    #[test]
+    fn alternar_expansao_liga_e_desliga_o_bloco_certo() {
+        let mut estado = ChatState::new();
+        estado.registrar_mensagem_usuario("rode algo".into());
+        estado.aplicar_evento(&StreamEvent::ToolCallStart {
+            id: "call_1".into(),
+            name: "shell_exec".into(),
+        });
+
+        estado.alternar_expansao(1, 0);
+        assert!(matches!(
+            estado.mensagens()[1].blocos[0],
+            Bloco::Tool {
+                expandido: true,
+                ..
+            }
+        ));
+
+        estado.alternar_expansao(1, 0);
+        assert!(matches!(
+            estado.mensagens()[1].blocos[0],
+            Bloco::Tool {
+                expandido: false,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn alternar_expansao_com_indice_fora_do_alcance_nao_entra_em_panico() {
+        let mut estado = ChatState::new();
+        estado.registrar_mensagem_usuario("oi".into());
+
+        estado.alternar_expansao(99, 0);
+        estado.alternar_expansao(0, 99);
+        estado.alternar_expansao(0, 0); // bloco de texto, não de tool
+
+        assert_eq!(estado.mensagens().len(), 2);
     }
 }

@@ -39,7 +39,10 @@ use std::io;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
+use ratatui::crossterm::event::{
+    self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind, KeyModifiers,
+    MouseButton, MouseEvent, MouseEventKind,
+};
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
@@ -834,9 +837,45 @@ fn quebrar_em_linhas_com_estilo(texto: &str, largura: usize) -> Vec<Vec<(String,
 /// continua idêntico (`quebrar_em_linhas`), só aplicado por linha lógica em
 /// vez de na mensagem inteira de uma vez, pra manter o estado da máquina
 /// alinhado com o texto original.
+///
+/// Só usada em teste (MT-117): produção consulta
+/// [`montar_linhas_do_historico_com_alvos`] diretamente (via
+/// [`montar_layout_do_historico`]), que também precisa do alvo de clique
+/// de cada linha — mantida como superfície de teste estável pra não
+/// reescrever todos os testes de Markdown/*wrap* que já a chamavam antes
+/// do MT-117 existir.
+#[cfg(test)]
 fn montar_linhas_do_historico(estado: &Estado, largura_disponivel: usize) -> Vec<Line<'static>> {
+    montar_linhas_do_historico_com_alvos(estado, largura_disponivel)
+        .into_iter()
+        .map(|(linha, _)| linha)
+        .collect()
+}
+
+/// Referência a um bloco de tool específico do histórico — mensagem e
+/// bloco pelo índice (MT-117, ADR-0035). Usado para alternar `expandido`
+/// a partir de um clique de mouse: identifica *qual* bloco foi clicado sem
+/// precisar carregar uma referência de verdade (que colidiria com o
+/// empréstimo de `Estado` durante a renderização).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct AlvoDeClique {
+    indice_mensagem: usize,
+    indice_bloco: usize,
+}
+
+/// Como [`montar_linhas_do_historico`], mas emparelhando cada `Line` com o
+/// [`AlvoDeClique`] correspondente — `Some` só na **primeira** linha
+/// renderizada de um bloco de tool (o "cabeçalho" clicável, recolhido ou
+/// expandido), `None` em qualquer outra linha (texto normal, continuação
+/// por *wrap*). Única fonte de verdade consultada tanto por [`draw`]
+/// quanto por [`bloco_clicado`] — garante que os dois nunca divirjam sobre
+/// "qual linha corresponde a qual bloco".
+fn montar_linhas_do_historico_com_alvos(
+    estado: &Estado,
+    largura_disponivel: usize,
+) -> Vec<(Line<'static>, Option<AlvoDeClique>)> {
     let mut linhas = Vec::new();
-    for mensagem in estado.chat.mensagens() {
+    for (indice_mensagem, mensagem) in estado.chat.mensagens().iter().enumerate() {
         let prefixo = match mensagem.autor {
             Autor::Usuario => "usuário: ",
             Autor::Agente => "agente: ",
@@ -850,7 +889,7 @@ fn montar_linhas_do_historico(estado: &Estado, largura_disponivel: usize) -> Vec
         let mut primeira_linha_da_mensagem = true;
         let mut dentro_de_bloco_de_codigo = false;
 
-        for bloco in &mensagem.blocos {
+        for (indice_bloco, bloco) in mensagem.blocos.iter().enumerate() {
             match bloco {
                 Bloco::Texto(texto) => {
                     for linha_original in texto.split('\n') {
@@ -875,7 +914,10 @@ fn montar_linhas_do_historico(estado: &Estado, largura_disponivel: usize) -> Vec
                                     format!("{recuo}{linha_quebrada}")
                                 };
                                 primeira_linha_da_mensagem = false;
-                                linhas.push(Line::styled(texto_da_linha, ESTILO_BLOCO_DE_CODIGO));
+                                linhas.push((
+                                    Line::styled(texto_da_linha, ESTILO_BLOCO_DE_CODIGO),
+                                    None,
+                                ));
                             }
                             continue;
                         }
@@ -895,7 +937,7 @@ fn montar_linhas_do_historico(estado: &Estado, largura_disponivel: usize) -> Vec
                             spans.extend(runs.into_iter().map(|(texto, enfase)| {
                                 Span::styled(texto, estilo_para_enfase(estilo_base, enfase))
                             }));
-                            linhas.push(Line::from(spans));
+                            linhas.push((Line::from(spans), None));
                         }
                     }
                 }
@@ -906,6 +948,7 @@ fn montar_linhas_do_historico(estado: &Estado, largura_disponivel: usize) -> Vec
                     expandido,
                     ..
                 } => {
+                    let mut primeira_linha_do_bloco = true;
                     for (linha_logica, estilo) in linhas_logicas_do_bloco_de_tool(
                         nome,
                         argumentos,
@@ -919,7 +962,16 @@ fn montar_linhas_do_historico(estado: &Estado, largura_disponivel: usize) -> Vec
                                 format!("{recuo}{linha_quebrada}")
                             };
                             primeira_linha_da_mensagem = false;
-                            linhas.push(Line::styled(texto_da_linha, estilo));
+                            let alvo = if primeira_linha_do_bloco {
+                                primeira_linha_do_bloco = false;
+                                Some(AlvoDeClique {
+                                    indice_mensagem,
+                                    indice_bloco,
+                                })
+                            } else {
+                                None
+                            };
+                            linhas.push((Line::styled(texto_da_linha, estilo), alvo));
                         }
                     }
                 }
@@ -1043,6 +1095,12 @@ fn altura_da_entrada(linhas_de_conteudo: usize, teto: u16) -> u16 {
 /// o fim" e "mostrar do topo" coincidem matematicamente quando ela cabe
 /// inteira. Sem efeito quando `linhas.len() >= altura_minima` (nada a
 /// fazer, o scroll cuida do resto).
+///
+/// Só usada em teste (MT-117): a versão de produção do mesmo preenchimento
+/// vive inline em [`montar_layout_do_historico`] (precisa preencher o
+/// alvo de clique junto, não só a `Line`) — mantida como superfície de
+/// teste estável.
+#[cfg(test)]
 fn com_padding_no_topo(mut linhas: Vec<Line<'static>>, altura_minima: usize) -> Vec<Line<'static>> {
     if linhas.len() < altura_minima {
         let preenchimento = altura_minima - linhas.len();
@@ -1051,6 +1109,103 @@ fn com_padding_no_topo(mut linhas: Vec<Line<'static>>, altura_minima: usize) -> 
         return com_padding;
     }
     linhas
+}
+
+/// Linhas do histórico (com padding no topo já aplicado) emparelhadas com
+/// seus alvos de clique, mais o deslocamento de rolagem a partir do topo —
+/// tudo que [`draw`] e [`bloco_clicado`] (MT-117) precisam calcular de
+/// forma idêntica, fatorado numa função só pra nunca divergirem entre si.
+struct LayoutDoHistorico {
+    linhas_com_alvos: Vec<(Line<'static>, Option<AlvoDeClique>)>,
+    deslocamento_do_topo: u16,
+}
+
+fn montar_layout_do_historico(
+    estado: &Estado,
+    largura_disponivel: usize,
+    altura_interna: usize,
+) -> LayoutDoHistorico {
+    let mut linhas_com_alvos = montar_linhas_do_historico_com_alvos(estado, largura_disponivel);
+    if linhas_com_alvos.len() < altura_interna {
+        let preenchimento = altura_interna - linhas_com_alvos.len();
+        let mut com_padding = vec![(Line::from(""), None); preenchimento];
+        com_padding.append(&mut linhas_com_alvos);
+        linhas_com_alvos = com_padding;
+    }
+
+    let deslocamento_maximo = linhas_com_alvos.len().saturating_sub(altura_interna.max(1));
+    let scroll_efetivo = (estado.scroll as usize).min(deslocamento_maximo);
+    let deslocamento_do_topo = (deslocamento_maximo - scroll_efetivo) as u16;
+
+    LayoutDoHistorico {
+        linhas_com_alvos,
+        deslocamento_do_topo,
+    }
+}
+
+/// Decide qual bloco de tool (se algum) foi clicado, dado um clique em
+/// `(coluna, linha)` — coordenadas absolutas do terminal (MT-117,
+/// ADR-0035). Recalcula o mesmo layout que [`draw`] usou pra desenhar (via
+/// [`montar_layout_do_historico`]), a partir do tamanho *atual* do
+/// terminal consultado no momento do clique (`largura_terminal`/
+/// `altura_terminal`) em vez de um valor guardado de um frame anterior —
+/// sempre consistente com o que está na tela **agora**, sem risco de
+/// desatualização entre o desenho e o clique.
+fn bloco_clicado(
+    estado: &Estado,
+    coluna: u16,
+    linha: u16,
+    largura_terminal: u16,
+    altura_terminal: u16,
+) -> Option<AlvoDeClique> {
+    let largura_interna = largura_terminal.saturating_sub(2) as usize;
+    let teto_altura_entrada = (altura_terminal / 3).clamp(3, 12);
+    let linhas_entrada = quebrar_em_linhas(&estado.entrada, largura_interna.max(1));
+    let altura_entrada = altura_da_entrada(linhas_entrada.len(), teto_altura_entrada);
+
+    // Mesmo `Layout::split` vertical de `draw`: o histórico ocupa tudo
+    // menos a caixa de entrada, começando no topo do terminal.
+    let altura_historico = altura_terminal.saturating_sub(altura_entrada);
+    if altura_historico < 3 || linha == 0 || linha >= altura_historico.saturating_sub(1) {
+        return None; // fora da área do histórico, ou em cima da borda de cima/baixo
+    }
+    if coluna == 0 || coluna >= largura_terminal.saturating_sub(1) {
+        return None; // em cima da borda esquerda/direita
+    }
+
+    let altura_interna = altura_historico.saturating_sub(2) as usize;
+    let layout = montar_layout_do_historico(estado, largura_interna, altura_interna);
+
+    let linha_relativa = (linha - 1) as usize + layout.deslocamento_do_topo as usize;
+    layout
+        .linhas_com_alvos
+        .get(linha_relativa)
+        .and_then(|(_, alvo)| *alvo)
+}
+
+/// Trata um `MouseEvent` do terminal (MT-117, ADR-0035) — clique esquerdo
+/// num bloco de tool do histórico alterna `expandido`; qualquer outro
+/// clique (fora do histórico, ou com um modal por cima capturando a tela)
+/// não faz nada. `Shift`+arraste continua selecionando texto nativamente
+/// **sem nenhum código nosso** — é o próprio emulador de terminal que
+/// intercepta esse gesto antes de repassar à aplicação quando o
+/// modificador está pressionado (convenção herdada do xterm, respeitada
+/// por GNOME Terminal, Windows Terminal, iTerm2, Alacritty, etc.).
+fn processar_evento_de_mouse(estado: &mut Estado, mouse: MouseEvent) {
+    if estado.seletor.is_some() || estado.solicitacao.is_some() || estado.ajuda_aberta {
+        return;
+    }
+    if mouse.kind != MouseEventKind::Down(MouseButton::Left) {
+        return;
+    }
+    let Ok((largura, altura)) = ratatui::crossterm::terminal::size() else {
+        return;
+    };
+    if let Some(alvo) = bloco_clicado(estado, mouse.column, mouse.row, largura, altura) {
+        estado
+            .chat
+            .alternar_expansao(alvo.indice_mensagem, alvo.indice_bloco);
+    }
 }
 
 /// Tela: histórico de chat (área rolável) em cima, caixa de entrada fixa
@@ -1088,22 +1243,24 @@ fn draw(frame: &mut Frame<'_>, estado: &Estado) {
             .block(Block::bordered().title(" agentry "));
         frame.render_widget(logo, areas[0]);
     } else {
-        let linhas = com_padding_no_topo(
-            montar_linhas_do_historico(estado, largura_interna),
-            altura_interna,
-        );
         // `estado.scroll` conta "quantas linhas rolar para cima a partir do
         // fim" (0 = fim da conversa, sempre visível assim que uma mensagem
         // nova chega — achado num teste manual de usabilidade: a conversa
         // abria no topo, com a mensagem mais nova só visível depois de rolar
-        // manualmente até o fim). Convertido aqui para o deslocamento
-        // "a partir do topo" que a API do `ratatui` espera.
-        let deslocamento_maximo = linhas.len().saturating_sub(altura_interna.max(1));
-        let scroll_efetivo = (estado.scroll as usize).min(deslocamento_maximo);
-        let deslocamento_do_topo = (deslocamento_maximo - scroll_efetivo) as u16;
+        // manualmente até o fim). `montar_layout_do_historico` já converte
+        // isso para o deslocamento "a partir do topo" que a API do
+        // `ratatui` espera, e é a mesma função consultada por
+        // `bloco_clicado` (MT-117) — os dois nunca divergem sobre onde
+        // cada linha cai na tela.
+        let layout = montar_layout_do_historico(estado, largura_interna, altura_interna);
+        let linhas: Vec<Line<'static>> = layout
+            .linhas_com_alvos
+            .into_iter()
+            .map(|(linha, _)| linha)
+            .collect();
         let historico = Paragraph::new(linhas)
             .block(Block::bordered().title(" agentry "))
-            .scroll((deslocamento_do_topo, 0));
+            .scroll((layout.deslocamento_do_topo, 0));
         frame.render_widget(historico, areas[0]);
     }
 
@@ -1355,12 +1512,31 @@ fn draw_ajuda(frame: &mut Frame<'_>) {
     frame.render_widget(painel, area);
 }
 
+/// Estende o *panic hook* já instalado por `ratatui::try_init` (que
+/// restaura raw mode/tela alternada antes de propagar o pânico) pra
+/// **também** desligar a captura de mouse primeiro (MT-117, ADR-0035) —
+/// sem isso, um pânico no meio de uma sessão TUI deixaria o terminal do
+/// usuário preso em modo de captura de mouse (perdendo seleção nativa de
+/// texto) até ele fechar e reabrir o terminal. `take_hook`/`set_hook`
+/// encadeiam com o que já estava instalado, mesmo padrão que o próprio
+/// `ratatui::try_init` usa internamente.
+fn instalar_panic_hook_para_mouse() {
+    let hook_anterior = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let _ = ratatui::crossterm::execute!(io::stdout(), DisableMouseCapture);
+        hook_anterior(info);
+    }));
+}
+
 /// Ponto de entrada do modo TUI (`--tui`) — recebe a mesma `Session`/
 /// `Router`/`task_class`/`overrides` já montados por `main()` (reaproveitados,
 /// nunca reconstruídos), mais o lado receptor de [`PedidoHumano`] e o
 /// *toggle* `auto` compartilhados com o `TuiConfirmer`/`TuiPrompter`
 /// injetados na `Session` (MT-74). O terminal é restaurado em qualquer
-/// caminho de saída (normal ou erro).
+/// caminho de saída (normal ou erro) — incluindo a captura de mouse
+/// (MT-117), ativada aqui pra suportar clique em bloco de tool
+/// (`processar_evento_de_mouse`) e desativada tanto na saída normal quanto
+/// num pânico (`instalar_panic_hook_para_mouse`).
 ///
 /// # Errors
 ///
@@ -1376,6 +1552,8 @@ pub async fn run(
     workspace_root: std::path::PathBuf,
 ) -> io::Result<()> {
     let mut terminal = ratatui::try_init()?;
+    ratatui::crossterm::execute!(io::stdout(), EnableMouseCapture)?;
+    instalar_panic_hook_para_mouse();
     let resultado = loop_eventos(
         &mut terminal,
         session,
@@ -1387,6 +1565,7 @@ pub async fn run(
         workspace_root,
     )
     .await;
+    let _ = ratatui::crossterm::execute!(io::stdout(), DisableMouseCapture);
     ratatui::restore();
     resultado
 }
@@ -1471,6 +1650,10 @@ async fn loop_eventos(
                     return Ok(());
                 };
                 let evento = lido?;
+                if let Event::Mouse(mouse) = evento {
+                    processar_evento_de_mouse(&mut estado, mouse);
+                    continue;
+                }
                 let Event::Key(key) = evento else {
                     continue;
                 };
@@ -2032,6 +2215,92 @@ mod tests {
             !texto_completo.contains("saida-que-nao-pode-vazar"),
             "saída não deve vazar num bloco recolhido: {texto_completo:?}"
         );
+    }
+
+    // --- bloco_clicado / processar_evento_de_mouse (MT-117, ADR-0035):
+    // clique de mouse alterna expandido -- Shift+arraste continua
+    // selecionando texto nativamente, sem código nosso (convenção do
+    // próprio emulador de terminal) ---
+
+    #[test]
+    fn bloco_clicado_acha_o_alvo_na_linha_do_marcador_de_tool() {
+        let mut estado = estado_vazio();
+        estado.entrada = "rode algo".into();
+        estado.preparar_envio();
+        estado.chat.aplicar_evento(&StreamEvent::ToolCallStart {
+            id: "call_1".into(),
+            name: "shell_exec".into(),
+        });
+
+        // Terminal pequeno e conhecido: conversa curta o bastante pra
+        // com_padding_no_topo preencher o resto -- só duas linhas de
+        // conteúdo (usuário + marcador do agente), ambas ancoradas no
+        // fim da área do histórico.
+        let largura_terminal = 40;
+        let altura_terminal = 20;
+
+        // Mesma conta de `draw`/`bloco_clicado`: entrada vazia = 1 linha,
+        // altura_da_entrada(1, teto) = 3 (mínimo); histórico ocupa o
+        // resto, com 2 linhas de conteúdo ancoradas embaixo por
+        // com_padding_no_topo.
+        let altura_historico_interna = (altura_terminal - 3 - 2) as usize;
+        let linha_do_marcador = 1 + altura_historico_interna as u16 - 1; // última linha visível
+
+        let alvo = bloco_clicado(
+            &estado,
+            10,
+            linha_do_marcador,
+            largura_terminal,
+            altura_terminal,
+        )
+        .expect("deve achar o bloco de tool na última linha visível");
+
+        assert_eq!(alvo.indice_mensagem, 1, "mensagem do agente");
+        assert_eq!(alvo.indice_bloco, 0, "único bloco, o do shell_exec");
+    }
+
+    #[test]
+    fn bloco_clicado_fora_da_area_do_historico_e_none() {
+        let mut estado = estado_vazio();
+        estado.entrada = "rode algo".into();
+        estado.preparar_envio();
+        estado.chat.aplicar_evento(&StreamEvent::ToolCallStart {
+            id: "call_1".into(),
+            name: "shell_exec".into(),
+        });
+
+        // Linha 0 é a borda de cima do histórico -- nunca um alvo válido.
+        assert_eq!(bloco_clicado(&estado, 10, 0, 40, 20), None);
+        // Coluna 0 é a borda esquerda.
+        assert_eq!(bloco_clicado(&estado, 0, 10, 40, 20), None);
+    }
+
+    #[test]
+    fn processar_evento_de_mouse_ignora_clique_com_modal_aberto() {
+        let mut estado = estado_vazio();
+        estado.entrada = "rode algo".into();
+        estado.preparar_envio();
+        estado.chat.aplicar_evento(&StreamEvent::ToolCallStart {
+            id: "call_1".into(),
+            name: "shell_exec".into(),
+        });
+        estado.ajuda_aberta = true;
+
+        let mouse = ratatui::crossterm::event::MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: 10,
+            row: 10,
+            modifiers: KeyModifiers::NONE,
+        };
+        processar_evento_de_mouse(&mut estado, mouse);
+
+        assert!(matches!(
+            estado.chat.mensagens()[1].blocos[0],
+            Bloco::Tool {
+                expandido: false,
+                ..
+            }
+        ));
     }
 
     // --- blocos de código cercado (MT-108) ---
