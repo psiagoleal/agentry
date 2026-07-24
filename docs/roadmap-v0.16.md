@@ -66,7 +66,7 @@ continua valendo como padrão (nada automático). Ver ADR-0036 para o registro c
   tratado, não pânico.
 - **Depende de:** MT-119.
 
-### MT-121: Comando `/save [nome]` — grava a sessão corrente
+### MT-121: Comando `/save [nome]` — grava a sessão corrente ✅ concluído (de1e69d)
 - **Objetivo:** novo comando (`repl::aplicar_comando`, reaproveitado pela TUI, mesmo padrão de
   `/compact`/`/usage`) que serializa (MT-119) a sessão corrente e grava em
   `.agentry/session/<id>.md` (`id` = *timestamp* `AAAAMMDD-HHMMSS`, `-<nome>` sufixado e

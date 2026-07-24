@@ -364,8 +364,16 @@ persistente, RAG estendido a sessões salvas.
   — todos erros tratados e distintos). 9 testes novos, 415 na lib `core`, 636 no *workspace*.
   Ainda sem nenhum ponto de entrada na CLI (`/save`/`--resume` vêm a seguir) — sem
   comportamento observável pra *smoke-test* ainda.
-- MT-121..123 (Fase G, comandos), MT-125 (Fase H, `FileAuditSink`) e MT-127..129 (Fase J,
-  implementação) pendentes.
+- MT-121 ✅ (`de1e69d`) — `crates/cli/src/sessao.rs` (novo): `salvar()` gera o `id`
+  (*timestamp* UTC compacto, sem `chrono`/`time` — algoritmo `civil_from_days`, testado contra
+  referências conhecidas), serializa via `persist::serializar_para_markdown` (MT-119) e grava
+  em `.agentry/session/<id>.md`. Sempre devolve o aviso de retenção (ADR-0036, obrigatório).
+  `Session` ganhou `provider_name()`/`model()`. `/save [nome]` presente no REPL, na TUI e no
+  painel de ajuda — fonte única. 8 testes novos, 217 no bin `agentry`, 644 no *workspace*.
+  Verificado com smoke-test real via `tmux`: Markdown gerado reconstrói a conversa
+  corretamente, aviso sempre aparece.
+- MT-122/123 (Fase G, comandos restantes), MT-125 (Fase H, `FileAuditSink`) e MT-127..129
+  (Fase J, implementação) pendentes.
 
 ## Último turno
 
