@@ -278,6 +278,18 @@ struct Args {
     /// explícito do usuário.
     #[arg(long, conflicts_with_all = ["init", "tarefa", "tui"])]
     remember: Option<String>,
+
+    /// Retoma uma sessão salva (`/save`, MT-121/ADR-0036) antes de rodar —
+    /// sem valor, retoma a mais recente em `.agentry/session/`; com
+    /// `--resume=<id-ou-nome>` (ou prefixo único), retoma aquela. Ambíguo ou
+    /// inexistente é erro tratado, nunca uma sessão retomada silenciosamente
+    /// errada. `require_equals` é deliberado (MT-122): sem isso, `clap`
+    /// consome avidamente o próximo argumento posicional como valor de
+    /// `--resume` — `agentry --resume "tarefa"` tentaria retomar uma sessão
+    /// chamada "tarefa" em vez de rodar "tarefa" como tarefa *one-shot*
+    /// (achado real de *smoke-test* manual).
+    #[arg(long, num_args = 0..=1, default_missing_value = "", require_equals = true)]
+    resume: Option<String>,
 }
 
 /// Resultado de [`run_init_local`] — usado tanto por `--init` quanto por
@@ -1118,6 +1130,21 @@ async fn main() {
         session = session.with_skills_list(lista_de_skills);
     }
 
+    // `--resume` (MT-122, ADR-0036) -- antes do primeiro turno, em
+    // qualquer um dos três modos (TUI/one-shot/REPL compartilham esta
+    // mesma `session`). Falha (nenhuma sessão salva, id ambíguo/inexistente,
+    // arquivo corrompido) é erro fatal e claro, nunca uma sessão vazia
+    // silenciosa.
+    if let Some(id_ou_nome) = &args.resume {
+        match sessao::carregar_sessao(&workspace_root, id_ou_nome) {
+            Ok(mensagens) => session = session.with_messages(mensagens),
+            Err(erro) => {
+                eprintln!("erro ao retomar sessão: {erro}");
+                std::process::exit(2);
+            }
+        }
+    }
+
     if args.tui {
         tui::run(
             session,
@@ -1823,6 +1850,37 @@ mod tests {
         let memoria = agentry_core::memory::render_memoria(&fatos);
 
         assert!(memoria.contains("fato gravado numa invocação anterior"));
+    }
+
+    // --- MT-122: flag --resume, ADR-0036 ---
+
+    #[test]
+    fn flag_resume_sozinha_usa_valor_padrao_vazio_mais_recente() {
+        let args = Args::parse_from(["agentry", "--resume"]);
+        assert_eq!(args.resume.as_deref(), Some(""));
+    }
+
+    #[test]
+    fn flag_resume_com_igual_e_valor_carrega_o_id_ou_nome() {
+        let args = Args::parse_from(["agentry", "--resume=antiga"]);
+        assert_eq!(args.resume.as_deref(), Some("antiga"));
+    }
+
+    #[test]
+    fn flag_resume_ausente_preserva_none() {
+        let args = Args::parse_from(["agentry", "tarefa"]);
+        assert!(args.resume.is_none());
+    }
+
+    #[test]
+    fn flag_resume_sem_igual_nao_consome_a_tarefa_one_shot_seguinte() {
+        // MT-122: sem `require_equals`, `clap` consumia avidamente "tarefa"
+        // como valor de `--resume` (achado real de smoke-test manual) —
+        // `--resume` sozinho (sem `=`) deve continuar significando "a mais
+        // recente", deixando "tarefa" livre para ser a tarefa *one-shot*.
+        let args = Args::parse_from(["agentry", "--resume", "tarefa"]);
+        assert_eq!(args.resume.as_deref(), Some(""));
+        assert_eq!(args.tarefa.as_deref(), Some("tarefa"));
     }
 
     // --- MT-49: consumo real do provider LiteLLM na CLI ---

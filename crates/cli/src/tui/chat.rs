@@ -5,7 +5,7 @@
 //! (`crates/cli/src/tui/mod.rs`) só chama [`ChatState::registrar_mensagem_usuario`]/
 //! [`ChatState::aplicar_evento`] — nenhuma lógica de *streaming* mora aqui.
 
-use agentry_core::model::StreamEvent;
+use agentry_core::model::{ContentBlock, Message, Role, StreamEvent};
 
 /// Interpreta `argumentos_json` (acumulado de `ToolCallDelta`) como os
 /// argumentos de `todo_write` e formata um *checklist* legível — `None`
@@ -234,6 +234,81 @@ impl ChatState {
             blocos: vec![Bloco::Texto(texto)],
             concluida: true,
         });
+    }
+
+    /// Popula o histórico visual a partir de mensagens já existentes
+    /// (`--resume`, MT-122/ADR-0036) — sem isso a TUI mostraria a tela de
+    /// boas-vindas mesmo com uma sessão retomada cheia de contexto (achado
+    /// real de *smoke-test*: `Session.messages` chega correto ao provider,
+    /// mas o histórico visível ficava vazio). Chame uma única vez, logo
+    /// após [`ChatState::new`] e antes de qualquer [`Self::aplicar_evento`].
+    /// `Role::System` é ignorado (nunca aparece como bolha de chat, mesmo
+    /// padrão do restante da TUI); `Role::Tool` não abre uma mensagem nova —
+    /// preenche o `resultado` do [`Bloco::Tool`] correspondente (por
+    /// `call_id`) na mensagem de agente mais recente que o contém, mesma
+    /// busca "mais recente primeiro" de [`Self::aplicar_evento`].
+    pub fn semear_historico(&mut self, mensagens: &[Message]) {
+        for mensagem in mensagens {
+            match mensagem.role {
+                Role::System => {}
+                Role::User => {
+                    self.mensagens.push(Mensagem {
+                        autor: Autor::Usuario,
+                        blocos: vec![Bloco::Texto(mensagem.text_content())],
+                        concluida: true,
+                    });
+                }
+                Role::Assistant => {
+                    let blocos = mensagem
+                        .content
+                        .iter()
+                        .filter_map(|bloco| match bloco {
+                            ContentBlock::Text { text } => Some(Bloco::Texto(text.clone())),
+                            ContentBlock::ToolCall(chamada) => Some(Bloco::Tool {
+                                id: chamada.id.clone(),
+                                nome: chamada.name.clone(),
+                                argumentos: chamada.arguments.to_string(),
+                                resultado: None,
+                                expandido: false,
+                            }),
+                            ContentBlock::ToolResult(_) => None,
+                        })
+                        .collect();
+                    self.mensagens.push(Mensagem {
+                        autor: Autor::Agente,
+                        blocos,
+                        concluida: true,
+                    });
+                }
+                Role::Tool => {
+                    for bloco in &mensagem.content {
+                        let ContentBlock::ToolResult(resultado_de_tool) = bloco else {
+                            continue;
+                        };
+                        let alvo = self.mensagens.iter_mut().rev().find_map(|mensagem| {
+                            mensagem
+                                .blocos
+                                .iter_mut()
+                                .rev()
+                                .find_map(|bloco| match bloco {
+                                    Bloco::Tool { id, resultado, .. }
+                                        if *id == resultado_de_tool.call_id =>
+                                    {
+                                        Some(resultado)
+                                    }
+                                    _ => None,
+                                })
+                        });
+                        if let Some(resultado) = alvo {
+                            *resultado = Some((
+                                resultado_de_tool.content.clone(),
+                                resultado_de_tool.is_error,
+                            ));
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// Alterna `expandido` do bloco de tool no índice dado (MT-117, clique
@@ -736,5 +811,105 @@ mod tests {
         estado.alternar_expansao(0, 0); // bloco de texto, não de tool
 
         assert_eq!(estado.mensagens().len(), 2);
+    }
+
+    #[test]
+    fn semear_historico_ignora_mensagem_de_sistema() {
+        let mut estado = ChatState::new();
+
+        estado.semear_historico(&[Message::system("você é um assistente")]);
+
+        assert!(estado.mensagens().is_empty());
+    }
+
+    #[test]
+    fn semear_historico_mapeia_usuario_e_agente_como_mensagens_concluidas() {
+        let mut estado = ChatState::new();
+
+        estado.semear_historico(&[Message::user("oi"), Message::assistant("olá!")]);
+
+        assert_eq!(estado.mensagens().len(), 2);
+        assert_eq!(estado.mensagens()[0].autor, Autor::Usuario);
+        assert_eq!(texto_visivel_de_teste(&estado.mensagens()[0]), "oi");
+        assert!(estado.mensagens()[0].concluida);
+        assert_eq!(estado.mensagens()[1].autor, Autor::Agente);
+        assert_eq!(texto_visivel_de_teste(&estado.mensagens()[1]), "olá!");
+        assert!(estado.mensagens()[1].concluida);
+    }
+
+    #[test]
+    fn semear_historico_mapeia_tool_call_do_assistente_como_bloco_de_tool() {
+        let mut estado = ChatState::new();
+        let mensagem_agente = Message {
+            role: Role::Assistant,
+            content: vec![ContentBlock::ToolCall(agentry_core::model::ToolCall {
+                id: "call_1".into(),
+                name: "fs_write".into(),
+                arguments: serde_json::json!({"path": "a.txt"}),
+            })],
+        };
+
+        estado.semear_historico(&[mensagem_agente]);
+
+        assert!(matches!(
+            estado.mensagens()[0].blocos[0],
+            Bloco::Tool {
+                ref id,
+                ref nome,
+                resultado: None,
+                expandido: false,
+                ..
+            } if id == "call_1" && nome == "fs_write"
+        ));
+    }
+
+    #[test]
+    fn semear_historico_preenche_resultado_de_tool_pelo_call_id() {
+        let mut estado = ChatState::new();
+        let mensagem_agente = Message {
+            role: Role::Assistant,
+            content: vec![ContentBlock::ToolCall(agentry_core::model::ToolCall {
+                id: "call_1".into(),
+                name: "fs_write".into(),
+                arguments: serde_json::json!({}),
+            })],
+        };
+        let mensagem_tool = Message {
+            role: Role::Tool,
+            content: vec![ContentBlock::ToolResult(agentry_core::model::ToolResult {
+                call_id: "call_1".into(),
+                content: "arquivo criado".into(),
+                is_error: false,
+            })],
+        };
+
+        estado.semear_historico(&[mensagem_agente, mensagem_tool]);
+
+        assert_eq!(estado.mensagens().len(), 1); // Tool não abre mensagem própria
+        assert!(matches!(
+            &estado.mensagens()[0].blocos[0],
+            Bloco::Tool {
+                resultado: Some((conteudo, false)),
+                ..
+            } if conteudo == "arquivo criado"
+        ));
+    }
+
+    #[test]
+    fn semear_historico_preserva_a_ordem_de_varias_mensagens() {
+        let mut estado = ChatState::new();
+
+        estado.semear_historico(&[
+            Message::user("primeira"),
+            Message::assistant("resposta 1"),
+            Message::user("segunda"),
+            Message::assistant("resposta 2"),
+        ]);
+
+        assert_eq!(estado.mensagens().len(), 4);
+        assert_eq!(texto_visivel_de_teste(&estado.mensagens()[0]), "primeira");
+        assert_eq!(texto_visivel_de_teste(&estado.mensagens()[1]), "resposta 1");
+        assert_eq!(texto_visivel_de_teste(&estado.mensagens()[2]), "segunda");
+        assert_eq!(texto_visivel_de_teste(&estado.mensagens()[3]), "resposta 2");
     }
 }

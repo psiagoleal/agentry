@@ -483,6 +483,16 @@ impl Session {
         self.messages.push(Message::user(text));
     }
 
+    /// Pré-popula o histórico com `messages` (`--resume`, MT-122/ADR-0036)
+    /// — substitui qualquer histórico já acumulado (só faz sentido chamar
+    /// logo após `Session::new`, antes de qualquer turno rodar). O próximo
+    /// turno continua exatamente de onde a sessão retomada parou.
+    #[must_use]
+    pub fn with_messages(mut self, messages: Vec<Message>) -> Self {
+        self.messages = messages;
+        self
+    }
+
     /// Aplica uma nova rota (provider/modelo/preset) à sessão, **preservando**
     /// o histórico de mensagens acumulado.
     ///

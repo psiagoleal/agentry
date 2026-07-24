@@ -133,6 +133,94 @@ pub fn salvar(
     Ok(aviso_de_retencao(&caminho))
 }
 
+/// Lista os arquivos `.md` de `.agentry/session/`, em ordem alfabética
+/// (== cronológica, já que `id` é sempre prefixado pelo *timestamp*
+/// `AAAAMMDD-HHMMSS`) — auxiliar de [`carregar_sessao`] e de `/sessions`
+/// (MT-123). Diretório ausente é uma lista vazia, não erro (ainda não
+/// existe nenhuma sessão salva, caso normal na primeira vez).
+fn listar_arquivos_de_sessao(workspace_root: &Path) -> std::io::Result<Vec<PathBuf>> {
+    let diretorio = diretorio_de_sessoes(workspace_root)?;
+    let mut arquivos: Vec<PathBuf> = std::fs::read_dir(&diretorio)?
+        .filter_map(|entrada| entrada.ok())
+        .map(|entrada| entrada.path())
+        .filter(|caminho| caminho.extension().is_some_and(|ext| ext == "md"))
+        .collect();
+    arquivos.sort();
+    Ok(arquivos)
+}
+
+/// Localiza o arquivo de sessão salva correspondente a `id_ou_nome` (string
+/// vazia = mais recente) — correspondência exata do nome de arquivo
+/// primeiro, senão prefixo único do `id`. Zero ou várias correspondências
+/// são erro claro (nunca uma escolha arbitrária, ADR-0036).
+///
+/// # Errors
+///
+/// Devolve uma mensagem de erro legível: nenhuma sessão salva, nenhuma
+/// correspondência, ou correspondência ambígua (lista os candidatos).
+fn localizar_arquivo(workspace_root: &Path, id_ou_nome: &str) -> Result<PathBuf, String> {
+    let arquivos = listar_arquivos_de_sessao(workspace_root).map_err(|e| e.to_string())?;
+    if arquivos.is_empty() {
+        return Err("nenhuma sessão salva em .agentry/session/".to_string());
+    }
+    if id_ou_nome.is_empty() {
+        return Ok(arquivos
+            .last()
+            .expect("lista não vazia checada acima")
+            .clone());
+    }
+
+    let exato = format!("{id_ou_nome}.md");
+    if let Some(caminho) = arquivos
+        .iter()
+        .find(|c| c.file_name().and_then(|n| n.to_str()) == Some(exato.as_str()))
+    {
+        return Ok(caminho.clone());
+    }
+
+    let correspondentes: Vec<&PathBuf> = arquivos
+        .iter()
+        .filter(|c| {
+            c.file_stem()
+                .and_then(|n| n.to_str())
+                .is_some_and(|stem| stem.starts_with(id_ou_nome))
+        })
+        .collect();
+    match correspondentes.as_slice() {
+        [unico] => Ok((*unico).clone()),
+        [] => Err(format!("nenhuma sessão corresponde a '{id_ou_nome}'")),
+        varios => {
+            let nomes: Vec<String> = varios
+                .iter()
+                .filter_map(|c| c.file_stem().and_then(|n| n.to_str()))
+                .map(str::to_string)
+                .collect();
+            Err(format!(
+                "'{id_ou_nome}' corresponde a várias sessões, seja mais específico: {}",
+                nomes.join(", ")
+            ))
+        }
+    }
+}
+
+/// Localiza e desserializa uma sessão salva — `--resume [id-ou-nome]`
+/// (MT-122). `id_ou_nome` vazio retoma a mais recente.
+///
+/// # Errors
+///
+/// Devolve uma mensagem de erro legível (nenhuma sessão salva, ambígua, ou
+/// arquivo corrompido/editado de forma inválida — nunca uma sessão
+/// retomada silenciosamente truncada, ADR-0036).
+pub fn carregar_sessao(
+    workspace_root: &Path,
+    id_ou_nome: &str,
+) -> Result<Vec<agentry_core::model::Message>, String> {
+    let caminho = localizar_arquivo(workspace_root, id_ou_nome)?;
+    let texto = std::fs::read_to_string(&caminho).map_err(|e| e.to_string())?;
+    let (_, mensagens) = persist::desserializar_de_markdown(&texto).map_err(|e| e.to_string())?;
+    Ok(mensagens)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -180,5 +268,209 @@ mod tests {
     fn sanitizar_nome_mantem_so_letras_digitos_e_hifen() {
         assert_eq!(sanitizar_nome("Minha Sessão-1"), "minhasesso-1");
         assert_eq!(sanitizar_nome("café com leite"), "cafcomleite");
+    }
+
+    /// Diretório temporário de teste, removido automaticamente ao sair de
+    /// escopo (mesma disciplina de `state_dir`/`checkpoint`/`main`, MT-38).
+    struct TempDir(PathBuf);
+
+    impl TempDir {
+        fn new() -> Self {
+            let unico = format!(
+                "agentry-sessao-test-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .expect("relógio do sistema não deve estar antes de 1970")
+                    .as_nanos()
+            );
+            let path = std::env::temp_dir().join(unico);
+            std::fs::create_dir_all(&path).expect("deve criar diretório temporário de teste");
+            Self(path)
+        }
+
+        fn path(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// Escreve uma sessão de teste diretamente (sem precisar de uma
+    /// `Session`/`Router`/`MockProvider` reais) — `carregar_sessao` só lê e
+    /// desserializa, então um arquivo pronto (via `persist`, já testado à
+    /// parte no núcleo) é suficiente pra testar a lógica de localização.
+    fn escrever_sessao_de_teste(
+        workspace_root: &Path,
+        id: &str,
+        mensagens: &[agentry_core::model::Message],
+    ) {
+        let metadados = MetadadosDeSessao {
+            id: id.to_string(),
+            criado_em: "2026-07-24T00:00:00Z".to_string(),
+            provider: "ollama".to_string(),
+            model: "modelo-x".to_string(),
+            task_class: "chat".to_string(),
+            usage_input_tokens: 0,
+            usage_output_tokens: 0,
+        };
+        let markdown = persist::serializar_para_markdown(&metadados, mensagens);
+        let diretorio = diretorio_de_sessoes(workspace_root).expect("deve criar o diretório");
+        std::fs::write(diretorio.join(format!("{id}.md")), markdown)
+            .expect("deve escrever o arquivo de teste");
+    }
+
+    #[test]
+    fn carregar_sessao_sem_nenhuma_salva_e_erro_claro() {
+        let dir = TempDir::new();
+        let resultado = carregar_sessao(dir.path(), "");
+        assert!(resultado.is_err());
+        assert!(resultado.unwrap_err().contains("nenhuma sessão salva"));
+    }
+
+    #[test]
+    fn carregar_sessao_vazio_retoma_a_mais_recente() {
+        let dir = TempDir::new();
+        let mensagens_antiga = vec![agentry_core::model::Message::text(
+            agentry_core::model::Role::User,
+            "primeira",
+        )];
+        let mensagens_nova = vec![agentry_core::model::Message::text(
+            agentry_core::model::Role::User,
+            "segunda",
+        )];
+        escrever_sessao_de_teste(dir.path(), "20260101-000000", &mensagens_antiga);
+        escrever_sessao_de_teste(dir.path(), "20260724-000000", &mensagens_nova);
+
+        let mensagens = carregar_sessao(dir.path(), "").expect("deve carregar a mais recente");
+        assert_eq!(mensagens, mensagens_nova);
+    }
+
+    #[test]
+    fn carregar_sessao_por_id_exato() {
+        let dir = TempDir::new();
+        let mensagens = vec![agentry_core::model::Message::text(
+            agentry_core::model::Role::User,
+            "oi",
+        )];
+        escrever_sessao_de_teste(dir.path(), "20260724-000000-minha", &mensagens);
+
+        let carregadas = carregar_sessao(dir.path(), "20260724-000000-minha")
+            .expect("deve carregar por id exato");
+        assert_eq!(carregadas, mensagens);
+    }
+
+    #[test]
+    fn carregar_sessao_com_prefixo_que_nao_bate_e_erro_claro() {
+        // Prefixo é sobre o `id` inteiro, que começa pelo timestamp --
+        // "minha" não é prefixo de "20260724-000000-minha".
+        let dir = TempDir::new();
+        let mensagens = vec![agentry_core::model::Message::text(
+            agentry_core::model::Role::User,
+            "oi",
+        )];
+        escrever_sessao_de_teste(dir.path(), "20260724-000000-minha", &mensagens);
+
+        let resultado = carregar_sessao(dir.path(), "minha");
+        assert!(resultado.is_err());
+    }
+
+    #[test]
+    fn carregar_sessao_por_prefixo_do_timestamp() {
+        let dir = TempDir::new();
+        let mensagens = vec![agentry_core::model::Message::text(
+            agentry_core::model::Role::User,
+            "oi",
+        )];
+        escrever_sessao_de_teste(dir.path(), "20260724-153000-minha", &mensagens);
+
+        let carregadas =
+            carregar_sessao(dir.path(), "20260724").expect("prefixo do timestamp deve bastar");
+        assert_eq!(carregadas, mensagens);
+    }
+
+    #[test]
+    fn carregar_sessao_ambigua_e_erro_com_candidatos_listados() {
+        let dir = TempDir::new();
+        let mensagens = vec![agentry_core::model::Message::text(
+            agentry_core::model::Role::User,
+            "oi",
+        )];
+        escrever_sessao_de_teste(dir.path(), "20260724-000000-um", &mensagens);
+        escrever_sessao_de_teste(dir.path(), "20260724-000001-dois", &mensagens);
+
+        let resultado = carregar_sessao(dir.path(), "20260724");
+        assert!(resultado.is_err());
+        let erro = resultado.unwrap_err();
+        assert!(erro.contains("várias sessões"));
+        assert!(erro.contains("20260724-000000-um"));
+        assert!(erro.contains("20260724-000001-dois"));
+    }
+
+    #[test]
+    fn carregar_sessao_inexistente_e_erro_claro() {
+        let dir = TempDir::new();
+        escrever_sessao_de_teste(
+            dir.path(),
+            "20260724-000000",
+            &[agentry_core::model::Message::text(
+                agentry_core::model::Role::User,
+                "oi",
+            )],
+        );
+
+        let resultado = carregar_sessao(dir.path(), "nao-existe");
+        assert!(resultado.is_err());
+        assert!(resultado
+            .unwrap_err()
+            .contains("nenhuma sessão corresponde"));
+    }
+
+    #[test]
+    fn salvar_e_carregar_sessao_fazem_round_trip() {
+        use agentry_core::model::{Message, Role};
+        use agentry_core::provider::mock::MockProvider;
+        use agentry_core::router::{CallPreset, ResolvedRoute};
+        use agentry_core::session::{Session, TokenBudget, ToolExecutor};
+        use std::sync::Arc;
+
+        struct NoopExecutor;
+        impl ToolExecutor for NoopExecutor {
+            fn execute(
+                &self,
+                call: &agentry_core::model::ToolCall,
+            ) -> agentry_core::provider::BoxFuture<'_, agentry_core::model::ToolResult>
+            {
+                let call_id = call.id.clone();
+                Box::pin(async move {
+                    agentry_core::model::ToolResult {
+                        call_id,
+                        content: String::new(),
+                        is_error: false,
+                    }
+                })
+            }
+        }
+
+        let dir = TempDir::new();
+        let mock: Arc<dyn agentry_core::provider::LlmProvider> =
+            Arc::new(MockProvider::new("ollama"));
+        let rota = ResolvedRoute::new(mock, "modelo-x", CallPreset::default());
+        let mut sessao = Session::new(rota, Arc::new(NoopExecutor), TokenBudget::new(10_000));
+        sessao.push_user_message("oi, tudo bem?");
+
+        let aviso = salvar(dir.path(), None, &sessao, "chat").expect("deve salvar");
+        assert!(aviso.contains("sessão salva em"));
+
+        let mensagens_carregadas =
+            carregar_sessao(dir.path(), "").expect("deve carregar a sessão recém-salva");
+        assert_eq!(
+            mensagens_carregadas,
+            vec![Message::text(Role::User, "oi, tudo bem?")]
+        );
     }
 }

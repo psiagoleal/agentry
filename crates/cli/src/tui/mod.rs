@@ -1649,6 +1649,7 @@ async fn loop_eventos(
     let router = Arc::new(router);
     let checkpoint_store = agentry_core::checkpoint::CheckpointStore::new(workspace_root.clone());
     let mut estado = Estado::new(overrides, auto);
+    estado.chat.semear_historico(sessao_inicial.messages());
     let mut sessao_atual = Some(sessao_inicial);
     let mut rx_terminal = iniciar_leitor_de_terminal();
     let (tx_agente, mut rx_agente) = mpsc::unbounded_channel::<EventoAgente>();

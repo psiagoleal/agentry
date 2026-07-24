@@ -26,6 +26,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use agentry_core::config::privacy::EgressClass;
+use agentry_core::model::Role;
 use agentry_core::router::{CallPreset, RouteEntry, RouteTarget, Router, RuntimeOverride};
 use agentry_core::session::Session;
 
@@ -197,6 +198,41 @@ pub struct ReplConfig<'a> {
 ///
 /// Devolve erro se I/O em `input`/`output` falhar, ou se uma resolução de
 /// rota após um comando falhar (ex.: classe de egresso insuficiente).
+/// Reimprime, como texto simples, o histórico de uma sessão retomada
+/// (`--resume`, MT-122/ADR-0036) antes do laço de entrada começar — sem
+/// isso o usuário via REPL não teria como saber que a sessão já tem
+/// contexto (o modelo recebe corretamente, mas a tela ficava em branco).
+/// Só `Role::User`/`Role::Assistant`: chamadas/resultados de tool nunca
+/// aparecem no REPL, mesma decisão de escopo já em vigor para turnos ao
+/// vivo (só a TUI mostra indicador de tool). Sem cabeçalho nenhum se não
+/// houver nada para mostrar (sessão nova, sem `--resume`).
+fn imprimir_historico_retomado<W: Write>(output: &mut W, session: &Session) -> Result<(), String> {
+    let houve_historico = session
+        .messages()
+        .iter()
+        .any(|mensagem| matches!(mensagem.role, Role::User | Role::Assistant));
+    if !houve_historico {
+        return Ok(());
+    }
+    writeln!(output, "--- sessão retomada ---").map_err(|e| e.to_string())?;
+    for mensagem in session.messages() {
+        match mensagem.role {
+            Role::User => {
+                writeln!(output, "> {}", mensagem.text_content()).map_err(|e| e.to_string())?;
+            }
+            Role::Assistant => {
+                let texto = mensagem.text_content();
+                if !texto.is_empty() {
+                    writeln!(output, "agente: {texto}").map_err(|e| e.to_string())?;
+                }
+            }
+            Role::System | Role::Tool => {}
+        }
+    }
+    writeln!(output, "--- fim do histórico ---").map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 pub async fn run_repl<R: BufRead, W: Write>(
     mut input: R,
     mut output: W,
@@ -211,6 +247,7 @@ pub async fn run_repl<R: BufRead, W: Write>(
         preset_base,
         candidato_extra,
     } = *config;
+    imprimir_historico_retomado(&mut output, session)?;
     loop {
         write!(output, "> ").map_err(|e| e.to_string())?;
         output.flush().map_err(|e| e.to_string())?;
@@ -411,6 +448,51 @@ mod tests {
         router.register_provider(mock);
         set_chat_route(&mut router, modelo_inicial, &CallPreset::default(), None);
         router
+    }
+
+    #[test]
+    fn imprimir_historico_retomado_sem_mensagens_nao_imprime_nada() {
+        let mock = Arc::new(MockProvider::new(PROVIDER));
+        let router = router_com_ollama(mock, "modelo-x");
+        let rota = router.resolve(TASK_CLASS).expect("deve resolver");
+        let session = Session::new(rota, Arc::new(NoopExecutor), TokenBudget::new(100_000));
+
+        let mut saida = Vec::new();
+        imprimir_historico_retomado(&mut saida, &session).expect("não deve falhar");
+
+        assert!(saida.is_empty());
+    }
+
+    #[test]
+    fn imprimir_historico_retomado_mostra_usuario_e_agente_ignora_sistema_e_tool() {
+        let mock = Arc::new(MockProvider::new(PROVIDER));
+        let router = router_com_ollama(mock, "modelo-x");
+        let rota = router.resolve(TASK_CLASS).expect("deve resolver");
+        let session = Session::new(rota, Arc::new(NoopExecutor), TokenBudget::new(100_000))
+            .with_messages(vec![
+                Message::system("prompt de sistema"),
+                Message::user("oi"),
+                Message::assistant("olá!"),
+                Message {
+                    role: Role::Tool,
+                    content: vec![agentry_core::model::ContentBlock::ToolResult(ToolResult {
+                        call_id: "call_1".into(),
+                        content: "resultado".into(),
+                        is_error: false,
+                    })],
+                },
+            ]);
+
+        let mut saida = Vec::new();
+        imprimir_historico_retomado(&mut saida, &session).expect("não deve falhar");
+        let texto = String::from_utf8(saida).expect("utf-8");
+
+        assert!(texto.contains("--- sessão retomada ---"));
+        assert!(texto.contains("> oi"));
+        assert!(texto.contains("agente: olá!"));
+        assert!(texto.contains("--- fim do histórico ---"));
+        assert!(!texto.contains("prompt de sistema"));
+        assert!(!texto.contains("resultado"));
     }
 
     #[tokio::test]
