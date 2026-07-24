@@ -400,9 +400,24 @@ persistente, RAG estendido a sessões salvas.
   *workspace*. Verificado com *smoke-test* real (`tmux` + binário `release`): lista vazia
   avisa pra usar `/save`, lista com uma sessão mostra id/data/título no REPL e na TUI.
   **Fecha a Fase G inteira.**
-- MT-125 (Fase H, `FileAuditSink`) e MT-127..129 (Fase J, implementação) pendentes. Próximo
-  passo: MT-125, único ticket restante da Fase H (a ADR-0037 já está `Accepted` desde o
-  MT-124).
+- MT-125 ✅ (`4a4884d`) — `crates/cli/src/audit_sink.rs` (novo): `FileAuditSink` implementa
+  `AuditSink`/`GuardrailAuditSink`, grava cada entrada em `.agentry/audit.log` (JSON Lines,
+  *append* a cada `record()`, sem *file handle* mantido entre chamadas — falha de escrita vai
+  pra `stderr` mas nunca interrompe a chamada de rede em andamento). `SinksCombinados<A, B>`
+  chama `record()` nos dois sinks em sequência — genérico, não reaproveita `ColetorDuplo`
+  (propósito diferente, já esclarecido na própria ADR-0037). `GuardrailDirection`/
+  `GuardrailAuditEntry` ganham `Serialize` (a ADR já assumia isso, faltava o derive no
+  segundo). `main.rs` fia `SinksCombinados<Stderr, File>` no *one-shot*/REPL e `FileAuditSink`
+  sozinho no `--tui` (só o lado `stderr` corrompia a tela do `crossterm`, MT-72 — o arquivo
+  não tem esse problema) + no bootstrap `--init --profile`. **Achado:** o `/init <perfil>` do
+  REPL tinha seu próprio `StderrAuditSink` *ad hoc*, ignorando a fiação principal — corrigido,
+  senão esse caminho auditaria só em `stderr` (violaria a diretriz de conformidade da própria
+  ADR-0037: nenhum caminho de auditoria pode escrever só num dos dois sinks). 12 testes novos,
+  679 no *workspace*. Verificado com *smoke-test* real (mock HTTP + binário `release`):
+  `.agentry/audit.log` grava a mesma entrada que aparece em `stderr` no *one-shot*; no
+  `--tui`, o arquivo grava normalmente e a tela não corrompe. **Fecha a Fase H inteira.**
+- MT-127..129 (Fase J, implementação) pendentes — a ADR-0038 já está `Accepted` desde o
+  MT-126. Próximo passo: MT-127 (resolução de `~/.agentry/` + settings global).
 
 ## Último turno
 

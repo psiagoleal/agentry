@@ -126,20 +126,30 @@ continua valendo como padrão (nada automático). Ver ADR-0036 para o registro c
 - **Arquivos no escopo:** `docs/adr/0037-*.md` (novo), `docs/adr/README.md`, `mkdocs.yml`.
 - **Depende de:** nenhum.
 
-### MT-125: `FileAuditSink` + sink combinado
+### MT-125: `FileAuditSink` + sink combinado ✅ concluído (4a4884d)
 - **Objetivo:** novo `FileAuditSink` (implementa `AuditSink`/`GuardrailAuditSink`), escreve
   uma linha JSON por entrada em `.agentry/audit.log` (modo *append*, sem *handle* mantido
   aberto entre chamadas); falha de escrita cai em `eprintln!`, nunca interrompe a chamada de
   rede em andamento. Novo combinador (`SinksCombinados` ou nome equivalente) chama `record()`
   nos dois sinks em sequência — `main.rs` passa a instanciar `StderrAuditSink` +
   `FileAuditSink` combinados em vez de só o primeiro.
-- **Arquivos no escopo:** novo `crates/core/src/transport/audit_file.rs` (ou equivalente),
-  `crates/cli/src/main.rs`.
+- **Arquivos no escopo:** `crates/cli/src/audit_sink.rs` (novo — no crate `cli`, não `core`,
+  já que precisa de I/O de arquivo e do `workspace_root`, mesmo padrão de `sessao.rs`),
+  `crates/cli/src/main.rs`, `crates/cli/src/repl.rs`, `crates/core/src/guardrail/mod.rs`
+  (`Serialize` em `GuardrailDirection`/`GuardrailAuditEntry` — a ADR já assumia isso, mas o
+  segundo não tinha o derive).
 - **Critério de aceite:** testes — entrada gravada vira uma linha JSON válida no arquivo;
   falha de escrita (ex.: diretório sem permissão) não propaga erro pra chamada de rede;
   `stderr` continua recebendo as mesmas entradas de sempre (regressão zero). *Smoke-test*
   real: rodar uma tarefa, conferir `.agentry/audit.log` populado.
 - **Depende de:** MT-124.
+- **Achado durante a implementação:** o `/init <perfil>` do REPL (`repl.rs`) construía seu
+  próprio `StderrAuditSink` *ad hoc*, ignorando a fiação principal — corrigido para usar o
+  mesmo `SinksCombinados`, senão esse caminho específico continuaria auditando só em
+  `stderr` (violaria a diretriz de conformidade da própria ADR-0037). Modo `--tui` usa
+  `FileAuditSink` sozinho (sem `Stderr`), já que só o lado `stderr` corrompia a tela do
+  `crossterm` (MT-72) — o arquivo não tem esse problema.
+- **Fecha a Fase H inteira.**
 
 ---
 
