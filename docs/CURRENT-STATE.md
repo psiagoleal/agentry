@@ -324,6 +324,28 @@ caminho de saída, inclusive pânico.
 
 **Fecha a Fase F (ADR-0035: MT-113..117, todos concluídos).**
 
+### Fase G/H — em andamento (`docs/roadmap-v0.16.md`, ADR-0036/ADR-0037)
+
+Pedido do mantenedor: paridade com `--resume`/`--continue` do Claude Code CLI, audit log
+persistente, RAG estendido a sessões salvas.
+
+- MT-118 ✅ (`12a133a`) — ADR-0036 (Accepted): conflito real levantado e resolvido antes de
+  qualquer código — a ADR-0032 (2026-07-16) já rejeitava persistir conversa inteira por
+  retenção/confidencialidade (objetivo de homologação corporativa). Escalado via
+  `AskUserQuestion`; resposta: exceção opt-in explícita (`/save`), aviso de retenção sempre
+  impresso, ADR-0032 continua valendo como padrão. Formato: Markdown, *front matter* YAML +
+  `## <Papel>` por mensagem + blocos cercados `tool-call`/`tool-result`; local
+  `.agentry/session/<id>.md` (já reservado pela ADR-0017).
+- MT-124 ✅ (`12a133a`) — ADR-0037 (Accepted): `FileAuditSink` novo, JSON Lines em
+  `.agentry/audit.log` (já reservado pela ADR-0017), complementa o `StderrAuditSink`
+  existente — não é uma exceção a nada, auditoria persistente é o que o objetivo de
+  compliance do projeto pede.
+- **Esclarecido também:** o RAG que o mantenedor lembrava como "estratégia complexa" já existe
+  e está completo (ADR-0011, Fase 6, MT-25..30 — busca híbrida lexical+semântica sobre
+  código). O pedido desta rodada é estender o mesmo pipeline às sessões salvas (Fase I do
+  roadmap-v0.16, sem tickets ainda — depende da Fase G existir de verdade primeiro).
+- MT-119..123 (Fase G, persistência de sessão) e MT-125 (Fase H, `FileAuditSink`) pendentes.
+
 ## Último turno
 
 - **Data:** 2026-07-16
