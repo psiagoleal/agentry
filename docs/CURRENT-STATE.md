@@ -354,8 +354,18 @@ persistente, RAG estendido a sessões salvas.
   commitar, não sobre nunca tocar disco). Sequenciamento pedido pelo mantenedor: Fase G → Fase
   H → **Fase J** (esta) → atualizar release (Fase E/F/G/H/J juntas) → Fase I (RAG sobre
   sessões) fica pra depois, sem data.
-- MT-119..123 (Fase G, persistência de sessão), MT-125 (Fase H, `FileAuditSink`) e
-  MT-127..129 (Fase J, implementação) pendentes.
+- MT-119/MT-120 ✅ (`165a207`) — `crates/core/src/session/persist.rs` (novo):
+  `serializar_para_markdown`/`desserializar_de_markdown`, implementadas e testadas juntas como
+  par (*round-trip*). *Front matter* em linhas `chave:valor` simples (sem biblioteca YAML,
+  nenhuma dependência nova); corpo com uma seção `## <Papel>` por `Message`, `ToolCall`/
+  `ToolResult` como blocos cercados `tool-call`/`tool-result` (JSON de uma linha). Várias
+  seções do mesmo papel em sequência preservadas na ordem certa. `ErroDeSessao` nunca falha
+  silenciosamente (*front matter* ausente, linha inválida, papel desconhecido, JSON malformado
+  — todos erros tratados e distintos). 9 testes novos, 415 na lib `core`, 636 no *workspace*.
+  Ainda sem nenhum ponto de entrada na CLI (`/save`/`--resume` vêm a seguir) — sem
+  comportamento observável pra *smoke-test* ainda.
+- MT-121..123 (Fase G, comandos), MT-125 (Fase H, `FileAuditSink`) e MT-127..129 (Fase J,
+  implementação) pendentes.
 
 ## Último turno
 

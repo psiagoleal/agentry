@@ -38,7 +38,7 @@ continua valendo como padrão (nada automático). Ver ADR-0036 para o registro c
   arquivo, novo).
 - **Depende de:** nenhum.
 
-### MT-119: Serialização `Vec<Message>` → Markdown
+### MT-119: Serialização `Vec<Message>` → Markdown ✅ concluído (165a207)
 - **Objetivo:** função pura (núcleo, `crates/core/src/session/`) que converte o histórico de
   uma `Session` (mensagens + metadados: id, criado_em, provider/model, task-class, uso
   acumulado) no formato Markdown definido na ADR-0036 — *front matter* YAML + uma seção
@@ -54,7 +54,7 @@ continua valendo como padrão (nada automático). Ver ADR-0036 para o registro c
 - **Fora de escopo:** o *parser* inverso (MT-120); escrita em disco (MT-121).
 - **Depende de:** MT-118.
 
-### MT-120: Desserialização Markdown → `Vec<Message>`
+### MT-120: Desserialização Markdown → `Vec<Message>` ✅ concluído (165a207)
 - **Objetivo:** *parser* inverso do MT-119 — nunca falha silenciosamente (ADR-0036, diretriz
   de conformidade): JSON malformado num bloco `tool-call`/`tool-result`, ou cabeçalho de papel
   desconhecido, é erro tratado e claro, nunca uma sessão retomada com histórico
