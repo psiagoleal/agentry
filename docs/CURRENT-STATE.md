@@ -535,9 +535,19 @@ código, ambas respondidas em 2026-07-24:
   presença no manifesto já é sinal suficiente de "não reprocessar". 6 testes novos (um
   documenta explicitamente essa suposição), 727 no *workspace*. Sem ponto de entrada na CLI
   ainda.
-- MT-136..138 pendentes — próximo passo: MT-136 (tool `session_search`, exposta ao agente
-  sob o `PermissionGate` comum — este é o primeiro ticket com ponto de entrada real na CLI,
-  a partir daqui haverá *smoke-test* de verdade).
+- MT-136 ✅ (`bb34b47`) — `crates/core/src/tools/session_search.rs` (novo):
+  `SessionSearchTool`/`SessionSearchSession`, mesmo desenho de `CodeSearchTool`/
+  `CodeSearchSession` sobre o corpus de `.agentry/session/*.md` — lê/desserializa cada
+  sessão (arquivo ilegível é ignorado, não aborta a busca), alimenta
+  `SessionIncrementalIndexer`, reconstrói os índices só quando sessão nova aparece. `Config`
+  ganha `context.sessionSearch.enabled` (*default* `true`); `register_context_tools`
+  (`main.rs`) passa o mesmo `ollama_provider` já usado por `code_search` — nunca a
+  task-class de chat configurada (ADR-0039 §2, garantia aplicada de fato aqui). 13 testes
+  novos, 731 no *workspace*. Verificado com o binário `release` real: sessão salva presente,
+  `main()` completo roda sem *panic*; verificação de ponta a ponta do *pipeline* coberta
+  pelos testes de unidade (mesmo nível do `code_search` original, MT-30, que também não
+  teve *smoke-test* de *tool-calling* ao vivo).
+- MT-137/138 pendentes — próximo passo: MT-137 (comando `/recall <busca>`, REPL e TUI).
 
 ## Último turno
 

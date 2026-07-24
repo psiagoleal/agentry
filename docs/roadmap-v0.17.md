@@ -109,7 +109,7 @@ binário pra toda mudança observável, skill `micro-ticket-planner` para granul
   entrada na CLI ainda.
 - **Depende de:** MT-131.
 
-### MT-136: Tool `session_search` — exposta ao agente, mesmo `PermissionGate` de sempre
+### MT-136: Tool `session_search` — exposta ao agente, mesmo `PermissionGate` de sempre ✅ concluído (bb34b47)
 - **Objetivo:** `SessionSearchTool`/`SessionSearchSession` (mesmo padrão de
   `CodeSearchTool`/`CodeSearchSession`, MT-30) — mantém os índices em cache, reconstrói só
   quando a indexação incremental (MT-135) reporta sessão nova. `register_session_search_tool`
@@ -123,6 +123,14 @@ binário pra toda mudança observável, skill `micro-ticket-planner` para granul
   como qualquer outra tool. *Smoke-test* real: sessão salva de verdade, agente chama
   `session_search`, resultado aparece na resposta.
 - **Depende de:** MT-134, MT-135.
+- **Nota sobre o *smoke-test*:** um round-trip de tool-calling ao vivo (mockar o formato
+  exato de tool-call do Ollama) não agrega sobre a cobertura já real dos testes de unidade
+  (chunking/indexação/fusão RRF/*reranking* reais, `busca_real_sobre_sessoes_de_teste_...`)
+  — mesmo nível de verificação usado pelo `code_search` original (MT-30), que também não
+  teve esse tipo de *smoke-test*. Verificado, em vez disso, que o binário `release` real
+  sobe sem *panic* com uma sessão salva presente (prova a fiação de
+  `register_context_tools`). 13 testes novos (mais 2 testes existentes de "3 tools de
+  contexto" ampliados para "4 tools", cobrindo `session_search`), 731 no *workspace*.
 
 ### MT-137: Comando `/recall <busca>` — REPL e TUI
 - **Objetivo:** mesma busca da tool (MT-136), função compartilhada extraída para não
