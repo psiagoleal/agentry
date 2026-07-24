@@ -187,7 +187,11 @@ impl ContextSettings {
 /// Configuração específica do provider Ollama, dentro de `providers.ollama`.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct OllamaSettings {
-    /// `providers.ollama.structuredOutput` (ADR-0012).
+    /// `providers.ollama.structuredOutput` (ADR-0012) — *default* `false`
+    /// desde a emenda de 2026-07-24: com `format` ativo o modelo devolve a
+    /// tool-call como texto e `tool_calls` volta vazio, quebrando o agent loop
+    /// em qualquer modelo com tool-calling nativo (ver
+    /// `OllamaProvider::with_structured_output`).
     #[serde(default, rename = "structuredOutput")]
     pub structured_output: Option<bool>,
 }
@@ -827,7 +831,7 @@ impl Config {
             respect_gitignore: merged.context.gitignore.enabled.unwrap_or(false),
             agents_file_enabled: merged.context.agents_file.enabled.unwrap_or(true),
             session_search_enabled: merged.context.session_search.enabled.unwrap_or(true),
-            ollama_structured_output: merged.providers.ollama.structured_output.unwrap_or(true),
+            ollama_structured_output: merged.providers.ollama.structured_output.unwrap_or(false),
             guardrails: GuardrailGate {
                 input: merged.guardrails.input,
                 output: merged.guardrails.output,
@@ -1118,7 +1122,11 @@ mod tests {
         assert!(cfg.repo_map_enabled);
         assert!(cfg.semantic_rag_enabled);
         assert!(cfg.lsp_grounding_enabled);
-        assert!(cfg.ollama_structured_output);
+        assert!(
+            !cfg.ollama_structured_output,
+            "emenda de 2026-07-24 à ADR-0012: default invertido para false — \
+             `format` ativo quebra tool-calling nativo"
+        );
     }
 
     #[test]
@@ -1218,11 +1226,14 @@ mod tests {
     #[test]
     fn env_sobrescreve_o_arquivo_quando_ambos_definem_o_mesmo_campo() {
         let arquivo = Settings::from_json_str(
-            r#"{ "context": { "semanticRag": { "enabled": true } }, "providers": { "ollama": { "structuredOutput": true } } }"#,
+            r#"{ "context": { "semanticRag": { "enabled": true } }, "providers": { "ollama": { "structuredOutput": false } } }"#,
         )
         .expect("arquivo válido");
+        // `structuredOutput` vai no sentido oposto ao do arquivo **e** ao do
+        // default (`false`, emenda de 2026-07-24): sem isso o assert passaria
+        // mesmo com a ordem de camadas quebrada.
         let env = Settings::from_json_str(
-            r#"{ "context": { "semanticRag": { "enabled": false } }, "providers": { "ollama": { "structuredOutput": false } } }"#,
+            r#"{ "context": { "semanticRag": { "enabled": false } }, "providers": { "ollama": { "structuredOutput": true } } }"#,
         )
         .expect("ambiente válido");
 
@@ -1230,7 +1241,7 @@ mod tests {
         let cfg = Config::resolve(vec![Settings::default(), arquivo, env]);
         assert!(!cfg.semantic_rag_enabled, "ambiente deve vencer o arquivo");
         assert!(
-            !cfg.ollama_structured_output,
+            cfg.ollama_structured_output,
             "ambiente deve vencer o arquivo"
         );
     }

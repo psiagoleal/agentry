@@ -23,8 +23,9 @@
 //! (mesmo padrão de outros defaults de provider, ex. `DEFAULT_MAX_TOKENS` do MT-16).
 //!
 //! **Saída estruturada para tool-calling (MT-22, ADR-0012):** quando `tools` não
-//! está vazio e [`OllamaProvider::structured_output`] está ativo (*default*: `true`,
-//! ajustável via [`OllamaProvider::with_structured_output`]), o campo `format` da API
+//! está vazio e [`OllamaProvider::structured_output`] está ativo (*default*: `false`
+//! desde a emenda de 2026-07-24 à ADR-0012 — ver
+//! [`OllamaProvider::with_structured_output`] para a causa raiz), o campo `format` da API
 //! do Ollama recebe um JSON Schema combinado das `tools` — um `oneOf` de
 //! `{name: <const>, arguments: <input_schema da tool>}`, restringindo a geração da
 //! porção de tool-call ao formato esperado. Fiação da flag com o `settings-schema`
@@ -75,25 +76,41 @@ const DEFAULT_KEEP_ALIVE: &str = "30m";
 pub struct OllamaProvider {
     transport: Arc<Transport>,
     base_url: String,
-    /// Saída estruturada (MT-22, ADR-0012) — *default* `true`.
+    /// Saída estruturada (MT-22, ADR-0012, emenda de 2026-07-24) — *default*
+    /// `false`. Ver [`Self::with_structured_output`] para por que o *default*
+    /// foi invertido.
     structured_output: bool,
 }
 
 impl OllamaProvider {
     /// Cria um adapter apontando para `base_url` (ex.: `http://localhost:11434`),
-    /// com saída estruturada ativada por padrão (ver [`Self::with_structured_output`]).
+    /// com saída estruturada **desativada** por padrão (ver
+    /// [`Self::with_structured_output`]).
     #[must_use]
     pub fn new(transport: Arc<Transport>, base_url: impl Into<String>) -> Self {
         Self {
             transport,
             base_url: base_url.into(),
-            structured_output: true,
+            structured_output: false,
         }
     }
 
     /// Ativa/desativa a saída estruturada (`format`) para tool-calling
-    /// (MT-22, ADR-0012) — desligar pode ser necessário para depuração ou
-    /// modelos/versões do Ollama que não suportem bem o recurso.
+    /// (MT-22, ADR-0012).
+    ///
+    /// **Default `false` desde a emenda de 2026-07-24 à ADR-0012.** O `format`
+    /// do Ollama restringe a geração do **texto** (`message.content`), não das
+    /// `tool_calls`: com ele ativo, um modelo com tool-calling nativo devolve a
+    /// chamada como string JSON em `content` e `tool_calls` volta **vazio** —
+    /// [`ollama_message_to_domain`] só lê `tool_calls`, então a chamada vira
+    /// mensagem de texto comum e o agent loop encerra sem executar tool nenhuma.
+    /// Verificado contra um Ollama real (`qwen2.5:7b`, `llama3.1:8b`, ambos
+    /// anunciando `capabilities:["tools"]`): a mesma requisição sem `format`
+    /// devolve `tool_calls` nativo correto.
+    ///
+    /// Ativar continua fazendo sentido como escape para modelos antigos **sem**
+    /// tool-calling nativo, onde a restrição de schema é a única forma de obter
+    /// JSON bem-formado — o caso que motivou o MT-22 em 2026-07-09.
     #[must_use]
     pub fn with_structured_output(mut self, structured_output: bool) -> Self {
         self.structured_output = structured_output;
@@ -987,6 +1004,41 @@ mod tests {
         assert!(
             json.get("format").is_none(),
             "format não deveria aparecer com a flag desativada, mesmo havendo tools"
+        );
+    }
+
+    /// Regressão da emenda de 2026-07-24 à ADR-0012.
+    ///
+    /// O `format` do Ollama restringe a geração do **texto**, não das
+    /// `tool_calls`: com ele ativo, um modelo com tool-calling nativo devolve a
+    /// chamada como string JSON em `content` e `tool_calls` volta vazio, então
+    /// `ollama_message_to_domain` não vê tool-call nenhuma e o agent loop
+    /// encerra sem executar nada (achado real contra um Ollama de verdade,
+    /// `qwen2.5:7b`). O *default* de `OllamaProvider::new` é o que a CLI usa
+    /// quando nenhuma configuração declara a flag — este teste ancora o
+    /// **default**, não o comportamento da flag (já coberto acima).
+    #[test]
+    fn provider_novo_nao_envia_format_por_padrao_mesmo_com_tools() {
+        let (addr, _conexoes) = (
+            std::net::SocketAddr::from(([127, 0, 0, 1], 0)),
+            std::sync::atomic::AtomicUsize::new(0),
+        );
+        let provider = OllamaProvider::new(transport_local_only(addr), format!("http://{addr}"));
+
+        let mut request = ChatRequest::new("modelo-x", vec![Message::user("oi")]);
+        request.tools = vec![tool_spec_de_teste()];
+
+        let json = serde_json::to_value(build_request(&request, false, provider.structured_output))
+            .expect("deve serializar");
+
+        assert!(
+            json.get("format").is_none(),
+            "default de OllamaProvider::new deve ser sem `format` — com ele, \
+             tool-calling nativo quebra e nenhuma tool executa"
+        );
+        assert!(
+            !json["tools"].as_array().expect("tools é array").is_empty(),
+            "as tools continuam sendo enviadas normalmente pelo campo nativo"
         );
     }
 

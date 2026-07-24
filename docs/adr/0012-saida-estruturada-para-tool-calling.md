@@ -47,9 +47,52 @@ usuário deve poder desligar para depuração ou modelos que não suportem bem o
   schema a outros providers (OpenAI-compatible/Anthropic têm mecanismos próprios) sem ADR
   específico — não generalizar sem verificar.
 - **Obrigatório:** a flag é lida pela mesma camada de configuração em três níveis do MT-04;
-  ausência de configuração cai no *default* (`true`); se `format` causar erro do provider
-  (ex.: modelo sem suporte), o erro é reportado como `ProviderError`, nunca mascarado ou
-  ignorado em silêncio.
+  ausência de configuração cai no *default* (**`false`** desde a emenda de 2026-07-24 —
+  ver abaixo); se `format` causar erro do provider (ex.: modelo sem suporte), o erro é
+  reportado como `ProviderError`, nunca mascarado ou ignorado em silêncio.
 
 > Qualquer desvio desta regra viola as diretrizes de conformidade arquitetural do projeto
 > e deve ser reportado para revisão antes de prosseguir.
+
+## Emenda (2026-07-24): *default* invertido para `false`
+
+**Status da emenda:** Accepted · **Decisor:** Iago Leal (mantenedor)
+
+### Contexto da emenda
+
+Teste do binário `release` contra um Ollama real (`qwen2.5:7b`) mostrou que **nenhuma tool
+executava** na configuração *default*: o agente imprimia `{"arguments":{...},"name":"fs_read"}`
+como texto e encerrava no primeiro turno.
+
+Causa raiz: o campo `format` do Ollama restringe a geração do **texto**
+(`message.content`), **não** das `tool_calls`. Com `format` ativo, um modelo que suporta
+tool-calling nativo devolve a chamada como string JSON em `content` e `message.tool_calls`
+volta **vazio**. Como `ollama_message_to_domain` só lê `tool_calls`, o JSON vira mensagem de
+texto comum, `Session` não vê tool-call nenhuma e o laço encerra com `StopReason::Done`.
+
+Confirmado por requisição direta ao Ollama: a mesma chamada **sem** `format` devolve
+`tool_calls` nativo correto; **com** `format` devolve o JSON como texto. `qwen2.5:7b` e
+`llama3.1:8b` anunciam `capabilities:["tools"]` — o ecossistema mudou desde 2026-07-09,
+quando o MT-22 foi escrito, e o *workaround* virou o próprio defeito.
+
+### Decisão da emenda
+
+O *default* de `providers.ollama.structuredOutput` passa de `true` para **`false`**. A flag
+continua existindo, com o mesmo nome e a mesma semântica, como escape explícito para modelos
+antigos **sem** tool-calling nativo — o caso que motivou o MT-22 originalmente.
+
+Descartada a alternativa de detectar `capabilities` via `GET /api/tags`: conceitualmente mais
+correta, mas adiciona uma chamada de rede no caminho de inicialização e um modo de falha novo
+(servidor que não responde à rota), em troca de cobrir um caso — modelo antigo sem tools —
+que a flag já cobre com uma linha de configuração.
+
+### Consequências da emenda
+
+- **Impacto positivo:** tool-calling volta a funcionar na configuração *default*, que é o
+  caso de uso local principal do projeto.
+- **Impacto negativo:** quem usa modelo antigo sem tool-calling nativo precisa passar a
+  declarar `structuredOutput: true` explicitamente.
+- **Regressão coberta por teste:** `provider_novo_nao_envia_format_por_padrao_mesmo_com_tools`
+  ancora o *default* de `OllamaProvider::new` (não só o comportamento da flag, que já tinha
+  cobertura). O exemplo gerado por `--init` passa a declarar `false` com comentário
+  explicativo.

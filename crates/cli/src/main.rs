@@ -143,7 +143,10 @@ const GENERIC_SETTINGS_EXAMPLE: &str = r#"{
   },
   "providers": {
     "_comentario": "Ollama (local) é o provider padrão desta CLI. litellm é opcional — preencha baseUrl e model no bloco abaixo para ativar um gateway LiteLLM (ex.: corporativo) como segundo provider, selecionável via --provider litellm / comando /provider.",
-    "ollama": { "structuredOutput": true },
+    "ollama": {
+      "_comentario": "structuredOutput restringe a geração ao schema JSON das tools (ADR-0012). Mantenha false (default desde 2026-07-24): com ele ativo, um modelo com tool-calling nativo devolve a chamada como texto e nenhuma tool executa. Ligue apenas para modelos antigos, sem suporte nativo a tools, onde a restrição de schema é a única forma de obter JSON bem-formado.",
+      "structuredOutput": false
+    },
     "litellm": {
       "_comentario": "baseUrl e model precisam estar os dois preenchidos para este provider ativar. egressClass (local-only / cloud-opt-out / cloud-ok) decide se o endpoint é alcançável sob o perfil ativo — ausente (null) é tratado como cloud-ok, o mais restritivo para liberar; gateways só acessíveis via rede interna/VPN geralmente precisam declarar local-only explicitamente.",
       "baseUrl": null,
@@ -1368,7 +1371,9 @@ mod tests {
         assert!(cfg.repo_map_enabled);
         assert!(cfg.semantic_rag_enabled);
         assert!(cfg.lsp_grounding_enabled);
-        assert!(cfg.ollama_structured_output);
+        // Emenda de 2026-07-24 à ADR-0012: o exemplo passa a declarar `false`
+        // explicitamente, acompanhando o novo default.
+        assert!(!cfg.ollama_structured_output);
 
         // MT-57: `context.gitignore.enabled` explícito em `false` preserva o
         // default opt-in (ADR-0020 §3) — não liga nada sozinho.
