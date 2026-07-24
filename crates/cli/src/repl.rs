@@ -252,6 +252,15 @@ pub async fn run_repl<R: BufRead, W: Write>(
             }
             continue;
         }
+        if linha == "/save" || linha.starts_with("/save ") {
+            let nome = linha.strip_prefix("/save").unwrap_or("").trim();
+            let nome = if nome.is_empty() { None } else { Some(nome) };
+            match crate::sessao::salvar(workspace_root, nome, session, &task_class) {
+                Ok(aviso) => writeln!(output, "{aviso}").map_err(|e| e.to_string())?,
+                Err(erro) => writeln!(output, "erro: {erro}").map_err(|e| e.to_string())?,
+            }
+            continue;
+        }
         if linha == "/remember" || linha.starts_with("/remember ") {
             let fato = linha.strip_prefix("/remember").unwrap_or("").trim();
             if fato.is_empty() {
@@ -929,6 +938,50 @@ mod tests {
 
         let saida_texto = String::from_utf8(saida).unwrap();
         assert!(saida_texto.contains("erro:"));
+    }
+
+    #[tokio::test]
+    async fn comando_save_grava_a_sessao_em_agentry_session_e_avisa() {
+        let dir = TempDir::new();
+        let mock = Arc::new(MockProvider::new(PROVIDER));
+        let mut router = router_com_ollama(mock.clone(), "modelo-x");
+        let rota = router.resolve(TASK_CLASS).expect("deve resolver");
+        let mut session = Session::new(rota, Arc::new(NoopExecutor), TokenBudget::new(100_000));
+        session.push_user_message("oi, tudo bem?");
+
+        let entrada = "/save minha-sessao\n/exit\n";
+        let mut saida = Vec::new();
+
+        run_repl(
+            Cursor::new(entrada.as_bytes()),
+            &mut saida,
+            &mut session,
+            &mut router,
+            RuntimeOverride::default(),
+            TASK_CLASS.to_string(),
+            &ReplConfig {
+                workspace_root: dir.path(),
+                preset_base: &CallPreset::default(),
+                candidato_extra: None,
+            },
+        )
+        .await
+        .expect("repl deve rodar sem erro");
+
+        let saida_texto = String::from_utf8(saida).unwrap();
+        assert!(saida_texto.contains("sessão salva em"));
+        assert!(
+            saida_texto.contains("informação sensível"),
+            "aviso de retenção deve sempre aparecer: {saida_texto:?}"
+        );
+
+        let sessoes = dir.path().join(".agentry").join("session");
+        let arquivos: Vec<_> = std::fs::read_dir(&sessoes)
+            .expect("diretório de sessões deve existir")
+            .collect();
+        assert_eq!(arquivos.len(), 1, "deve gravar exatamente um arquivo");
+        let conteudo = std::fs::read_to_string(arquivos[0].as_ref().unwrap().path()).unwrap();
+        assert!(conteudo.contains("oi, tudo bem?"));
     }
 
     #[tokio::test]

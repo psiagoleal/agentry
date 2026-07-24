@@ -560,6 +560,20 @@ impl Session {
         &self.messages
     }
 
+    /// Nome do provider corrente (`LlmProvider::name`) — usado por `/save`
+    /// (MT-121, ADR-0036) para registrar nos metadados da sessão salva.
+    #[must_use]
+    pub fn provider_name(&self) -> &str {
+        self.provider.name()
+    }
+
+    /// Identificador do modelo corrente — mesmo uso do
+    /// [`Self::provider_name`].
+    #[must_use]
+    pub fn model(&self) -> &str {
+        &self.model
+    }
+
     /// Uso de tokens acumulado ao longo de **toda** a sessão até aqui —
     /// soma de cada turno (`run`/`run_streaming`) e de cada [`Self::compact`]
     /// já concluídos (MT-82, ADR-0029). Zerado só ao criar uma [`Session`]

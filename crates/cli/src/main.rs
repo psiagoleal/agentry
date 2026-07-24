@@ -27,6 +27,7 @@
 
 mod init;
 mod repl;
+mod sessao;
 mod streaming;
 mod tool_executor;
 mod tui;

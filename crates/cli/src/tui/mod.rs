@@ -380,6 +380,10 @@ fn mensagem_de_undo(
 const COMANDOS_DE_BARRA: &[(&str, &str)] = &[
     ("/usage", "mostra o uso de tokens acumulado desta sessão"),
     ("/undo", "desfaz o último fs_write/fs_edit (checkpoint)"),
+    (
+        "/save [nome]",
+        "salva a sessão em .agentry/session/ (Markdown) -- pode conter informação sensível",
+    ),
     ("/remember <fato>", "grava uma memória de projeto explícita"),
     ("/compact", "compacta o histórico da sessão"),
     ("/task-class <nome>", "troca a task-class ativa"),
@@ -478,6 +482,14 @@ async fn processar_comando_de_texto(
     }
     if comando == "undo" {
         return mensagem_de_undo(checkpoint_store.undo());
+    }
+    if comando == "save" || comando.starts_with("save ") {
+        let nome = comando.strip_prefix("save").unwrap_or("").trim();
+        let nome = if nome.is_empty() { None } else { Some(nome) };
+        return match crate::sessao::salvar(workspace_root, nome, sessao, task_class) {
+            Ok(aviso) => aviso,
+            Err(erro) => format!("erro: {erro}"),
+        };
     }
     if comando == "remember" || comando.starts_with("remember ") {
         let fato = comando.strip_prefix("remember").unwrap_or("").trim();
@@ -3092,6 +3104,41 @@ mod tests {
             )
         );
         assert_eq!(mock.chat_requests().len(), 0, "não deve chamar o provider");
+    }
+
+    #[tokio::test]
+    async fn comando_save_grava_a_sessao_e_avisa_sobre_retencao() {
+        let mock = Arc::new(MockProvider::new("mock"));
+        let mut sessao = sessao_de_teste(mock.clone());
+        sessao.push_user_message("crie um arquivo");
+        let router = router_com_task_class("chat", mock);
+        let dir = TempDir::new();
+        let checkpoint_store = agentry_core::checkpoint::CheckpointStore::new(dir.path());
+        let mut overrides = RuntimeOverride::default();
+        let mut task_class = "chat".to_string();
+
+        let mensagem = processar_comando_de_texto(
+            "save",
+            &mut sessao,
+            &router,
+            &mut overrides,
+            &mut task_class,
+            &checkpoint_store,
+            dir.path(),
+        )
+        .await;
+
+        assert!(
+            mensagem.contains("sessão salva em"),
+            "mensagem: {mensagem:?}"
+        );
+        assert!(mensagem.contains("informação sensível"));
+        let sessoes = dir.path().join(".agentry").join("session");
+        assert_eq!(
+            std::fs::read_dir(&sessoes).unwrap().count(),
+            1,
+            "deve gravar exatamente um arquivo"
+        );
     }
 
     #[tokio::test]
