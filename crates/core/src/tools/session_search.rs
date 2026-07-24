@@ -77,7 +77,12 @@ fn ler_sessoes(root: &std::path::Path) -> Vec<SessaoFonte> {
     sessoes
 }
 
-fn formatar_resultados(chunks: &[SessionChunk]) -> String {
+/// Formata os chunks encontrados como texto legível — fonte única entre a
+/// tool (`execute`, abaixo) e o comando `/recall` (MT-137, REPL/TUI), sem
+/// duas versões divergentes do mesmo texto (mesmo padrão de
+/// `sessao::formatar_lista_de_sessoes`).
+#[must_use]
+pub fn formatar_resultados(chunks: &[SessionChunk]) -> String {
     chunks
         .iter()
         .enumerate()

@@ -506,13 +506,18 @@ async fn register_mcp_tools(registry: &mut ToolRegistry, cfg: &Config) {
 /// provider Ollama já registrado no `Router` (embeddings/reranking do RAG
 /// semântico, ADR-0011/ADR-0039), não um segundo cliente —
 /// `session_search` (MT-136) usa exatamente o mesmo, nunca a task-class de
-/// chat configurada (ADR-0039 §2).
+/// chat configurada (ADR-0039 §2). `session_search_session` já vem pronto
+/// (em vez de construído aqui dentro, como as outras 3) porque `/recall`
+/// (MT-137, REPL/TUI) reaproveita a **mesma instância** — mesmo cache de
+/// índices entre a tool e o comando manual, não dois pipelines
+/// independentes.
 fn register_context_tools(
     registry: &mut ToolRegistry,
     cfg: &Config,
     workspace_root: &std::path::Path,
     ollama_provider: Arc<dyn LlmProvider>,
     modelo: &str,
+    session_search_session: Arc<SessionSearchSession>,
 ) {
     register_repo_map_tool(
         registry,
@@ -524,7 +529,7 @@ fn register_context_tools(
         cfg.semantic_rag_enabled,
         Arc::new(CodeSearchSession::new(
             workspace_root.to_path_buf(),
-            Arc::clone(&ollama_provider),
+            ollama_provider,
             modelo,
             modelo,
             cfg.respect_gitignore,
@@ -539,16 +544,7 @@ fn register_context_tools(
             workspace_root.to_path_buf(),
         )),
     );
-    register_session_search_tool(
-        registry,
-        cfg.session_search_enabled,
-        Arc::new(SessionSearchSession::new(
-            workspace_root.to_path_buf(),
-            ollama_provider,
-            modelo,
-            modelo,
-        )),
-    );
+    register_session_search_tool(registry, cfg.session_search_enabled, session_search_session);
 }
 
 /// Resolve a `Config` final a partir das três camadas reais do binário, da
@@ -1162,12 +1158,22 @@ async fn main() {
     }
     register_mcp_tools(&mut registry, &cfg).await;
 
+    // Construído aqui (não dentro de `register_context_tools`) porque
+    // `/recall` (MT-137, REPL/TUI) precisa da mesma instância — mesmo
+    // cache de índices entre a tool `session_search` e o comando manual.
+    let session_search_session = Arc::new(SessionSearchSession::new(
+        workspace_root.clone(),
+        Arc::clone(&ollama_provider),
+        &modelo_inicial,
+        &modelo_inicial,
+    ));
     register_context_tools(
         &mut registry,
         &cfg,
         &workspace_root,
         ollama_provider,
         &modelo_inicial,
+        Arc::clone(&session_search_session),
     );
 
     register_subagent_tool(
@@ -1246,6 +1252,7 @@ async fn main() {
             rx_humano,
             auto_confirmacao,
             workspace_root.clone(),
+            session_search_session,
         )
         .await
         .unwrap_or_else(|erro| {
@@ -1277,6 +1284,7 @@ async fn main() {
                 workspace_root: &workspace_root,
                 preset_base: &CallPreset::default(),
                 candidato_extra: litellm_candidato.as_ref(),
+                session_search_session: &session_search_session,
             },
         )
         .await
@@ -1484,8 +1492,21 @@ mod tests {
         let cfg = cfg_com_flags(true, true, true, true);
         let mut registry = ToolRegistry::new(PermissionGate::new(Permissions::default()));
         let provider: Arc<dyn LlmProvider> = Arc::new(MockProvider::new("mock"));
+        let session_search_session = Arc::new(SessionSearchSession::new(
+            dir.path(),
+            Arc::clone(&provider),
+            "embed-x",
+            "rerank-x",
+        ));
 
-        register_context_tools(&mut registry, &cfg, dir.path(), provider, "modelo-teste");
+        register_context_tools(
+            &mut registry,
+            &cfg,
+            dir.path(),
+            provider,
+            "modelo-teste",
+            session_search_session,
+        );
 
         let nomes = nomes_registrados(&registry);
         assert!(nomes.contains(&"repo_map".to_string()));
@@ -1501,8 +1522,21 @@ mod tests {
         let cfg = cfg_com_flags(false, false, false, false);
         let mut registry = ToolRegistry::new(PermissionGate::new(Permissions::default()));
         let provider: Arc<dyn LlmProvider> = Arc::new(MockProvider::new("mock"));
+        let session_search_session = Arc::new(SessionSearchSession::new(
+            dir.path(),
+            Arc::clone(&provider),
+            "embed-x",
+            "rerank-x",
+        ));
 
-        register_context_tools(&mut registry, &cfg, dir.path(), provider, "modelo-teste");
+        register_context_tools(
+            &mut registry,
+            &cfg,
+            dir.path(),
+            provider,
+            "modelo-teste",
+            session_search_session,
+        );
 
         let nomes = nomes_registrados(&registry);
         assert!(!nomes.contains(&"repo_map".to_string()));
@@ -1614,8 +1648,21 @@ mod tests {
         let dir = TempDir::new();
         let mut registry = ToolRegistry::new(PermissionGate::new(Permissions::default()));
         let provider: Arc<dyn LlmProvider> = Arc::new(MockProvider::new("mock"));
+        let session_search_session = Arc::new(SessionSearchSession::new(
+            dir.path(),
+            Arc::clone(&provider),
+            "embed-x",
+            "rerank-x",
+        ));
 
-        register_context_tools(&mut registry, &cfg, dir.path(), provider, "modelo-teste");
+        register_context_tools(
+            &mut registry,
+            &cfg,
+            dir.path(),
+            provider,
+            "modelo-teste",
+            session_search_session,
+        );
 
         let nomes = nomes_registrados(&registry);
         assert!(nomes.contains(&"repo_map".to_string()));

@@ -388,6 +388,10 @@ const COMANDOS_DE_BARRA: &[(&str, &str)] = &[
         "/sessions",
         "lista as sessões salvas em .agentry/session/ (id, data, título)",
     ),
+    (
+        "/recall <busca>",
+        "busca trechos relevantes em sessões salvas anteriormente",
+    ),
     ("/remember <fato>", "grava uma memória de projeto explícita"),
     ("/compact", "compacta o histórico da sessão"),
     ("/task-class <nome>", "troca a task-class ativa"),
@@ -463,6 +467,9 @@ fn texto_de_ajuda() -> String {
 /// o mesmo problema sem exigir mutação (escolhe entre candidatos já
 /// declarados). `/init` também fica de fora (bootstrap de configuração,
 /// não faz sentido no meio de uma sessão interativa já rodando).
+// `session_search_session` (MT-137, `/recall`) leva a contagem a 8 --
+// mesmo caso de `loop_eventos`, cada parâmetro já é uma peça distinta.
+#[allow(clippy::too_many_arguments)]
 async fn processar_comando_de_texto(
     comando: &str,
     sessao: &mut Session,
@@ -471,6 +478,7 @@ async fn processar_comando_de_texto(
     task_class: &mut String,
     checkpoint_store: &agentry_core::checkpoint::CheckpointStore,
     workspace_root: &std::path::Path,
+    session_search_session: &agentry_core::tools::session_search::SessionSearchSession,
 ) -> String {
     if comando == "compact" {
         return match sessao.compact(router).await {
@@ -498,6 +506,23 @@ async fn processar_comando_de_texto(
     if comando == "sessions" {
         return match crate::sessao::listar_sessoes(workspace_root) {
             Ok(sessoes) => crate::sessao::formatar_lista_de_sessoes(&sessoes),
+            Err(erro) => format!("erro: {erro}"),
+        };
+    }
+    if comando == "recall" || comando.starts_with("recall ") {
+        let busca = comando.strip_prefix("recall").unwrap_or("").trim();
+        if busca.is_empty() {
+            return "uso: /recall <busca>".to_string();
+        }
+        const RECALL_LIMITE_PADRAO: usize = 5;
+        return match session_search_session
+            .buscar(busca, RECALL_LIMITE_PADRAO)
+            .await
+        {
+            Ok(chunks) if chunks.is_empty() => {
+                "nenhum resultado encontrado em sessões salvas".to_string()
+            }
+            Ok(chunks) => agentry_core::tools::session_search::formatar_resultados(&chunks),
             Err(erro) => format!("erro: {erro}"),
         };
     }
@@ -1564,6 +1589,7 @@ fn instalar_panic_hook_para_mouse() {
 ///
 /// Devolve o `io::Error` de inicializar, desenhar ou ler eventos do
 /// terminal.
+#[allow(clippy::too_many_arguments)]
 pub async fn run(
     session: Session,
     router: Router,
@@ -1572,6 +1598,7 @@ pub async fn run(
     rx_humano: mpsc::UnboundedReceiver<PedidoHumano>,
     auto: Arc<AtomicBool>,
     workspace_root: std::path::PathBuf,
+    session_search_session: Arc<agentry_core::tools::session_search::SessionSearchSession>,
 ) -> io::Result<()> {
     let mut terminal = ratatui::try_init()?;
     ratatui::crossterm::execute!(io::stdout(), EnableMouseCapture)?;
@@ -1585,6 +1612,7 @@ pub async fn run(
         rx_humano,
         auto,
         workspace_root,
+        session_search_session,
     )
     .await;
     let _ = ratatui::crossterm::execute!(io::stdout(), DisableMouseCapture);
@@ -1655,6 +1683,7 @@ async fn loop_eventos(
     mut rx_humano: mpsc::UnboundedReceiver<PedidoHumano>,
     auto: Arc<AtomicBool>,
     workspace_root: std::path::PathBuf,
+    session_search_session: Arc<agentry_core::tools::session_search::SessionSearchSession>,
 ) -> io::Result<()> {
     let router = Arc::new(router);
     let checkpoint_store = agentry_core::checkpoint::CheckpointStore::new(workspace_root.clone());
@@ -1894,6 +1923,7 @@ async fn loop_eventos(
                                     &mut task_class,
                                     &checkpoint_store,
                                     &workspace_root,
+                                    session_search_session.as_ref(),
                                 )
                                 .await;
                                 estado.chat.registrar_mensagem_sistema(mensagem);
@@ -3086,6 +3116,19 @@ mod tests {
         router
     }
 
+    /// `SessionSearchSession` própria dos testes de `/recall` (MT-137) —
+    /// `provider` isolado (nunca o mesmo `mock` usado para as respostas de
+    /// chat do teste) — quem chama controla o mock quando precisa
+    /// enfileirar respostas de embeddings/chat.
+    fn session_search_session_de_teste(
+        root: &std::path::Path,
+        provider: Arc<dyn agentry_core::provider::LlmProvider>,
+    ) -> agentry_core::tools::session_search::SessionSearchSession {
+        agentry_core::tools::session_search::SessionSearchSession::new(
+            root, provider, "embed-x", "rerank-x",
+        )
+    }
+
     #[tokio::test]
     async fn comando_usage_devolve_o_uso_real_da_sessao_sem_chamar_o_provider() {
         let mock = Arc::new(MockProvider::new("mock"));
@@ -3104,6 +3147,10 @@ mod tests {
             &mut task_class,
             &checkpoint_store,
             dir.path(),
+            &session_search_session_de_teste(
+                dir.path(),
+                Arc::new(MockProvider::new("mock-recall")),
+            ),
         )
         .await;
 
@@ -3136,6 +3183,10 @@ mod tests {
             &mut task_class,
             &checkpoint_store,
             dir.path(),
+            &session_search_session_de_teste(
+                dir.path(),
+                Arc::new(MockProvider::new("mock-recall")),
+            ),
         )
         .await;
 
@@ -3170,6 +3221,10 @@ mod tests {
             &mut task_class,
             &checkpoint_store,
             dir.path(),
+            &session_search_session_de_teste(
+                dir.path(),
+                Arc::new(MockProvider::new("mock-recall")),
+            ),
         )
         .await;
 
@@ -3195,6 +3250,10 @@ mod tests {
             &mut task_class,
             &checkpoint_store,
             dir.path(),
+            &session_search_session_de_teste(
+                dir.path(),
+                Arc::new(MockProvider::new("mock-recall")),
+            ),
         )
         .await;
 
@@ -3206,6 +3265,10 @@ mod tests {
             &mut task_class,
             &checkpoint_store,
             dir.path(),
+            &session_search_session_de_teste(
+                dir.path(),
+                Arc::new(MockProvider::new("mock-recall")),
+            ),
         )
         .await;
 
@@ -3214,6 +3277,82 @@ mod tests {
             "mensagem: {mensagem:?}"
         );
         assert!(mensagem.contains("qual a capital da frança"));
+    }
+
+    #[tokio::test]
+    async fn comando_recall_sem_busca_avisa_o_uso() {
+        let mock = Arc::new(MockProvider::new("mock"));
+        let mut sessao = sessao_de_teste(mock.clone());
+        let router = router_com_task_class("chat", mock);
+        let dir = TempDir::new();
+        let checkpoint_store = agentry_core::checkpoint::CheckpointStore::new(dir.path());
+        let mut overrides = RuntimeOverride::default();
+        let mut task_class = "chat".to_string();
+
+        let mensagem = processar_comando_de_texto(
+            "recall",
+            &mut sessao,
+            &router,
+            &mut overrides,
+            &mut task_class,
+            &checkpoint_store,
+            dir.path(),
+            &session_search_session_de_teste(
+                dir.path(),
+                Arc::new(MockProvider::new("mock-recall")),
+            ),
+        )
+        .await;
+
+        assert_eq!(mensagem, "uso: /recall <busca>");
+    }
+
+    #[tokio::test]
+    async fn comando_recall_encontra_trecho_de_sessao_salva_de_verdade() {
+        let mock = Arc::new(MockProvider::new("mock"));
+        let mut sessao = sessao_de_teste(mock.clone());
+        let router = router_com_task_class("chat", mock);
+        let dir = TempDir::new();
+        let checkpoint_store = agentry_core::checkpoint::CheckpointStore::new(dir.path());
+        let mut overrides = RuntimeOverride::default();
+        let mut task_class = "chat".to_string();
+
+        // Grava uma sessão de verdade em .agentry/session/ antes de buscar.
+        let mut sessao_para_salvar = sessao_de_teste(Arc::new(MockProvider::new("mock2")));
+        sessao_para_salvar.push_user_message("qual a capital da frança");
+        crate::sessao::salvar(dir.path(), None, &sessao_para_salvar, &task_class)
+            .expect("deve salvar a sessão de teste");
+
+        let mock_recall = Arc::new(MockProvider::new("mock-recall"));
+        mock_recall.enqueue_embeddings(Ok(agentry_core::provider::EmbeddingsResponse {
+            vectors: vec![vec![1.0, 0.0]],
+            usage: agentry_core::model::Usage::default(),
+        }));
+        mock_recall.enqueue_embeddings(Ok(agentry_core::provider::EmbeddingsResponse {
+            vectors: vec![vec![1.0, 0.0]],
+            usage: agentry_core::model::Usage::default(),
+        }));
+        mock_recall.enqueue_chat(Ok(agentry_core::provider::ChatResponse {
+            message: agentry_core::model::Message::assistant("[0]"),
+            usage: agentry_core::model::Usage::default(),
+        }));
+
+        let mensagem = processar_comando_de_texto(
+            "recall frança",
+            &mut sessao,
+            &router,
+            &mut overrides,
+            &mut task_class,
+            &checkpoint_store,
+            dir.path(),
+            &session_search_session_de_teste(dir.path(), mock_recall),
+        )
+        .await;
+
+        assert!(
+            mensagem.contains("qual a capital da frança"),
+            "mensagem: {mensagem:?}"
+        );
     }
 
     #[tokio::test]
@@ -3234,6 +3373,10 @@ mod tests {
             &mut task_class,
             &checkpoint_store,
             dir.path(),
+            &session_search_session_de_teste(
+                dir.path(),
+                Arc::new(MockProvider::new("mock-recall")),
+            ),
         )
         .await;
 
@@ -3262,6 +3405,10 @@ mod tests {
             &mut task_class,
             &checkpoint_store,
             dir.path(),
+            &session_search_session_de_teste(
+                dir.path(),
+                Arc::new(MockProvider::new("mock-recall")),
+            ),
         )
         .await;
 
@@ -3290,6 +3437,10 @@ mod tests {
             &mut task_class,
             &checkpoint_store,
             dir.path(),
+            &session_search_session_de_teste(
+                dir.path(),
+                Arc::new(MockProvider::new("mock-recall")),
+            ),
         )
         .await;
 
@@ -3316,6 +3467,10 @@ mod tests {
             &mut task_class,
             &checkpoint_store,
             dir.path(),
+            &session_search_session_de_teste(
+                dir.path(),
+                Arc::new(MockProvider::new("mock-recall")),
+            ),
         )
         .await;
 
@@ -3344,6 +3499,10 @@ mod tests {
             &mut task_class,
             &checkpoint_store,
             dir.path(),
+            &session_search_session_de_teste(
+                dir.path(),
+                Arc::new(MockProvider::new("mock-recall")),
+            ),
         )
         .await;
 
@@ -3369,6 +3528,10 @@ mod tests {
             &mut task_class,
             &checkpoint_store,
             dir.path(),
+            &session_search_session_de_teste(
+                dir.path(),
+                Arc::new(MockProvider::new("mock-recall")),
+            ),
         )
         .await;
 
@@ -3397,6 +3560,10 @@ mod tests {
             &mut task_class,
             &checkpoint_store,
             dir.path(),
+            &session_search_session_de_teste(
+                dir.path(),
+                Arc::new(MockProvider::new("mock-recall")),
+            ),
         )
         .await;
 
@@ -3422,6 +3589,10 @@ mod tests {
             &mut task_class,
             &checkpoint_store,
             dir.path(),
+            &session_search_session_de_teste(
+                dir.path(),
+                Arc::new(MockProvider::new("mock-recall")),
+            ),
         )
         .await;
 
