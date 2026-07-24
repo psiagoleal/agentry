@@ -66,7 +66,7 @@ binário pra toda mudança observável, skill `micro-ticket-planner` para granul
   o único campo buscável. 4 testes novos, 710 no *workspace*. Sem ponto de entrada na CLI
   ainda.
 
-### MT-133: `session_semantic_index.rs` — índice semântico via embeddings (sempre Ollama)
+### MT-133: `session_semantic_index.rs` — índice semântico via embeddings (sempre Ollama) ✅ concluído (de4c8b1)
 - **Objetivo:** `SessionSemanticIndex`, mesmo desenho de `semantic_index.rs` (MT-27) — tabela
   `lancedb` própria, `build`/`search`. Recebe o provider como parâmetro (mesmo padrão do
   código), mas quem chama (tool/comando, MT-136/137) **sempre** passa o cliente Ollama —
@@ -76,6 +76,10 @@ binário pra toda mudança observável, skill `micro-ticket-planner` para granul
 - **Critério de aceite:** testes — mesma cobertura de `semantic_index.rs` (busca por vetor
   mais próximo, limite restringe a contagem, chunk reconstruído preserva metadados).
 - **Depende de:** MT-131.
+- A garantia de "sempre Ollama" não é verificada em tempo de compilação (o índice recebe
+  `&dyn LlmProvider` genérico, mesma limitação de `semantic_index.rs`) — documentada no
+  comentário do módulo, aplicada de fato pelo MT-136. 5 testes novos, 715 no *workspace*.
+  Sem ponto de entrada na CLI ainda.
 
 ### MT-134: `session_hybrid_search.rs` — fusão RRF + *reranking* sobre `SessionChunk`
 - **Objetivo:** `fuse`/`rerank`/`hybrid_search` próprios, mesma fórmula RRF (`RRF_K = 60.0`,

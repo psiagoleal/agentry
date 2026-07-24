@@ -519,8 +519,14 @@ código, ambas respondidas em 2026-07-24:
   (`session_id`/`indice_mensagem`/`papel`/`text`), sem *field boost* equivalente ao `symbol`
   do lado de código (`SessionChunk` não tem campo identificador análogo). 4 testes novos,
   710 no *workspace*. Sem ponto de entrada na CLI ainda.
-- MT-133..138 pendentes — próximo passo: MT-133 (`session_semantic_index.rs`, índice
-  semântico via Ollama).
+- MT-133 ✅ (`de4c8b1`) — `crates/core/src/context/rag/session_semantic_index.rs` (novo):
+  `SessionSemanticIndex`, mesmo desenho de `semantic_index.rs` — `lancedb` embutido sobre
+  `memory://`, schema próprio (`session_id`/`message_index`/`role`/`text`/`vector`). A
+  garantia de "sempre Ollama" (ADR-0039 §2) não é verificada em tempo de compilação (recebe
+  `&dyn LlmProvider` genérico) — documentada no módulo, aplicada de fato pelo MT-136. 5
+  testes novos, 715 no *workspace*. Sem ponto de entrada na CLI ainda.
+- MT-134..138 pendentes — próximo passo: MT-134 (`session_hybrid_search.rs`, fusão RRF +
+  *reranking*).
 
 ## Último turno
 
