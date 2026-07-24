@@ -20,6 +20,7 @@ pub mod lsp;
 pub mod mcp;
 pub mod permission;
 pub mod repo_map;
+pub mod session_search;
 pub mod shell;
 pub mod skill;
 pub mod subagent;

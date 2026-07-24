@@ -58,6 +58,7 @@ use agentry_core::tools::lsp::{register_lsp_tools, LspSession};
 use agentry_core::tools::mcp::McpTool;
 use agentry_core::tools::permission::PermissionGate;
 use agentry_core::tools::repo_map::{register_repo_map_tool, RepoMapTool};
+use agentry_core::tools::session_search::{register_session_search_tool, SessionSearchSession};
 use agentry_core::tools::shell::{ShellBackgroundTool, ShellPolicy, ShellTool};
 use agentry_core::tools::skill::SkillTool;
 use agentry_core::tools::subagent::SubagentTool;
@@ -497,13 +498,15 @@ async fn register_mcp_tools(registry: &mut ToolRegistry, cfg: &Config) {
     }
 }
 
-/// Registra as 3 tools de contexto (`repo_map`, `code_search`,
-/// `lsp_hover`/`lsp_definition`) segundo as 3 flags booleanas resolvidas por
-/// `Config` (MT-39/ADR-0018) — extraído de `main()` para ser testável sem
-/// rodar o binário inteiro (parsing de argv, rede real etc., MT-40).
-/// `ollama_provider` é reaproveitado do provider Ollama já registrado no
-/// `Router` (embeddings/reranking do RAG semântico, ADR-0011), não um
-/// segundo cliente.
+/// Registra as 4 tools de contexto (`repo_map`, `code_search`,
+/// `lsp_hover`/`lsp_definition`, `session_search`) segundo as flags
+/// booleanas resolvidas por `Config` (MT-39/ADR-0018) — extraído de
+/// `main()` para ser testável sem rodar o binário inteiro (parsing de
+/// argv, rede real etc., MT-40). `ollama_provider` é reaproveitado do
+/// provider Ollama já registrado no `Router` (embeddings/reranking do RAG
+/// semântico, ADR-0011/ADR-0039), não um segundo cliente —
+/// `session_search` (MT-136) usa exatamente o mesmo, nunca a task-class de
+/// chat configurada (ADR-0039 §2).
 fn register_context_tools(
     registry: &mut ToolRegistry,
     cfg: &Config,
@@ -521,7 +524,7 @@ fn register_context_tools(
         cfg.semantic_rag_enabled,
         Arc::new(CodeSearchSession::new(
             workspace_root.to_path_buf(),
-            ollama_provider,
+            Arc::clone(&ollama_provider),
             modelo,
             modelo,
             cfg.respect_gitignore,
@@ -534,6 +537,16 @@ fn register_context_tools(
             DEFAULT_LSP_COMMAND,
             vec![],
             workspace_root.to_path_buf(),
+        )),
+    );
+    register_session_search_tool(
+        registry,
+        cfg.session_search_enabled,
+        Arc::new(SessionSearchSession::new(
+            workspace_root.to_path_buf(),
+            ollama_provider,
+            modelo,
+            modelo,
         )),
     );
 }
@@ -1433,7 +1446,12 @@ mod tests {
         assert!(texto_existente.contains(MANUAL_SETUP_HINT));
     }
 
-    fn cfg_com_flags(repo_map: bool, semantic_rag: bool, lsp_grounding: bool) -> Config {
+    fn cfg_com_flags(
+        repo_map: bool,
+        semantic_rag: bool,
+        lsp_grounding: bool,
+        session_search: bool,
+    ) -> Config {
         Config {
             profile: None,
             egress_class: EgressClass::LocalOnly,
@@ -1445,6 +1463,7 @@ mod tests {
             lsp_grounding_enabled: lsp_grounding,
             respect_gitignore: false,
             agents_file_enabled: true,
+            session_search_enabled: session_search,
             ollama_structured_output: true,
             guardrails: agentry_core::guardrail::GuardrailGate::default(),
             litellm: None,
@@ -1460,9 +1479,9 @@ mod tests {
     }
 
     #[test]
-    fn flags_true_registra_as_3_tools_de_contexto() {
+    fn flags_true_registra_as_4_tools_de_contexto() {
         let dir = TempDir::new();
-        let cfg = cfg_com_flags(true, true, true);
+        let cfg = cfg_com_flags(true, true, true, true);
         let mut registry = ToolRegistry::new(PermissionGate::new(Permissions::default()));
         let provider: Arc<dyn LlmProvider> = Arc::new(MockProvider::new("mock"));
 
@@ -1473,12 +1492,13 @@ mod tests {
         assert!(nomes.contains(&"code_search".to_string()));
         assert!(nomes.contains(&"lsp_hover".to_string()));
         assert!(nomes.contains(&"lsp_definition".to_string()));
+        assert!(nomes.contains(&"session_search".to_string()));
     }
 
     #[test]
-    fn flags_false_nao_registra_nenhuma_das_3_tools_de_contexto() {
+    fn flags_false_nao_registra_nenhuma_das_4_tools_de_contexto() {
         let dir = TempDir::new();
-        let cfg = cfg_com_flags(false, false, false);
+        let cfg = cfg_com_flags(false, false, false, false);
         let mut registry = ToolRegistry::new(PermissionGate::new(Permissions::default()));
         let provider: Arc<dyn LlmProvider> = Arc::new(MockProvider::new("mock"));
 
@@ -1489,6 +1509,7 @@ mod tests {
         assert!(!nomes.contains(&"code_search".to_string()));
         assert!(!nomes.contains(&"lsp_hover".to_string()));
         assert!(!nomes.contains(&"lsp_definition".to_string()));
+        assert!(!nomes.contains(&"session_search".to_string()));
     }
 
     // --- MT-91: register_subagent_tool ---
@@ -2145,7 +2166,7 @@ mod tests {
 
     #[test]
     fn ausencia_de_arquivo_sintetiza_compact_e_guardrail_compliance_com_ollama_local_only() {
-        let cfg = cfg_com_flags(true, true, true); // task_classes vazio
+        let cfg = cfg_com_flags(true, true, true, true); // task_classes vazio
         let mut router = agentry_core::router::Router::new(cfg.egress_class);
         router.register_provider(Arc::new(MockProvider::new("ollama")));
         repl::set_chat_route(&mut router, "modelo-x", &CallPreset::default(), None);
@@ -2251,7 +2272,7 @@ mod tests {
         // era registrada no router da CLI (só `chat`), então
         // `Session::compact` sempre devolvia `RouterError::UnknownTaskClass`
         // fora dos testes de `repl.rs` (que registravam a rota manualmente).
-        let cfg = cfg_com_flags(true, true, true); // task_classes ausente do arquivo
+        let cfg = cfg_com_flags(true, true, true, true); // task_classes ausente do arquivo
         let mock = Arc::new(MockProvider::new("ollama"));
         mock.enqueue_chat(Ok(agentry_core::provider::ChatResponse {
             message: agentry_core::model::Message::assistant("resumo da conversa"),

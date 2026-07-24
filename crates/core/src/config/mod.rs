@@ -163,6 +163,12 @@ pub struct ContextSettings {
     /// das três primeiras flags acima (leitura local de um arquivo pequeno).
     #[serde(default, rename = "agentsFile")]
     pub agents_file: FeatureToggle,
+    /// `context.sessionSearch.enabled` (ADR-0039, MT-136) — RAG estendido
+    /// às sessões salvas (`.agentry/session/*.md`), exposto como a tool
+    /// `session_search`. Ausente ⇒ `true` (`Config::resolve`), mesmo
+    /// *default* de `semanticRag`.
+    #[serde(default, rename = "sessionSearch")]
+    pub session_search: FeatureToggle,
 }
 
 impl ContextSettings {
@@ -173,6 +179,7 @@ impl ContextSettings {
             lsp_grounding: self.lsp_grounding.merged_over(base.lsp_grounding),
             gitignore: self.gitignore.merged_over(base.gitignore),
             agents_file: self.agents_file.merged_over(base.agents_file),
+            session_search: self.session_search.merged_over(base.session_search),
         }
     }
 }
@@ -754,6 +761,11 @@ pub struct Config {
     /// (`crates/core/src/project_instructions.rs`) — não afeta descoberta de
     /// skills (`.claude/skills/`), que não tem *opt-out* próprio.
     pub agents_file_enabled: bool,
+    /// `context.sessionSearch.enabled` (ADR-0039, MT-136); nenhuma camada
+    /// define ⇒ `true`. Controla o registro da tool `session_search` (RAG
+    /// sobre `.agentry/session/*.md`) — desligada, a tool não é registrada
+    /// e nenhuma indexação de sessão roda.
+    pub session_search_enabled: bool,
     /// `providers.ollama.structuredOutput` (ADR-0012); nenhuma camada define ⇒ `true`.
     pub ollama_structured_output: bool,
     /// Guardrail Gate resolvido (`guardrails.input`/`guardrails.output`,
@@ -814,6 +826,7 @@ impl Config {
             lsp_grounding_enabled: merged.context.lsp_grounding.enabled.unwrap_or(true),
             respect_gitignore: merged.context.gitignore.enabled.unwrap_or(false),
             agents_file_enabled: merged.context.agents_file.enabled.unwrap_or(true),
+            session_search_enabled: merged.context.session_search.enabled.unwrap_or(true),
             ollama_structured_output: merged.providers.ollama.structured_output.unwrap_or(true),
             guardrails: GuardrailGate {
                 input: merged.guardrails.input,
