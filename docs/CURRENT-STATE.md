@@ -528,8 +528,16 @@ código, ambas respondidas em 2026-07-24:
 - MT-134 ✅ (`537908d`) — `crates/core/src/context/rag/session_hybrid_search.rs` (novo):
   `fuse`/`rerank`/`hybrid_search`, mesmo algoritmo/constante RRF (`RRF_K = 60.0`) de
   `hybrid_search.rs`. 7 testes novos, 721 no *workspace*. Sem ponto de entrada na CLI ainda.
-- MT-135..138 pendentes — próximo passo: MT-135 (`session_incremental.rs`, indexação
-  incremental *write-once*).
+- MT-135 ✅ (`e632a55`) — `crates/core/src/context/rag/session_incremental.rs` (novo):
+  `SessionIncrementalIndexer`, manifesto `session_id`→chunks em
+  `<estado>/index/session_manifest.json`. Mais simples que `incremental.rs` (código): sem
+  hash de conteúdo — sessões são *write-once* (`sessao::salvar` sempre gera um `id` novo),
+  presença no manifesto já é sinal suficiente de "não reprocessar". 6 testes novos (um
+  documenta explicitamente essa suposição), 727 no *workspace*. Sem ponto de entrada na CLI
+  ainda.
+- MT-136..138 pendentes — próximo passo: MT-136 (tool `session_search`, exposta ao agente
+  sob o `PermissionGate` comum — este é o primeiro ticket com ponto de entrada real na CLI,
+  a partir daqui haverá *smoke-test* de verdade).
 
 ## Último turno
 

@@ -93,7 +93,7 @@ binário pra toda mudança observável, skill `micro-ticket-planner` para granul
 - **Depende de:** MT-132, MT-133.
 - 7 testes novos, 721 no *workspace*. Sem ponto de entrada na CLI ainda.
 
-### MT-135: `session_incremental.rs` — indexação incremental (sessões são *write-once*)
+### MT-135: `session_incremental.rs` — indexação incremental (sessões são *write-once*) ✅ concluído (e632a55)
 - **Objetivo:** manifesto `<estado>/index/session_manifest.json`, mais simples que o de
   código (MT-29): sessões nunca são editadas depois de salvas (`sessao::salvar` sempre gera
   um `id` novo com *timestamp*) — só precisa detectar **arquivos novos** desde a última
@@ -103,6 +103,10 @@ binário pra toda mudança observável, skill `micro-ticket-planner` para granul
 - **Critério de aceite:** testes — primeira chamada indexa todas as sessões existentes;
   chamada seguinte sem sessão nova não reprocessa nada; sessão nova é detectada e indexada
   sem reprocessar as já indexadas; manifesto corrompido reprocessa tudo sem falhar.
+- Sem hash de conteúdo (diferente do MT-29): presença no manifesto já é sinal suficiente
+  para "não reprocessar" — testado explicitamente (sessão já indexada nunca reprocessa,
+  mesmo com mensagens diferentes no input). 6 testes novos, 727 no *workspace*. Sem ponto de
+  entrada na CLI ainda.
 - **Depende de:** MT-131.
 
 ### MT-136: Tool `session_search` — exposta ao agente, mesmo `PermissionGate` de sempre
