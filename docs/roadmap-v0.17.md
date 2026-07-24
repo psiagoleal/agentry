@@ -52,7 +52,7 @@ binário pra toda mudança observável, skill `micro-ticket-planner` para granul
   *smoke-test*, mesma situação do MT-119/120.
 - **Depende de:** nenhum (só MT-120, já concluído).
 
-### MT-132: `session_lexical_index.rs` — índice BM25 sobre `SessionChunk`
+### MT-132: `session_lexical_index.rs` — índice BM25 sobre `SessionChunk` ✅ concluído (a8361da)
 - **Objetivo:** `SessionLexicalIndex`, mesmo desenho de `lexical_index.rs` (MT-26) — schema
   `tantivy` próprio (`session_id`/`indice_mensagem`/`papel`/`text`), `build`/`search`.
 - **Arquivos no escopo:** `crates/core/src/context/rag/session_lexical_index.rs` (novo),
@@ -61,6 +61,10 @@ binário pra toda mudança observável, skill `micro-ticket-planner` para granul
   exato no topo, consulta sem correspondência devolve vazio, limite restringe a contagem,
   chunk reconstruído preserva metadados).
 - **Depende de:** MT-131.
+- **Diferença deliberada:** sem *field boost* equivalente ao `symbol` do lado de código —
+  `SessionChunk` não tem um campo identificador análogo (nome de função/variável); `text` é
+  o único campo buscável. 4 testes novos, 710 no *workspace*. Sem ponto de entrada na CLI
+  ainda.
 
 ### MT-133: `session_semantic_index.rs` — índice semântico via embeddings (sempre Ollama)
 - **Objetivo:** `SessionSemanticIndex`, mesmo desenho de `semantic_index.rs` (MT-27) — tabela

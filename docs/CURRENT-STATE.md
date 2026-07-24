@@ -514,8 +514,13 @@ código, ambas respondidas em 2026-07-24:
   Puro/sem I/O, mesmo escopo de `chunk_file`: a leitura de `.agentry/session/*.md` fica para
   o MT-135, mesmo papel de `code_search.rs::ler_arquivos` no lado de código. 6 testes novos,
   706 no *workspace*. Sem ponto de entrada na CLI ainda.
-- MT-132..138 pendentes — próximo passo: MT-132 (`session_lexical_index.rs`, índice BM25
-  sobre `SessionChunk`).
+- MT-132 ✅ (`a8361da`) — `crates/core/src/context/rag/session_lexical_index.rs` (novo):
+  `SessionLexicalIndex`, mesmo desenho de `lexical_index.rs` — schema `tantivy` próprio
+  (`session_id`/`indice_mensagem`/`papel`/`text`), sem *field boost* equivalente ao `symbol`
+  do lado de código (`SessionChunk` não tem campo identificador análogo). 4 testes novos,
+  710 no *workspace*. Sem ponto de entrada na CLI ainda.
+- MT-133..138 pendentes — próximo passo: MT-133 (`session_semantic_index.rs`, índice
+  semântico via Ollama).
 
 ## Último turno
 
