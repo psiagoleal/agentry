@@ -344,7 +344,18 @@ persistente, RAG estendido a sessões salvas.
   e está completo (ADR-0011, Fase 6, MT-25..30 — busca híbrida lexical+semântica sobre
   código). O pedido desta rodada é estender o mesmo pipeline às sessões salvas (Fase I do
   roadmap-v0.16, sem tickets ainda — depende da Fase G existir de verdade primeiro).
-- MT-119..123 (Fase G, persistência de sessão) e MT-125 (Fase H, `FileAuditSink`) pendentes.
+- MT-126 ✅ (`245f492`) — ADR-0038 (Accepted): `~/.agentry/` com dois arquivos de propósito
+  distinto — `agentry.settings.json` (mesmo schema do arquivo por-projeto, preferências
+  pessoais reutilizáveis) e `credentials.json` (schema separado, só credenciais, nunca soma
+  ao schema git-versionado). Precedência `~/.agentry/ < .agentry/ do projeto < variável de
+  ambiente` (variável sempre vence). Verificado antes de decidir: não conflita com a ADR-0017
+  (estado por-projeto vs. preferência/credencial por-usuário, categorias diferentes,
+  confirmado com o mantenedor) nem com a regra de "segredo nunca versionado" (é sobre nunca
+  commitar, não sobre nunca tocar disco). Sequenciamento pedido pelo mantenedor: Fase G → Fase
+  H → **Fase J** (esta) → atualizar release (Fase E/F/G/H/J juntas) → Fase I (RAG sobre
+  sessões) fica pra depois, sem data.
+- MT-119..123 (Fase G, persistência de sessão), MT-125 (Fase H, `FileAuditSink`) e
+  MT-127..129 (Fase J, implementação) pendentes.
 
 ## Último turno
 
