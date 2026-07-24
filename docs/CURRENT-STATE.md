@@ -525,8 +525,11 @@ código, ambas respondidas em 2026-07-24:
   garantia de "sempre Ollama" (ADR-0039 §2) não é verificada em tempo de compilação (recebe
   `&dyn LlmProvider` genérico) — documentada no módulo, aplicada de fato pelo MT-136. 5
   testes novos, 715 no *workspace*. Sem ponto de entrada na CLI ainda.
-- MT-134..138 pendentes — próximo passo: MT-134 (`session_hybrid_search.rs`, fusão RRF +
-  *reranking*).
+- MT-134 ✅ (`537908d`) — `crates/core/src/context/rag/session_hybrid_search.rs` (novo):
+  `fuse`/`rerank`/`hybrid_search`, mesmo algoritmo/constante RRF (`RRF_K = 60.0`) de
+  `hybrid_search.rs`. 7 testes novos, 721 no *workspace*. Sem ponto de entrada na CLI ainda.
+- MT-135..138 pendentes — próximo passo: MT-135 (`session_incremental.rs`, indexação
+  incremental *write-once*).
 
 ## Último turno
 

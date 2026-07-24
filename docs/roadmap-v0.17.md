@@ -81,7 +81,7 @@ binário pra toda mudança observável, skill `micro-ticket-planner` para granul
   comentário do módulo, aplicada de fato pelo MT-136. 5 testes novos, 715 no *workspace*.
   Sem ponto de entrada na CLI ainda.
 
-### MT-134: `session_hybrid_search.rs` — fusão RRF + *reranking* sobre `SessionChunk`
+### MT-134: `session_hybrid_search.rs` — fusão RRF + *reranking* sobre `SessionChunk` ✅ concluído (537908d)
 - **Objetivo:** `fuse`/`rerank`/`hybrid_search` próprios, mesma fórmula RRF (`RRF_K = 60.0`,
   idêntica ao MT-28) e mesmo protocolo de *reranking* via `LlmProvider::chat` (prompt
   adaptado ao formato de `SessionChunk` — session_id/papel/texto em vez de file/symbol).
@@ -91,6 +91,7 @@ binário pra toda mudança observável, skill `micro-ticket-planner` para granul
   dois sinais, *rerank* reordena um caso conhecido, resposta malformada é erro tratado, 0/1
   chunk não chama o provider, pipeline completo funde e reordena).
 - **Depende de:** MT-132, MT-133.
+- 7 testes novos, 721 no *workspace*. Sem ponto de entrada na CLI ainda.
 
 ### MT-135: `session_incremental.rs` — indexação incremental (sessões são *write-once*)
 - **Objetivo:** manifesto `<estado>/index/session_manifest.json`, mais simples que o de
