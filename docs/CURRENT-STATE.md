@@ -454,14 +454,35 @@ persistente, RAG estendido a sessões salvas.
   credencial gravada é de fato usada numa chamada real (mock HTTP ecoando o header
   `Authorization`). **Fecha a Fase J inteira — Fases G, H e J todas concluídas.**
 
-## Próximo passo: atualizar a release
+## Release `v0.1.0-usertest` atualizada (rodada 5, 2026-07-24)
 
-Fases G (persistência de sessão), H (audit log persistente) e J (configuração global) estão
-todas concluídas — sequência pedida pelo mantenedor: "Depois seguimos para fase G/H e nova
-fase para configurações globais e depois atualizamos a release." Próximo passo: build +
-push + atualização dos assets da release `v0.1.0-usertest` (mesmo padrão das rodadas
-anteriores — Fase E/F/G/H/J juntas nesta atualização). Fase I (RAG estendido às sessões
-salvas) segue deliberadamente sem tickets/data, deferida pelo próprio mantenedor.
+**Achado ao investigar o pedido do mantenedor de atualizar a release:** a tag
+`v0.1.0-usertest` estava presa no commit de fechamento da Fase C (`92bd3c2`,
+2026-07-20) — as Fases D (logo, MT-111) e E (modal de confirmação, MT-112), completadas
+*antes* desta sessão, nunca chegaram a entrar numa atualização real da release, apesar do
+handoff de então registrar a intenção. Esta rodada corrigiu isso: a atualização cobre Fases
+D, E, F (ADR-0035, saída de tool expansível na TUI), G, H e J de uma vez (34 commits desde a
+tag antiga até `HEAD`).
+
+Passos executados: `git push origin main` (34 commits); rebuild do binário Windows
+(`cargo build --release --target x86_64-pc-windows-gnu`, o build anterior era de 2026-07-22,
+antes de todo o trabalho de Fase G/H/J desta sessão) — o binário Linux já estava atualizado
+do próprio DoD do MT-129; empacotamento (`agentry-linux-x86_64.tar.gz` via `tar`,
+`agentry-windows-x86_64.zip` via `make windows`, renomeado sem sufixo de versão pra manter o
+nome de asset já em uso); *smoke-test* de ambos os binários extraídos do pacote (`--help`
+real no Linux nativo, `wine agentry.exe --help` no Windows — os dois mostrando as flags
+novas `--resume`/`--set-credential`); tag `v0.1.0-usertest` movida à força (`git tag -f` +
+`git push --force` da tag) para o commit atual (`7ced3f3`); `gh release edit` com notas novas
+("rodada 5", resumindo Fase D até J) preservando o texto da rodada 4 abaixo; `gh release
+upload --clobber` substituindo os dois assets.
+
+Verificado depois: `gh release view` mostra os dois assets com timestamp de hoje e tamanho
+condizente; `git rev-parse v0.1.0-usertest` aponta para `7ced3f3` (`HEAD` no momento da
+atualização).
+
+Próximo passo: nenhum ticket pendente nas Fases E–J. Fase I (RAG estendido às sessões
+salvas) segue deliberadamente sem tickets/data, deferida pelo próprio mantenedor — só
+retomar quando/se ele pedir.
 
 ## Último turno
 
