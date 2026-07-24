@@ -480,9 +480,36 @@ Verificado depois: `gh release view` mostra os dois assets com timestamp de hoje
 condizente; `git rev-parse v0.1.0-usertest` aponta para `7ced3f3` (`HEAD` no momento da
 atualização).
 
-Próximo passo: nenhum ticket pendente nas Fases E–J. Fase I (RAG estendido às sessões
-salvas) segue deliberadamente sem tickets/data, deferida pelo próprio mantenedor — só
-retomar quando/se ele pedir.
+Próximo passo (atualizado): nenhum ticket pendente nas Fases E–J. O mantenedor pediu para
+seguir com a Fase I logo em seguida — ver seção abaixo.
+
+### Fase I — em andamento (`docs/roadmap-v0.17.md`, ADR-0039)
+
+Pedido do mantenedor: RAG estendido às sessões salvas, mesma técnica do ADR-0011 (código),
+corpus novo. Duas perguntas de design levantadas via `AskUserQuestion` antes de qualquer
+código, ambas respondidas em 2026-07-24:
+
+1. **Exposição:** "Os dois" — comando `/recall` (usuário) **e** tool `session_search`
+   (agente), ambos sob o mesmo `PermissionGate` de qualquer outra tool (não uma exceção de
+   permissão própria) — mais flexível que só uma das duas formas, e o usuário pode
+   restringir a tool via `permissions.deny`/`ask` sem perder o comando manual.
+2. **Egresso de embeddings:** "Sempre local-only, hardcoded" — nunca segue a task-class/
+   provider de chat configurada; reaproveita o mesmo padrão que o `code_search` **já** usa
+   hoje (`ollama_provider` fixo em `register_context_tools`, independente do `--provider`
+   escolhido para chat) — não é um mecanismo novo, só estende o que já existe ao par de
+   índices de sessão.
+
+- MT-130 ✅ (`6904858`) — ADR-0039 (Accepted): decisão de **não** generalizar `Chunk`/
+  `LexicalIndex`/`SemanticIndex`/`hybrid_search`/`IncrementalIndexer` (ADR-0011) para os dois
+  domínios — os tipos são específicos de código (`kind: SymbolKind` não tem equivalente em
+  prosa de conversa) e o caminho de código já é estável/testado, usado hoje pelo
+  `code_search`. Decisão: módulos **paralelos**
+  (`session_chunk`/`session_lexical_index`/`session_semantic_index`/
+  `session_hybrid_search`/`session_incremental`) reaproveitando a **técnica** (schema
+  `tantivy`, tabela `lancedb`, RRF, *reranking* via chat), não o **tipo**. `docs/roadmap-v0.17.md`
+  (novo) detalha MT-131..138.
+- MT-131..138 pendentes — próximo passo: MT-131 (`session_chunk.rs`, chunking por
+  mensagem).
 
 ## Último turno
 
