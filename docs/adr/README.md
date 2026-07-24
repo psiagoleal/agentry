@@ -45,3 +45,4 @@ Registros de decisões estruturais (ver skill `adr-writer`). Use
 | [0036](0036-persistencia-de-sessao-opt-in-em-markdown.md) | Persistência de sessão opt-in, em Markdown (`--resume`) | Accepted |
 | [0037](0037-audit-log-persistente.md) | Audit log persistente (`.agentry/audit.log`) | Accepted |
 | [0038](0038-configuracao-global-do-usuario.md) | Configuração global do usuário (`~/.agentry/`) | Accepted |
+| [0039](0039-rag-estendido-as-sessoes-salvas.md) | RAG estendido às sessões salvas | Accepted |

@@ -225,17 +225,14 @@ mudança de comportamento pra quem já usa `AGENTRY_LITELLM_API_KEY`.
 
 ---
 
-## Fase I — RAG estendido às sessões salvas (adiada, depende da Fase G)
+## Fase I — RAG estendido às sessões salvas ✅ movida para `docs/roadmap-v0.17.md`
 
-Reaproveita o pipeline híbrido já completo do ADR-0011 (`tantivy` + `lancedb` + *reciprocal
-rank fusion* + *reranking* via chat, `crates/core/src/context/rag/`), trocando o chunking
-AST-aware (código) por um chunking por turno/mensagem (conversas são prosa, não código) sobre
-o corpus de `.agentry/session/*.md`. **Não detalhada em micro-tickets ainda** — só faz sentido
-depois que a Fase G estiver rodando de verdade e houver sessões reais salvas pra indexar; ADR
-própria a escrever quando chegar a vez, incluindo a pergunta de que provider de embeddings é
-aceitável rodar sobre conteúdo de sessão (mesma disciplina de classe de egresso do ADR-0002 —
-embeddings locais via Ollama não levantam a questão, um provider de embeddings na nuvem
-levantaria).
+Detalhada em micro-tickets (MT-130..138) e com ADR própria (0039) — ver
+[`docs/roadmap-v0.17.md`](roadmap-v0.17.md). Duas perguntas de design (exposição ao
+agente vs. só usuário; egresso de embeddings) foram resolvidas com o mantenedor via
+`AskUserQuestion` antes de qualquer código: exposição dupla (`/recall` + tool
+`session_search`, ambos sob o mesmo `PermissionGate`) e embeddings/*reranking* sempre via
+Ollama local (hardcoded).
 
 ---
 
