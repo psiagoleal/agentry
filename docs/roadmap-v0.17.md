@@ -31,20 +31,25 @@ binário pra toda mudança observável, skill `micro-ticket-planner` para granul
   `docs/roadmap-v0.17.md` (este arquivo).
 - **Depende de:** nenhum.
 
-### MT-131: `session_chunk.rs` — chunking por mensagem das sessões salvas
+### MT-131: `session_chunk.rs` — chunking por mensagem das sessões salvas ✅ concluído (2560cd7)
 - **Objetivo:** `SessionChunk` (id da sessão, índice da mensagem, papel, texto) +
   `chunk_session(id, mensagens: &[Message]) -> Vec<SessionChunk>` — um chunk por mensagem de
   `Role::User`/`Role::Assistant` (texto completo, nunca truncado); `Role::System`/`Role::Tool`
   são ignoradas (prompt de sistema não é conteúdo buscável; resultado de tool é JSON sem
-  valor semântico). Mais uma função para ler todas as sessões de
-  `.agentry/session/*.md` e chunkar cada uma (reaproveita
-  `session::persist::desserializar_de_markdown`, MT-120).
+  valor semântico).
 - **Arquivos no escopo:** `crates/core/src/context/rag/session_chunk.rs` (novo),
   `crates/core/src/context/rag/mod.rs` (`pub mod`).
 - **Critério de aceite:** testes — uma sessão com mensagens de usuário/agente/sistema/tool
   gera só os chunks certos (contagem e conteúdo); mensagem de assistente com bloco de tool
   (sem texto) não gera chunk vazio; sessão sem nenhuma mensagem de usuário/agente não gera
   chunk nenhum (não é erro).
+- **Ajuste de escopo na implementação:** a leitura de `.agentry/session/*.md` (ler o
+  diretório, desserializar cada arquivo) **não** entrou neste ticket — mirando o mesmo
+  desenho de `chunk.rs`/`chunk_file` (código), que também é puro/sem I/O sobre um único
+  arquivo já lido; a orquestração multi-arquivo fica para o MT-135 (indexação incremental,
+  mesmo papel de `code_search.rs::ler_arquivos` no lado de código). 6 testes novos, 706 no
+  *workspace*. Sem ponto de entrada na CLI ainda — sem comportamento observável pra
+  *smoke-test*, mesma situação do MT-119/120.
 - **Depende de:** nenhum (só MT-120, já concluído).
 
 ### MT-132: `session_lexical_index.rs` — índice BM25 sobre `SessionChunk`

@@ -508,8 +508,14 @@ código, ambas respondidas em 2026-07-24:
   `session_hybrid_search`/`session_incremental`) reaproveitando a **técnica** (schema
   `tantivy`, tabela `lancedb`, RRF, *reranking* via chat), não o **tipo**. `docs/roadmap-v0.17.md`
   (novo) detalha MT-131..138.
-- MT-131..138 pendentes — próximo passo: MT-131 (`session_chunk.rs`, chunking por
-  mensagem).
+- MT-131 ✅ (`2560cd7`) — `crates/core/src/context/rag/session_chunk.rs` (novo):
+  `SessionChunk`/`chunk_session`, análogo a `chunk::chunk_file` (código) — um chunk por
+  mensagem de `Role::User`/`Role::Assistant`, `Role::System`/`Role::Tool` sempre ignoradas.
+  Puro/sem I/O, mesmo escopo de `chunk_file`: a leitura de `.agentry/session/*.md` fica para
+  o MT-135, mesmo papel de `code_search.rs::ler_arquivos` no lado de código. 6 testes novos,
+  706 no *workspace*. Sem ponto de entrada na CLI ainda.
+- MT-132..138 pendentes — próximo passo: MT-132 (`session_lexical_index.rs`, índice BM25
+  sobre `SessionChunk`).
 
 ## Último turno
 
