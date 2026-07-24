@@ -154,7 +154,7 @@ binário pra toda mudança observável, skill `micro-ticket-planner` para granul
   introduzido por este ticket, só ficou visível com um *smoke-test* real (`MockProvider` nos
   testes sempre implementa embeddings). Reportado ao mantenedor antes de seguir pro MT-138.
 
-### MT-138: Documentação de usuário + *settings-schema*
+### MT-138: Documentação de usuário + *settings-schema* ✅ concluído (54220bd)
 - **Objetivo:** `context.sessionSearch.enabled` documentado em `docs/usuario/configuracao.md`
   (mesmo padrão de `semanticRag`/`repoMap`); `/recall` e a tool `session_search` documentados
   em `docs/usuario/uso.md`; exemplo do schema (`_comentario`) no arquivo gerado por
@@ -165,6 +165,13 @@ binário pra toda mudança observável, skill `micro-ticket-planner` para granul
 - **Critério de aceite:** `mkdocs build --strict` limpo; teste existente de
   `run_init_local_cria_o_arquivo_ausente_com_o_exemplo_exato_da_adr_0018` atualizado se o
   exemplo mudar.
+- **`GENERIC_SETTINGS_EXAMPLE` deliberadamente não ganhou o campo novo** — mesmo precedente
+  de `agentsFile`, que também não aparece nesse template gerado por `--init`/`/init`; sem
+  mudança nesse arquivo, o teste citado acima não precisou de atualização. Nova seção "RAG
+  sobre sessões salvas" em `uso.md` cobre exposição dupla, `permissions.deny` pra restringir
+  só ao comando manual, e a ressalva de que embeddings sempre via Ollama exigem um Ollama
+  com suporte a embeddings habilitado (MT-139). `mkdocs build --strict` limpo.
+- **Fecha a Fase I inteira (MT-130..139).**
 - **Depende de:** MT-136, MT-137.
 
 ### MT-139: `OllamaProvider::embeddings` via `/api/embed` ✅ concluído (e7e15ac)

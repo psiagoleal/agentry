@@ -578,7 +578,27 @@ código, ambas respondidas em 2026-07-24:
   antes de implementar) — sucesso completo não verificado ao vivo nesta máquina porque o
   Ollama local não está com embeddings habilitado (configuração do servidor, fora de
   escopo).
-- MT-138 pendente — próximo passo, agora sem bloqueio.
+- MT-138 ✅ (`54220bd`) — `docs/usuario/configuracao.md`: `context.sessionSearch.enabled`
+  documentado (mesmo padrão de `semanticRag`/`repoMap`), **sem** tocar
+  `GENERIC_SETTINGS_EXAMPLE` (mesmo precedente de `agentsFile`, também ausente desse
+  template). `docs/usuario/uso.md`: nova seção "RAG sobre sessões salvas (`/recall`,
+  `session_search`)" — exposição dupla, `permissions.deny` pra restringir só ao comando
+  manual, ressalva sobre embeddings sempre via Ollama exigirem um Ollama com suporte a
+  embeddings habilitado. `/recall` na tabela de comandos de barra. `mkdocs build --strict`
+  limpo, 740 testes (nenhum código Rust tocado). **Fecha a Fase I inteira — MT-130 até
+  MT-139 concluídos.**
+
+## Fase I concluída — resumo final
+
+RAG estendido às sessões salvas (ADR-0039), mesma técnica híbrida do ADR-0011 (código)
+sobre um corpus novo (`.agentry/session/*.md`): módulos paralelos
+(`session_chunk`/`session_lexical_index`/`session_semantic_index`/`session_hybrid_search`/
+`session_incremental`, MT-131..135), tool `session_search` + comando `/recall` (MT-136/137,
+exposição dupla sob o mesmo `PermissionGate`), e — achado real via *smoke-test* contra o
+Ollama local, não previsto no plano original — `OllamaProvider::embeddings` implementado de
+verdade (MT-139, fecha um gap do MT-08 que também destravava o `code_search` já existente).
+Nenhum ticket pendente na Fase I. Próximo passo: nenhum combinado ainda — aguardando
+direção do mantenedor.
 
 ## Último turno
 
