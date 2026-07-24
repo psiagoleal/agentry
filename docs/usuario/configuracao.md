@@ -2,16 +2,20 @@
 
 # Configuração — `agentry.settings.json`
 
-O `agentry` lê configuração de duas camadas, nesta ordem (a segunda sobrescreve a
-primeira campo a campo):
+O `agentry` lê configuração de três camadas, nesta ordem (cada uma sobrescreve a anterior
+campo a campo):
 
-1. **Arquivo** `.agentry/agentry.settings.json`, na raiz do projeto (procurado a partir do
-   diretório atual, subindo até encontrar um `.git`).
-2. **Variáveis de ambiente**, prefixo `AGENTRY_`: `AGENTRY_PROFILE`, `AGENTRY_MODEL`,
-   `AGENTRY_MAX_TOKENS`.
+1. **Arquivo global** `~/.agentry/agentry.settings.json` (mesmo schema do arquivo de
+   projeto, abaixo) — preferências pessoais reutilizáveis entre todos os seus projetos (ver
+   [Configuração global do usuário](#configuracao-global-do-usuario-agentry) abaixo).
+2. **Arquivo do projeto** `.agentry/agentry.settings.json`, na raiz do projeto (procurado a
+   partir do diretório atual, subindo até encontrar um `.git`) — sobrescreve a preferência
+   pessoal quando o projeto declara algo diferente.
+3. **Variáveis de ambiente**, prefixo `AGENTRY_`: `AGENTRY_PROFILE`, `AGENTRY_MODEL`,
+   `AGENTRY_MAX_TOKENS` — sempre o *override* mais específico (efêmero, só naquela invocação).
 
-Nenhum dos dois é obrigatório — sem arquivo e sem variáveis, a CLI roda com os *defaults*
-descritos abaixo.
+Nenhuma das três é obrigatória — sem nenhum arquivo e sem variáveis, a CLI roda com os
+*defaults* descritos abaixo.
 
 Uma terceira variável, `AGENTRY_LITELLM_API_KEY`, é tratada à parte — nunca é uma camada de
 configuração (não define nenhum campo do arquivo); é só a chave de API do gateway LiteLLM,
@@ -227,9 +231,11 @@ qualquer um ausente (ou `null`) e a CLI se comporta exatamente como se `provider
 não existisse.
 
 A chave de API do gateway (se ele exigir uma) **não vai neste arquivo** — vem da variável
-de ambiente `AGENTRY_LITELLM_API_KEY`, lida só no momento de montar a conexão. Ausente, a
-CLI simplesmente não anexa nenhum cabeçalho de autorização (gateways internos sem
-autenticação continuam funcionando normalmente).
+de ambiente `AGENTRY_LITELLM_API_KEY` ou de `~/.agentry/credentials.json` (ver
+[Configuração global do usuário](#configuracao-global-do-usuario-agentry) abaixo), lida só no
+momento de montar a conexão. Ausente dos dois lugares, a CLI simplesmente não anexa nenhum
+cabeçalho de autorização (gateways internos sem autenticação continuam funcionando
+normalmente).
 
 ### `guardrails`
 
@@ -374,6 +380,62 @@ paralelo de confirmação/bloqueio.
 inexistente, processo encerra antes do *handshake*, etc.), a CLI imprime um aviso em `stderr`
 e segue normalmente — sem as tools daquele servidor, mas com o restante da sessão (e os
 demais servidores configurados) intacto.
+
+## Configuração global do usuário (`~/.agentry/`)
+
+Duas categorias de informação não se encaixam bem no arquivo por-projeto: preferências
+pessoais que você quer em **todos** os seus projetos (sem repetir o mesmo `agentry.settings.json`
+em cada um), e credenciais de provider (chave de API) — que não devem ir para um arquivo
+git-versionado, nem precisar ser exportadas como variável de ambiente em toda sessão de
+terminal nova. `~/.agentry/` guarda essas duas coisas, em **dois arquivos separados**:
+
+### `~/.agentry/agentry.settings.json` — preferências pessoais
+
+Mesmo *schema* do arquivo por-projeto, resolvido do mesmo jeito — só que a partir do seu
+diretório *home* em vez da raiz do projeto. Use para um `model`/`baseUrl` padrão que você
+quer em todo projeto, sem forçar o time a herdar sua preferência pessoal via um arquivo
+compartilhado. Precedência: `~/.agentry/agentry.settings.json` **<** `.agentry/` do projeto
+**<** variável de ambiente — o projeto sempre pode sobrescrever sua preferência pessoal.
+
+**Nunca coloque uma chave de API aqui** — o *schema* deste arquivo não tem (nem terá) um
+campo de credencial; é estruturalmente impossível uma chave vazar para este arquivo (que pode,
+em tese, ser compartilhado/versionado por você mesmo entre máquinas).
+
+### `~/.agentry/credentials.json` — credenciais de provider
+
+Arquivo **separado**, schema próprio, só para credenciais:
+
+```json
+{
+  "$schema": "https://agentry.dev/schema/agentry-credentials-schema-1.json",
+  "schemaVersion": 1,
+  "providers": {
+    "litellm": { "apiKey": "..." }
+  }
+}
+```
+
+Grave (ou atualize) uma credencial sem editar o arquivo à mão:
+
+```bash
+agentry --set-credential litellm
+```
+
+O valor é pedido interativamente (lido de *stdin*, uma linha) — nunca como argumento de
+linha de comando (apareceria em `ps`/histórico do shell) nem ecoado de volta no terminal.
+O comando preserva qualquer outra credencial já gravada (só substitui a entrada do provider
+pedido) e grava o arquivo com permissão `0600` (Linux/macOS — leitura/escrita só para você).
+Se o arquivo já existir com uma permissão mais aberta, o `agentry` avisa em `stderr` ao lê-lo,
+mas nunca recusa a operação; escrever de novo (`--set-credential`) corrige a permissão de
+volta para `0600` automaticamente.
+
+**Variável de ambiente sempre vence.** `AGENTRY_LITELLM_API_KEY` (ou equivalente de um
+futuro provider direto) continua tendo a palavra final — `credentials.json` só é consultado
+quando a variável correspondente **não** está definida; nunca os dois somados. Se você já usa
+a variável de ambiente hoje, nada muda.
+
+**Sem `$HOME`/`%USERPROFILE%` definida** (raro, ambiente restrito/contêiner), a configuração
+global simplesmente fica ausente — a CLI cai nos *defaults* de sempre, nunca é um erro fatal.
 
 ## Convenção: todo bloco vem com exemplo
 

@@ -291,6 +291,16 @@ struct Args {
     /// (achado real de *smoke-test* manual).
     #[arg(long, num_args = 0..=1, default_missing_value = "", require_equals = true)]
     resume: Option<String>,
+
+    /// Grava a credencial de `<provider>` em `~/.agentry/credentials.json`
+    /// (MT-129/ADR-0038) e sai, sem rodar nenhuma tarefa — o valor da
+    /// credencial é lido de *stdin* (uma linha), nunca como argumento de
+    /// linha de comando (apareceria em `ps`/histórico do shell) nem
+    /// ecoado de volta no terminal (mesmo princípio da skill
+    /// `secrets-guard`). Preserva qualquer outra credencial já gravada —
+    /// só substitui a entrada de `<provider>`.
+    #[arg(long, value_name = "provider", conflicts_with_all = ["init", "tarefa", "tui", "undo", "remember", "resume"])]
+    set_credential: Option<String>,
 }
 
 /// Resultado de [`run_init_local`] — usado tanto por `--init` quanto por
@@ -889,6 +899,31 @@ async fn main() {
         let store = agentry_core::memory::MemoryStore::new(&workspace_root);
         match store.remember(fato.clone()) {
             Ok(()) => println!("lembrado: {fato}"),
+            Err(erro) => {
+                eprintln!("erro: {erro}");
+                std::process::exit(1)
+            }
+        }
+        return;
+    }
+
+    if let Some(provider) = &args.set_credential {
+        eprint!("valor da credencial para '{provider}': ");
+        let mut valor = String::new();
+        io::stdin().read_line(&mut valor).unwrap_or_else(|erro| {
+            eprintln!("erro ao ler stdin: {erro}");
+            std::process::exit(1)
+        });
+        let valor = valor.trim();
+        if valor.is_empty() {
+            eprintln!("erro: valor da credencial não pode ser vazio");
+            std::process::exit(1);
+        }
+        match agentry_core::credentials::set_api_key(provider, valor) {
+            Ok(caminho) => println!(
+                "credencial de '{provider}' gravada em {}",
+                caminho.display()
+            ),
             Err(erro) => {
                 eprintln!("erro: {erro}");
                 std::process::exit(1)

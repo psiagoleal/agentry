@@ -88,6 +88,8 @@ e do comando `/usage` do REPL, atualizado automaticamente a cada resposta.
 | `--profile <nome>` | Com `--init`: busca a configuração real daquele perfil. |
 | `--undo` | Desfaz o checkpoint mais recente de `fs_write`/`fs_edit` (ver [Checkpoints e *undo*](#checkpoints-e-undo-de-mudancas-de-arquivo) abaixo) e sai, sem rodar tarefa. Incompatível com `--init`/`--tui`/tarefa. |
 | `--remember <fato>` | Grava `<fato>` como memória de projeto (ver [Memória de projeto](#memoria-de-projeto-remember) abaixo) e sai, sem rodar tarefa. Incompatível com `--init`/`--tui`/tarefa. |
+| `--resume[=<id-ou-nome>]` | Retoma uma sessão salva (ver [Sessões salvas](#sessoes-salvas-save-resume-sessions) abaixo). |
+| `--set-credential <provider>` | Grava a credencial de `<provider>` em `~/.agentry/credentials.json` (ver [Configuração global do usuário](configuracao.md#configuracao-global-do-usuario-agentry)) e sai, sem rodar tarefa. Incompatível com `--init`/`--tui`/tarefa/`--undo`/`--remember`/`--resume`. |
 
 ```bash
 agentry --model llama3.1:70b --temperature 0.2 "revise este diff"

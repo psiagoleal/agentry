@@ -49,3 +49,8 @@ Se o Ollama estiver rodando e o modelo *default* já tiver sido puxado, um teste
 Próximo passo: [Configuração](configuracao.md), para personalizar modelo, permissões e
 guardrails via `agentry.settings.json` — ou pule direto para [Uso da CLI e do
 REPL](uso.md) se os *defaults* já servem.
+
+Se você usa o `agentry` em vários projetos e quer uma preferência pessoal (ou uma credencial
+de provider, como a chave de API do LiteLLM) compartilhada entre todos eles sem repetir em
+cada `agentry.settings.json`, veja [Configuração global do usuário
+(`~/.agentry/`)](configuracao.md#configuracao-global-do-usuario-agentry).

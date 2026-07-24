@@ -16,7 +16,7 @@
 //! padrão de [`crate::config::Settings::from_json_str`]).
 
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
@@ -38,13 +38,22 @@ pub struct Credentials {
     pub providers: HashMap<String, CredentialProvider>,
 }
 
-/// Erros de leitura/interpretação de `credentials.json`.
+/// Erros de leitura/escrita/interpretação de `credentials.json`.
 #[derive(Debug, PartialEq, Eq)]
 pub enum CredentialsError {
-    /// Arquivo presente mas não é um JSON válido no formato esperado.
+    /// Arquivo presente mas não é um JSON válido no formato esperado —
+    /// nunca sobrescrito às cegas por [`set_api_key`], que propaga este
+    /// erro em vez de clobber credenciais de outros providers já gravadas.
     Parse(String),
     /// `schemaVersion` presente, mas diferente da única suportada hoje.
     UnsupportedSchemaVersion(u32),
+    /// Falha de I/O ao criar diretório/gravar o arquivo (permissão, disco
+    /// cheio) — distinto de [`Self::Parse`], que é sobre o *conteúdo*.
+    Io(String),
+    /// `$HOME`/`%USERPROFILE%` não resolvida — [`set_api_key`] não tem
+    /// onde gravar (diferente da leitura, onde isso é `Ok(None)`: gravar
+    /// exige um destino real).
+    HomeUnresolved,
 }
 
 impl std::fmt::Display for CredentialsError {
@@ -54,6 +63,11 @@ impl std::fmt::Display for CredentialsError {
             Self::UnsupportedSchemaVersion(versao) => write!(
                 f,
                 "credentials.json com schemaVersion {versao} não suportada (esperado {SCHEMA_VERSION_SUPORTADA})"
+            ),
+            Self::Io(motivo) => write!(f, "{motivo}"),
+            Self::HomeUnresolved => write!(
+                f,
+                "não foi possível resolver o diretório home ($HOME/%USERPROFILE% ausentes)"
             ),
         }
     }
@@ -126,6 +140,95 @@ fn parse(json: &str) -> Result<Credentials, CredentialsError> {
         ));
     }
     Ok(credenciais)
+}
+
+/// Grava/atualiza a credencial de `provider` em
+/// `~/.agentry/credentials.json` — `--set-credential <provider>` (MT-129,
+/// ADR-0038). Lê o arquivo existente e só substitui a entrada de
+/// `provider`, preservando qualquer outro já gravado (nunca sobrescreve o
+/// arquivo inteiro às cegas); arquivo existente ilegível/malformado é erro
+/// — recusa clobber de credenciais de outros providers. Cria o arquivo com
+/// permissão `0600` (Unix) desde a primeira escrita, e **também** corrige
+/// a permissão a cada reescrita, mesmo que o arquivo já existisse mais
+/// aberto (toda chamada reescreve o arquivo inteiro de qualquer forma).
+///
+/// # Errors
+///
+/// [`CredentialsError::HomeUnresolved`] sem `$HOME`/`%USERPROFILE%`;
+/// [`CredentialsError::Parse`] se o arquivo existente for ilegível/JSON
+/// inválido; [`CredentialsError::Io`] se criar o diretório ou gravar o
+/// arquivo falhar.
+pub fn set_api_key(provider: &str, api_key: &str) -> Result<PathBuf, CredentialsError> {
+    let caminho =
+        crate::global_dir::global_credentials_path().ok_or(CredentialsError::HomeUnresolved)?;
+    set_api_key_em(&caminho, provider, api_key)?;
+    Ok(caminho)
+}
+
+fn set_api_key_em(caminho: &Path, provider: &str, api_key: &str) -> Result<(), CredentialsError> {
+    let mut credenciais = load_de(caminho)?.unwrap_or(Credentials {
+        schema_version: SCHEMA_VERSION_SUPORTADA,
+        providers: HashMap::new(),
+    });
+    credenciais.providers.insert(
+        provider.to_string(),
+        CredentialProvider {
+            api_key: api_key.to_string(),
+        },
+    );
+    escrever(caminho, &credenciais)
+}
+
+fn escrever(caminho: &Path, credenciais: &Credentials) -> Result<(), CredentialsError> {
+    if let Some(pai) = caminho.parent() {
+        std::fs::create_dir_all(pai).map_err(|e| {
+            CredentialsError::Io(format!("não foi possível criar {}: {e}", pai.display()))
+        })?;
+    }
+
+    let mut providers = serde_json::Map::new();
+    for (nome, provedor) in &credenciais.providers {
+        providers.insert(
+            nome.clone(),
+            serde_json::json!({ "apiKey": provedor.api_key }),
+        );
+    }
+    let valor = serde_json::json!({
+        "$schema": "https://agentry.dev/schema/agentry-credentials-schema-1.json",
+        "schemaVersion": credenciais.schema_version,
+        "providers": providers,
+    });
+    let texto = serde_json::to_string_pretty(&valor)
+        .map_err(|e| CredentialsError::Io(format!("falha ao serializar credentials.json: {e}")))?;
+
+    escrever_com_permissao_restrita(caminho, &texto)
+}
+
+#[cfg(unix)]
+fn escrever_com_permissao_restrita(caminho: &Path, texto: &str) -> Result<(), CredentialsError> {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::write(caminho, texto).map_err(|e| {
+        CredentialsError::Io(format!(
+            "não foi possível gravar {}: {e}",
+            caminho.display()
+        ))
+    })?;
+    std::fs::set_permissions(caminho, std::fs::Permissions::from_mode(0o600)).map_err(|e| {
+        CredentialsError::Io(format!(
+            "não foi possível ajustar a permissão de {}: {e}",
+            caminho.display()
+        ))
+    })
+}
+
+#[cfg(not(unix))]
+fn escrever_com_permissao_restrita(caminho: &Path, texto: &str) -> Result<(), CredentialsError> {
+    std::fs::write(caminho, texto).map_err(|e| {
+        CredentialsError::Io(format!(
+            "não foi possível gravar {}: {e}",
+            caminho.display()
+        ))
+    })
 }
 
 /// Avisa em `stderr` (nunca falha) se `caminho` tiver permissão mais aberta
@@ -274,6 +377,102 @@ mod tests {
         // verificável diretamente aqui sem capturar stderr; o teste prova
         // a ausência de efeito colateral/pânico).
         avisar_se_permissao_aberta(&caminho);
+
+        let modo = std::fs::metadata(&caminho).unwrap().permissions().mode() & 0o777;
+        assert_eq!(modo, 0o600);
+    }
+
+    // --- MT-129: set_api_key_em ---
+
+    #[test]
+    fn set_api_key_em_cria_o_arquivo_ausente_com_a_credencial() {
+        let dir = TempDir::new();
+        let caminho = dir.path().join(".agentry").join("credentials.json");
+
+        set_api_key_em(&caminho, "litellm", "chave-nova").expect("deve gravar");
+
+        let credenciais = load_de(&caminho).unwrap().unwrap();
+        assert_eq!(
+            credenciais.providers.get("litellm").map(|p| &p.api_key),
+            Some(&"chave-nova".to_string())
+        );
+    }
+
+    #[test]
+    fn set_api_key_em_preserva_outros_providers_ja_gravados() {
+        let dir = TempDir::new();
+        let caminho = dir.path().join("credentials.json");
+        std::fs::write(
+            &caminho,
+            r#"{"schemaVersion": 1, "providers": {"anthropic": {"apiKey": "chave-anthropic"}}}"#,
+        )
+        .unwrap();
+
+        set_api_key_em(&caminho, "litellm", "chave-litellm").expect("deve gravar");
+
+        let credenciais = load_de(&caminho).unwrap().unwrap();
+        assert_eq!(
+            credenciais.providers.get("anthropic").map(|p| &p.api_key),
+            Some(&"chave-anthropic".to_string()),
+            "provider já existente não deve ser perdido"
+        );
+        assert_eq!(
+            credenciais.providers.get("litellm").map(|p| &p.api_key),
+            Some(&"chave-litellm".to_string())
+        );
+    }
+
+    #[test]
+    fn set_api_key_em_sobrescreve_o_valor_existente_do_mesmo_provider() {
+        let dir = TempDir::new();
+        let caminho = dir.path().join("credentials.json");
+        set_api_key_em(&caminho, "litellm", "chave-antiga").unwrap();
+
+        set_api_key_em(&caminho, "litellm", "chave-nova").expect("deve sobrescrever");
+
+        let credenciais = load_de(&caminho).unwrap().unwrap();
+        assert_eq!(
+            credenciais.providers.get("litellm").map(|p| &p.api_key),
+            Some(&"chave-nova".to_string())
+        );
+    }
+
+    #[test]
+    fn set_api_key_em_com_arquivo_existente_malformado_e_erro_nao_sobrescreve() {
+        let dir = TempDir::new();
+        let caminho = dir.path().join("credentials.json");
+        std::fs::write(&caminho, "não é json").unwrap();
+
+        let resultado = set_api_key_em(&caminho, "litellm", "chave-nova");
+
+        assert!(matches!(resultado, Err(CredentialsError::Parse(_))));
+        // O arquivo original não deve ter sido tocado.
+        assert_eq!(std::fs::read_to_string(&caminho).unwrap(), "não é json");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn set_api_key_em_grava_com_permissao_0600() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = TempDir::new();
+        let caminho = dir.path().join("credentials.json");
+
+        set_api_key_em(&caminho, "litellm", "chave-nova").expect("deve gravar");
+
+        let modo = std::fs::metadata(&caminho).unwrap().permissions().mode() & 0o777;
+        assert_eq!(modo, 0o600);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn set_api_key_em_corrige_permissao_aberta_de_um_arquivo_ja_existente() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = TempDir::new();
+        let caminho = dir.path().join("credentials.json");
+        std::fs::write(&caminho, r#"{"schemaVersion": 1, "providers": {}}"#).unwrap();
+        std::fs::set_permissions(&caminho, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+        set_api_key_em(&caminho, "litellm", "chave-nova").expect("deve gravar");
 
         let modo = std::fs::metadata(&caminho).unwrap().permissions().mode() & 0o777;
         assert_eq!(modo, 0o600);
