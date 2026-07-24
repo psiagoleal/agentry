@@ -1,0 +1,152 @@
+<!-- Caminho relativo: docs/roadmap-v0.16.md -->
+
+# Roadmap v0.16 — Micro-tickets
+
+Pedido do mantenedor: paridade com o `--resume`/`--continue` do Claude Code CLI (persistência
+de sessão), audit log persistente, e RAG estendido às sessões salvas. Três frentes, cada uma
+com uma ADR própria (0036, 0037, e uma futura pra RAG-sobre-sessões, que depende da Fase G
+existir de verdade). Não corresponde a uma "Fase N" do `docs/roadmap-longo-prazo.md` (esgotado
+desde a Fase 20) — mesmo padrão ad-hoc do `roadmap-v0.15.md`, só que numerado à parte por ser
+um lote de trabalho novo e coeso.
+
+## Convenções
+
+Mesmas de sempre (`docs/roadmap-v0.1.md` §Convenções): DoD padrão (`cargo fmt --check`,
+`cargo clippy -- -D warnings`, `cargo test`, `cargo build --release`), *smoke-test* real do
+binário pra toda mudança observável, skill `micro-ticket-planner` para granularidade.
+**Nenhuma dependência nova** — tudo com `serde`/`serde_json`/`std` já presentes.
+
+---
+
+## Fase G — Persistência de sessão opt-in em Markdown (ADR-0036)
+
+Conflito real levantado e resolvido antes de qualquer código: a ADR-0032 (memória de projeto
+explícita) já tinha decidido, em 2026-07-16, nunca persistir o conteúdo integral de uma
+conversa — motivo declarado, retenção/confidencialidade incompatível com o objetivo de
+homologação corporativa do projeto. Escalado ao mantenedor (não contornado); resposta: seguir,
+mas só como exceção **opt-in explícita** (`/save`), com aviso claro toda vez — a ADR-0032
+continua valendo como padrão (nada automático). Ver ADR-0036 para o registro completo.
+
+### MT-118: ADR-0036 (Accepted) + nota de atualização na ADR-0032 ✅ concluído
+- **Objetivo:** registrar a decisão acima — formato Markdown com *front matter* YAML +
+  cabeçalhos `## <Papel>` por mensagem + blocos cercados `tool-call`/`tool-result` (JSON de
+  uma linha, reaproveitando `Serialize`/`Deserialize` já existente de `ToolCall`/`ToolResult`);
+  local `.agentry/session/<id>.md` (já reservado pela ADR-0017); comandos `/save [nome]`,
+  `--resume [id-ou-nome]`, `/sessions`.
+- **Arquivos no escopo:** `docs/adr/0036-*.md` (novo), `docs/adr/0032-*.md` (nota, sem alterar
+  a decisão original), `docs/adr/README.md`, `mkdocs.yml`, `docs/roadmap-v0.16.md` (este
+  arquivo, novo).
+- **Depende de:** nenhum.
+
+### MT-119: Serialização `Vec<Message>` → Markdown
+- **Objetivo:** função pura (núcleo, `crates/core/src/session/`) que converte o histórico de
+  uma `Session` (mensagens + metadados: id, criado_em, provider/model, task-class, uso
+  acumulado) no formato Markdown definido na ADR-0036 — *front matter* YAML + uma seção
+  `## <Papel>` por `Message`, cada `ContentBlock::Text` como prosa e cada
+  `ContentBlock::ToolCall`/`ToolResult` como bloco cercado `tool-call`/`tool-result` (JSON de
+  uma linha).
+- **Arquivos no escopo:** novo `crates/core/src/session/persist.rs` (ou equivalente),
+  `crates/core/src/session/mod.rs` (`pub mod`).
+- **Critério de aceite:** testes — mensagem de texto simples vira uma seção; tool-call/result
+  viram blocos cercados válidos (JSON reparsa de volta ao tipo original); várias seções do
+  mesmo papel em sequência (duas chamadas de tool seguidas) preservadas na ordem certa;
+  *front matter* contém todos os metadados esperados.
+- **Fora de escopo:** o *parser* inverso (MT-120); escrita em disco (MT-121).
+- **Depende de:** MT-118.
+
+### MT-120: Desserialização Markdown → `Vec<Message>`
+- **Objetivo:** *parser* inverso do MT-119 — nunca falha silenciosamente (ADR-0036, diretriz
+  de conformidade): JSON malformado num bloco `tool-call`/`tool-result`, ou cabeçalho de papel
+  desconhecido, é erro tratado e claro, nunca uma sessão retomada com histórico
+  truncado/incorreto sem aviso.
+- **Arquivos no escopo:** mesmo módulo do MT-119.
+- **Critério de aceite:** testes — *round-trip* completo (serializar → desserializar devolve
+  o `Vec<Message>` original, incluindo tool-calls/resultados); JSON malformado é erro tratado;
+  cabeçalho de papel desconhecido é erro tratado; arquivo vazio/sem *front matter* é erro
+  tratado, não pânico.
+- **Depende de:** MT-119.
+
+### MT-121: Comando `/save [nome]` — grava a sessão corrente
+- **Objetivo:** novo comando (`repl::aplicar_comando`, reaproveitado pela TUI, mesmo padrão de
+  `/compact`/`/usage`) que serializa (MT-119) a sessão corrente e grava em
+  `.agentry/session/<id>.md` (`id` = *timestamp* `AAAAMMDD-HHMMSS`, `-<nome>` sufixado e
+  sanitizado quando `nome` é dado). Imprime o aviso de retenção obrigatório (ADR-0036) toda
+  vez, sem *flag* pra silenciar.
+- **Arquivos no escopo:** `crates/cli/src/repl.rs`, `crates/cli/src/main.rs` (se precisar de
+  fiação nova), `docs/usuario/uso.md`.
+- **Critério de aceite:** testes — arquivo gravado no caminho certo, com o conteúdo esperado;
+  aviso sempre impresso; nome sanitizado (só `[a-z0-9-]`). *Smoke-test* real: `/save`, abrir o
+  arquivo gerado, conferir que é Markdown legível.
+- **Depende de:** MT-119.
+
+### MT-122: Flag `--resume [id-ou-nome]` — retoma uma sessão salva
+- **Objetivo:** antes do primeiro turno (REPL/*one-shot*/TUI), se `--resume` foi passado,
+  localiza o arquivo em `.agentry/session/` (sem argumento: mais recente por *timestamp*; com
+  argumento: correspondência exata ou prefixo único — ambíguo é erro claro, não uma escolha
+  arbitrária), desserializa (MT-120) e pré-popula `Session::messages` antes de rodar.
+- **Arquivos no escopo:** `crates/cli/src/main.rs`.
+- **Critério de aceite:** testes — sessão retomada continua exatamente de onde parou (próxima
+  chamada ao provider já leva o histórico completo); sem sessão nenhuma salva, `--resume` é
+  erro claro (não silenciosamente vazio); *id*/nome ambíguo é erro claro. *Smoke-test* real:
+  `/save`, fechar, `--resume`, confirmar que o modelo "lembra" do que foi dito antes.
+- **Depende de:** MT-120.
+
+### MT-123: Comando `/sessions` — lista sessões salvas
+- **Objetivo:** lista `id`, data e um título (início da primeira mensagem do usuário) de cada
+  sessão em `.agentry/session/`, mais recente primeiro — sem isso, `--resume <id>` exige que o
+  usuário já saiba o *id* de cor.
+- **Arquivos no escopo:** `crates/cli/src/repl.rs`, `docs/usuario/uso.md`.
+- **Critério de aceite:** testes — lista vazia sem nenhuma sessão salva (não erro); ordem mais
+  recente primeiro; título extraído corretamente da primeira mensagem de usuário.
+- **Depende de:** MT-119 (só precisa ler o *front matter* + a primeira seção `## Usuário`, não
+  o histórico inteiro).
+
+---
+
+## Fase H — Audit log persistente (ADR-0037)
+
+### MT-124: ADR-0037 (Accepted) ✅ concluído
+- **Objetivo:** registrar a decisão — `FileAuditSink` novo, JSON Lines em
+  `.agentry/audit.log`, complementa (não substitui) o `StderrAuditSink` existente.
+- **Arquivos no escopo:** `docs/adr/0037-*.md` (novo), `docs/adr/README.md`, `mkdocs.yml`.
+- **Depende de:** nenhum.
+
+### MT-125: `FileAuditSink` + sink combinado
+- **Objetivo:** novo `FileAuditSink` (implementa `AuditSink`/`GuardrailAuditSink`), escreve
+  uma linha JSON por entrada em `.agentry/audit.log` (modo *append*, sem *handle* mantido
+  aberto entre chamadas); falha de escrita cai em `eprintln!`, nunca interrompe a chamada de
+  rede em andamento. Novo combinador (`SinksCombinados` ou nome equivalente) chama `record()`
+  nos dois sinks em sequência — `main.rs` passa a instanciar `StderrAuditSink` +
+  `FileAuditSink` combinados em vez de só o primeiro.
+- **Arquivos no escopo:** novo `crates/core/src/transport/audit_file.rs` (ou equivalente),
+  `crates/cli/src/main.rs`.
+- **Critério de aceite:** testes — entrada gravada vira uma linha JSON válida no arquivo;
+  falha de escrita (ex.: diretório sem permissão) não propaga erro pra chamada de rede;
+  `stderr` continua recebendo as mesmas entradas de sempre (regressão zero). *Smoke-test*
+  real: rodar uma tarefa, conferir `.agentry/audit.log` populado.
+- **Depende de:** MT-124.
+
+---
+
+## Fase I — RAG estendido às sessões salvas (adiada, depende da Fase G)
+
+Reaproveita o pipeline híbrido já completo do ADR-0011 (`tantivy` + `lancedb` + *reciprocal
+rank fusion* + *reranking* via chat, `crates/core/src/context/rag/`), trocando o chunking
+AST-aware (código) por um chunking por turno/mensagem (conversas são prosa, não código) sobre
+o corpus de `.agentry/session/*.md`. **Não detalhada em micro-tickets ainda** — só faz sentido
+depois que a Fase G estiver rodando de verdade e houver sessões reais salvas pra indexar; ADR
+própria a escrever quando chegar a vez, incluindo a pergunta de que provider de embeddings é
+aceitável rodar sobre conteúdo de sessão (mesma disciplina de classe de egresso do ADR-0002 —
+embeddings locais via Ollama não levantam a questão, um provider de embeddings na nuvem
+levantaria).
+
+---
+
+## Sequência crítica
+
+```
+MT-118 → MT-119 → MT-120 → MT-121 → MT-122      (Fase G, sessão -- sequencial)
+                        └→ MT-123                (lista sessões, só depende do MT-119)
+MT-124 → MT-125                                  (Fase H, audit log -- independente da Fase G)
+Fase I (RAG sobre sessões)                        (depende da Fase G, sem tickets ainda)
+```

@@ -91,3 +91,11 @@ aceita para checkpoints e índices RAG.
 
 > Qualquer desvio desta regra viola as diretrizes de conformidade arquitetural do projeto
 > e deve ser reportado para revisão antes de prosseguir.
+
+## Nota de atualização (2026-07-24, não altera a decisão acima)
+
+A **ADR-0036** abre uma exceção estreita e **opt-in** ao "nunca persistência automática do
+conteúdo integral de uma conversa" desta ADR: `/save`, um ato explícito do usuário (mesmo
+espírito de `/remember`), grava a sessão corrente em `.agentry/session/` — nunca automático,
+nunca um resumo silencioso. A decisão central desta ADR-0032 continua em vigor: sem
+`/save`/`--resume` explícitos, nada muda.

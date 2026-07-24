@@ -42,3 +42,5 @@ Registros de decisões estruturais (ver skill `adr-writer`). Use
 | [0033](0033-teto-de-turnos-consecutivos-com-tool-call.md) | Teto de turnos consecutivos com tool-call, independente do orçamento de tokens | Accepted |
 | [0034](0034-tool-todo-write-sem-estado-persistido.md) | Tool `todo_write` — lista de tarefas explícita do agente, sem estado persistido no núcleo | Proposed |
 | [0035](0035-saida-de-tool-visivel-na-tui-com-blocos-expansiveis.md) | Saída de tool visível na TUI, com blocos expansíveis por clique | Accepted |
+| [0036](0036-persistencia-de-sessao-opt-in-em-markdown.md) | Persistência de sessão opt-in, em Markdown (`--resume`) | Accepted |
+| [0037](0037-audit-log-persistente.md) | Audit log persistente (`.agentry/audit.log`) | Accepted |
