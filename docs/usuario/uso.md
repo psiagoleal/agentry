@@ -118,6 +118,7 @@ seguintes, até ser trocado de novo:
 | `/remember <fato>` | Grava `<fato>` como memória de projeto (ver [Memória de projeto](#memoria-de-projeto-remember) abaixo) — disponível em sessões futuras. |
 | `/save [nome]` | Salva a sessão corrente em `.agentry/session/` (ver [Sessões salvas](#sessoes-salvas-save-resume-sessions) abaixo). |
 | `/sessions` | Lista as sessões salvas (id, data, título), mais recente primeiro. |
+| `/recall <busca>` | Busca trechos relevantes entre as sessões salvas (ver [RAG sobre sessões salvas](#rag-sobre-sessoes-salvas-recall-session_search) abaixo). |
 | `/init` (ou `/init <perfil>`) | Cria `.agentry/agentry.settings.json` sem sair do REPL. |
 | `/exit` (ou `/quit`) | Encerra o REPL. |
 
@@ -228,6 +229,43 @@ mais recente primeiro, para você saber qual *id* passar a `--resume` sem abrir 
 sessões salvas (mais recente primeiro):
   20260724-183000-minha-sessao — 2026-07-24T18:30:00Z — qual a capital da frança
 ```
+
+## RAG sobre sessões salvas (`/recall`, `session_search`)
+
+Além de `--resume` (retomar uma sessão específica de onde parou), o `agentry` também busca
+por **conteúdo** entre todas as sessões já salvas — a mesma técnica híbrida (lexical +
+semântica, com *reranking*) já usada pela busca de código (`code_search`), reaproveitada
+sobre `.agentry/session/*.md`:
+
+```
+> /recall qual foi a decisão sobre o schema de credenciais
+1. sessão 20260722-091500, mensagem 4 (Assistant)
+decidimos separar credentials.json do agentry.settings.json...
+```
+
+`/recall <busca>` (REPL e TUI) é um comando manual — só roda quando você pede. A mesma busca
+também está disponível para o **agente** chamar sozinho, como a tool `session_search`
+(útil quando você menciona algo discutido numa conversa anterior e o agente precisa
+relembrar o contexto) — sob o mesmo controle de permissão (`allow`/`ask`/`deny`,
+[`permissions`](configuracao.md#permissions)) de qualquer outra tool. Se você prefere que
+o agente nunca busque em conversas antigas por conta própria, mas ainda quer usar
+`/recall` manualmente:
+
+```json
+{ "permissions": { "deny": ["session_search"] } }
+```
+
+Sem nenhuma sessão salva ainda, `/recall` avisa (`nenhum resultado encontrado em sessões
+salvas`), não é erro. Ambos os caminhos são desativáveis juntos via
+[`context.sessionSearch.enabled`](configuracao.md#context) — desligado, nem o comando nem
+a tool fazem nenhuma indexação.
+
+**Embeddings sempre via Ollama local**, nunca a task-class/provider configurado para chat
+(mesmo se você estiver conversando via `--provider litellm`) — conteúdo de sessão nunca sai
+da máquina para virar vetor, mesmo espírito conservador do `--resume`/`/save`. Isso exige um
+Ollama com suporte a embeddings habilitado; sem isso, `/recall`/`session_search` devolvem
+erro tratado (a busca lexical sozinha não é suficiente para a tool funcionar, já que os dois
+índices são consultados juntos).
 
 ## O que esperar da resposta
 

@@ -67,7 +67,8 @@ nunca cai silenciosamente no exemplo genérico. O mesmo comando existe dentro do
     "semanticRag": { "enabled": true },
     "lspGrounding": { "enabled": true },
     "gitignore": { "enabled": false },
-    "agentsFile": { "enabled": true }
+    "agentsFile": { "enabled": true },
+    "sessionSearch": { "enabled": true }
   },
   "providers": {
     "ollama": { "structuredOutput": true },
@@ -151,6 +152,12 @@ Liga/desliga as capacidades de contexto do agente:
 - `agentsFile.enabled` — leitura de `AGENTS.md`/`CLAUDE.md` como instruções de projeto (ver
   [Memória de projeto](#memoria-de-projeto-agentsmdclaudemd) abaixo). `true` por padrão —
   mesma categoria das três primeiras (custo baixo: leitura local de um arquivo pequeno).
+- `sessionSearch.enabled` — RAG semântico sobre sessões salvas (tool `session_search`; ver
+  [Sessões salvas](uso.md#sessoes-salvas-save-resume-sessions) para `/save`/`--resume`/
+  `/sessions` e [RAG sobre sessões salvas](uso.md#rag-sobre-sessoes-salvas-recall-session_search)
+  para `/recall`/`session_search` especificamente). `true` por padrão, mesma categoria de
+  `semanticRag` — só tem efeito prático depois que ao menos uma sessão tiver sido salva com
+  `/save`.
 
 ### Memória de projeto (`AGENTS.md`/`CLAUDE.md`)
 
