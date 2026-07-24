@@ -298,6 +298,18 @@ pub async fn run_repl<R: BufRead, W: Write>(
             }
             continue;
         }
+        if linha == "/sessions" {
+            match crate::sessao::listar_sessoes(workspace_root) {
+                Ok(sessoes) => writeln!(
+                    output,
+                    "{}",
+                    crate::sessao::formatar_lista_de_sessoes(&sessoes)
+                )
+                .map_err(|e| e.to_string())?,
+                Err(erro) => writeln!(output, "erro: {erro}").map_err(|e| e.to_string())?,
+            }
+            continue;
+        }
         if linha == "/remember" || linha.starts_with("/remember ") {
             let fato = linha.strip_prefix("/remember").unwrap_or("").trim();
             if fato.is_empty() {
@@ -1064,6 +1076,70 @@ mod tests {
         assert_eq!(arquivos.len(), 1, "deve gravar exatamente um arquivo");
         let conteudo = std::fs::read_to_string(arquivos[0].as_ref().unwrap().path()).unwrap();
         assert!(conteudo.contains("oi, tudo bem?"));
+    }
+
+    #[tokio::test]
+    async fn comando_sessions_sem_nenhuma_salva_avisa_para_usar_save() {
+        let dir = TempDir::new();
+        let mock = Arc::new(MockProvider::new(PROVIDER));
+        let mut router = router_com_ollama(mock.clone(), "modelo-x");
+        let rota = router.resolve(TASK_CLASS).expect("deve resolver");
+        let mut session = Session::new(rota, Arc::new(NoopExecutor), TokenBudget::new(100_000));
+
+        let entrada = "/sessions\n/exit\n";
+        let mut saida = Vec::new();
+
+        run_repl(
+            Cursor::new(entrada.as_bytes()),
+            &mut saida,
+            &mut session,
+            &mut router,
+            RuntimeOverride::default(),
+            TASK_CLASS.to_string(),
+            &ReplConfig {
+                workspace_root: dir.path(),
+                preset_base: &CallPreset::default(),
+                candidato_extra: None,
+            },
+        )
+        .await
+        .expect("repl deve rodar sem erro");
+
+        let saida_texto = String::from_utf8(saida).unwrap();
+        assert!(saida_texto.contains("/save"));
+    }
+
+    #[tokio::test]
+    async fn comando_sessions_lista_a_sessao_salva_com_titulo() {
+        let dir = TempDir::new();
+        let mock = Arc::new(MockProvider::new(PROVIDER));
+        let mut router = router_com_ollama(mock.clone(), "modelo-x");
+        let rota = router.resolve(TASK_CLASS).expect("deve resolver");
+        let mut session = Session::new(rota, Arc::new(NoopExecutor), TokenBudget::new(100_000));
+        session.push_user_message("qual a capital da frança");
+
+        let entrada = "/save\n/sessions\n/exit\n";
+        let mut saida = Vec::new();
+
+        run_repl(
+            Cursor::new(entrada.as_bytes()),
+            &mut saida,
+            &mut session,
+            &mut router,
+            RuntimeOverride::default(),
+            TASK_CLASS.to_string(),
+            &ReplConfig {
+                workspace_root: dir.path(),
+                preset_base: &CallPreset::default(),
+                candidato_extra: None,
+            },
+        )
+        .await
+        .expect("repl deve rodar sem erro");
+
+        let saida_texto = String::from_utf8(saida).unwrap();
+        assert!(saida_texto.contains("sessões salvas"));
+        assert!(saida_texto.contains("qual a capital da frança"));
     }
 
     #[tokio::test]

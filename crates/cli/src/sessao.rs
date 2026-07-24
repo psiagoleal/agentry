@@ -221,9 +221,89 @@ pub fn carregar_sessao(
     Ok(mensagens)
 }
 
+/// Resumo de uma sessão salva — o suficiente para o usuário reconhecer qual
+/// `id` passar a `--resume` sem ter que abrir o arquivo (`/sessions`,
+/// MT-123).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResumoDeSessao {
+    pub id: String,
+    pub criado_em: String,
+    pub titulo: String,
+}
+
+/// Primeira linha não vazia de `texto`, truncada a 60 caracteres — título
+/// legível pra `/sessions` a partir da primeira mensagem de usuário.
+fn titulo_de(texto: &str) -> String {
+    let primeira_linha = texto.lines().next().unwrap_or("").trim();
+    if primeira_linha.chars().count() > 60 {
+        let truncado: String = primeira_linha.chars().take(57).collect();
+        format!("{truncado}...")
+    } else {
+        primeira_linha.to_string()
+    }
+}
+
+/// Lista as sessões salvas em `.agentry/session/`, mais recente primeiro —
+/// `/sessions` (MT-123). Cada sessão é lida e desserializada individualmente
+/// (reaproveita `persist::desserializar_de_markdown`, MT-120, sem um
+/// segundo caminho de *parsing* só pra metadados); um arquivo corrompido ou
+/// editado à mão de forma inválida é **ignorado**, não aborta a listagem
+/// inteira — o usuário ainda quer ver as sessões boas mesmo se uma estiver
+/// quebrada (diferente de `carregar_sessao`, que precisa da sessão
+/// específica pedida e por isso falha alto se ela estiver corrompida).
+///
+/// # Errors
+///
+/// Devolve erro apenas se o próprio diretório `.agentry/session/` não puder
+/// ser lido (ex.: permissão) — lista vazia (não erro) quando não há nenhuma
+/// sessão salva ainda.
+pub fn listar_sessoes(workspace_root: &Path) -> std::io::Result<Vec<ResumoDeSessao>> {
+    let mut arquivos = listar_arquivos_de_sessao(workspace_root)?;
+    arquivos.reverse(); // listar_arquivos_de_sessao ordena do mais antigo pro mais recente
+    let mut resumos = Vec::new();
+    for caminho in arquivos {
+        let Ok(texto) = std::fs::read_to_string(&caminho) else {
+            continue;
+        };
+        let Ok((metadados, mensagens)) = persist::desserializar_de_markdown(&texto) else {
+            continue;
+        };
+        let titulo = mensagens
+            .iter()
+            .find(|mensagem| mensagem.role == agentry_core::model::Role::User)
+            .map(|mensagem| titulo_de(&mensagem.text_content()))
+            .unwrap_or_else(|| "(sem mensagem de usuário)".to_string());
+        resumos.push(ResumoDeSessao {
+            id: metadados.id,
+            criado_em: metadados.criado_em,
+            titulo,
+        });
+    }
+    Ok(resumos)
+}
+
+/// Formata a saída de `/sessions` — usada tanto pelo REPL quanto pela TUI,
+/// fonte única (mesmo padrão de `aviso_de_retencao`).
+#[must_use]
+pub fn formatar_lista_de_sessoes(sessoes: &[ResumoDeSessao]) -> String {
+    if sessoes.is_empty() {
+        return "nenhuma sessão salva ainda (use /save)".to_string();
+    }
+    let mut saida = String::from("sessões salvas (mais recente primeiro):\n");
+    for sessao in sessoes {
+        saida.push_str(&format!(
+            "  {} — {} — {}\n",
+            sessao.id, sessao.criado_em, sessao.titulo
+        ));
+    }
+    saida.pop(); // remove a última quebra de linha
+    saida
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use agentry_core::model::{Message, Role};
 
     #[test]
     fn civil_from_days_bate_com_referencias_conhecidas() {
@@ -432,7 +512,6 @@ mod tests {
 
     #[test]
     fn salvar_e_carregar_sessao_fazem_round_trip() {
-        use agentry_core::model::{Message, Role};
         use agentry_core::provider::mock::MockProvider;
         use agentry_core::router::{CallPreset, ResolvedRoute};
         use agentry_core::session::{Session, TokenBudget, ToolExecutor};
@@ -472,5 +551,99 @@ mod tests {
             mensagens_carregadas,
             vec![Message::text(Role::User, "oi, tudo bem?")]
         );
+    }
+
+    // --- MT-123: /sessions ---
+
+    #[test]
+    fn listar_sessoes_sem_nenhuma_salva_e_lista_vazia_nao_erro() {
+        let dir = TempDir::new();
+        let sessoes = listar_sessoes(dir.path()).expect("diretório vazio não deve falhar");
+        assert!(sessoes.is_empty());
+    }
+
+    #[test]
+    fn listar_sessoes_ordena_mais_recente_primeiro_e_extrai_titulo() {
+        let dir = TempDir::new();
+        escrever_sessao_de_teste(
+            dir.path(),
+            "20260101-000000",
+            &[Message::text(Role::User, "pergunta antiga")],
+        );
+        escrever_sessao_de_teste(
+            dir.path(),
+            "20260724-000000",
+            &[Message::text(Role::User, "pergunta nova")],
+        );
+
+        let sessoes = listar_sessoes(dir.path()).expect("deve listar");
+
+        assert_eq!(sessoes.len(), 2);
+        assert_eq!(sessoes[0].id, "20260724-000000");
+        assert_eq!(sessoes[0].titulo, "pergunta nova");
+        assert_eq!(sessoes[1].id, "20260101-000000");
+        assert_eq!(sessoes[1].titulo, "pergunta antiga");
+    }
+
+    #[test]
+    fn listar_sessoes_sem_mensagem_de_usuario_usa_titulo_padrao() {
+        let dir = TempDir::new();
+        escrever_sessao_de_teste(
+            dir.path(),
+            "20260724-000000",
+            &[Message::text(Role::System, "prompt de sistema só")],
+        );
+
+        let sessoes = listar_sessoes(dir.path()).expect("deve listar");
+
+        assert_eq!(sessoes[0].titulo, "(sem mensagem de usuário)");
+    }
+
+    #[test]
+    fn listar_sessoes_ignora_arquivo_corrompido_sem_abortar_a_listagem() {
+        let dir = TempDir::new();
+        escrever_sessao_de_teste(
+            dir.path(),
+            "20260101-000000",
+            &[Message::text(Role::User, "sessão boa")],
+        );
+        let diretorio = diretorio_de_sessoes(dir.path()).expect("deve criar o diretório");
+        std::fs::write(
+            diretorio.join("20260724-quebrada.md"),
+            "não é markdown válido",
+        )
+        .expect("deve escrever o arquivo corrompido");
+
+        let sessoes = listar_sessoes(dir.path()).expect("deve listar mesmo com um arquivo ruim");
+
+        assert_eq!(sessoes.len(), 1);
+        assert_eq!(sessoes[0].titulo, "sessão boa");
+    }
+
+    #[test]
+    fn titulo_de_trunca_linhas_longas_em_60_caracteres() {
+        let longa = "a".repeat(100);
+        let titulo = titulo_de(&longa);
+        assert_eq!(titulo.chars().count(), 60); // 57 + "..."
+        assert!(titulo.ends_with("..."));
+    }
+
+    #[test]
+    fn formatar_lista_de_sessoes_vazia_avisa_para_usar_save() {
+        let texto = formatar_lista_de_sessoes(&[]);
+        assert!(texto.contains("/save"));
+    }
+
+    #[test]
+    fn formatar_lista_de_sessoes_mostra_id_data_e_titulo() {
+        let sessoes = vec![ResumoDeSessao {
+            id: "20260724-000000".to_string(),
+            criado_em: "2026-07-24T00:00:00Z".to_string(),
+            titulo: "pergunta nova".to_string(),
+        }];
+        let texto = formatar_lista_de_sessoes(&sessoes);
+        assert!(texto.contains("20260724-000000"));
+        assert!(texto.contains("2026-07-24T00:00:00Z"));
+        assert!(texto.contains("pergunta nova"));
     }
 }

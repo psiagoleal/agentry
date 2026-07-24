@@ -384,6 +384,10 @@ const COMANDOS_DE_BARRA: &[(&str, &str)] = &[
         "/save [nome]",
         "salva a sessão em .agentry/session/ (Markdown) -- pode conter informação sensível",
     ),
+    (
+        "/sessions",
+        "lista as sessões salvas em .agentry/session/ (id, data, título)",
+    ),
     ("/remember <fato>", "grava uma memória de projeto explícita"),
     ("/compact", "compacta o histórico da sessão"),
     ("/task-class <nome>", "troca a task-class ativa"),
@@ -488,6 +492,12 @@ async fn processar_comando_de_texto(
         let nome = if nome.is_empty() { None } else { Some(nome) };
         return match crate::sessao::salvar(workspace_root, nome, sessao, task_class) {
             Ok(aviso) => aviso,
+            Err(erro) => format!("erro: {erro}"),
+        };
+    }
+    if comando == "sessions" {
+        return match crate::sessao::listar_sessoes(workspace_root) {
+            Ok(sessoes) => crate::sessao::formatar_lista_de_sessoes(&sessoes),
             Err(erro) => format!("erro: {erro}"),
         };
     }
@@ -3140,6 +3150,70 @@ mod tests {
             1,
             "deve gravar exatamente um arquivo"
         );
+    }
+
+    #[tokio::test]
+    async fn comando_sessions_sem_nenhuma_salva_avisa_para_usar_save() {
+        let mock = Arc::new(MockProvider::new("mock"));
+        let mut sessao = sessao_de_teste(mock.clone());
+        let router = router_com_task_class("chat", mock);
+        let dir = TempDir::new();
+        let checkpoint_store = agentry_core::checkpoint::CheckpointStore::new(dir.path());
+        let mut overrides = RuntimeOverride::default();
+        let mut task_class = "chat".to_string();
+
+        let mensagem = processar_comando_de_texto(
+            "sessions",
+            &mut sessao,
+            &router,
+            &mut overrides,
+            &mut task_class,
+            &checkpoint_store,
+            dir.path(),
+        )
+        .await;
+
+        assert!(mensagem.contains("/save"), "mensagem: {mensagem:?}");
+    }
+
+    #[tokio::test]
+    async fn comando_sessions_lista_a_sessao_salva_com_titulo() {
+        let mock = Arc::new(MockProvider::new("mock"));
+        let mut sessao = sessao_de_teste(mock.clone());
+        sessao.push_user_message("qual a capital da frança");
+        let router = router_com_task_class("chat", mock);
+        let dir = TempDir::new();
+        let checkpoint_store = agentry_core::checkpoint::CheckpointStore::new(dir.path());
+        let mut overrides = RuntimeOverride::default();
+        let mut task_class = "chat".to_string();
+
+        processar_comando_de_texto(
+            "save",
+            &mut sessao,
+            &router,
+            &mut overrides,
+            &mut task_class,
+            &checkpoint_store,
+            dir.path(),
+        )
+        .await;
+
+        let mensagem = processar_comando_de_texto(
+            "sessions",
+            &mut sessao,
+            &router,
+            &mut overrides,
+            &mut task_class,
+            &checkpoint_store,
+            dir.path(),
+        )
+        .await;
+
+        assert!(
+            mensagem.contains("sessões salvas"),
+            "mensagem: {mensagem:?}"
+        );
+        assert!(mensagem.contains("qual a capital da frança"));
     }
 
     #[tokio::test]

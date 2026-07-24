@@ -114,6 +114,8 @@ seguintes, até ser trocado de novo:
 | `/usage` | Mostra o total de tokens consumidos pela sessão até aquele ponto — sem *side-effect* na conversa. |
 | `/undo` | Desfaz o checkpoint mais recente de `fs_write`/`fs_edit` (ver [Checkpoints e *undo*](#checkpoints-e-undo-de-mudancas-de-arquivo) abaixo). |
 | `/remember <fato>` | Grava `<fato>` como memória de projeto (ver [Memória de projeto](#memoria-de-projeto-remember) abaixo) — disponível em sessões futuras. |
+| `/save [nome]` | Salva a sessão corrente em `.agentry/session/` (ver [Sessões salvas](#sessoes-salvas-save-resume-sessions) abaixo). |
+| `/sessions` | Lista as sessões salvas (id, data, título), mais recente primeiro. |
 | `/init` (ou `/init <perfil>`) | Cria `.agentry/agentry.settings.json` sem sair do REPL. |
 | `/exit` (ou `/quit`) | Encerra o REPL. |
 
@@ -183,6 +185,47 @@ Memória persiste em `.agentry/memory.json` (mesmo diretório de estado local au
 git que guarda checkpoints/índices/configuração) como uma lista simples de fatos, sem teto de
 entradas. **Não existe `/forget` nesta versão** — para remover um fato, edite o arquivo
 diretamente (é só uma lista de texto).
+
+## Sessões salvas (`/save`, `--resume`, `/sessions`)
+
+`/save [nome]` (REPL e TUI) grava a conversa corrente inteira — mensagens de usuário/agente,
+chamadas e resultados de tool — em `.agentry/session/<id>.md`, um arquivo Markdown legível por
+humano. `<id>` é sempre um *timestamp* UTC (`AAAAMMDD-HHMMSS`), com `-<nome>` sufixado quando
+você dá um nome:
+
+```
+> /save minha-sessao
+sessão salva em .agentry/session/20260724-183000-minha-sessao.md
+aviso: pode conter informação sensível da conversa; o diretório já está fora do controle de
+versão (.agentry/.gitignore), mas o arquivo continua no disco até você apagá-lo
+```
+
+**Sempre um ato explícito seu, e sempre com aviso.** Assim como `/remember`, não existe
+persistência automática de conversa — o `agentry` só grava quando você chama `/save`, e o
+aviso de retenção acima aparece **toda vez**, sem uma *flag* para silenciá-lo.
+
+`--resume` (também disponível como flag na invocação, funciona em *one-shot*/REPL/TUI) retoma
+uma sessão salva antes do primeiro turno — a conversa continua exatamente de onde parou,
+com o modelo recebendo o histórico completo na próxima chamada:
+
+```bash
+agentry --resume                          # a sessão salva mais recente
+agentry --resume=20260724-183000-minha-sessao   # uma sessão específica, por id ou prefixo único
+```
+
+**Use `--resume=<id>` (com `=`) ao combinar com uma tarefa *one-shot*** — `--resume` sozinho,
+sem `=`, não consome o argumento seguinte, então `agentry --resume "minha tarefa"` roda "minha
+tarefa" como tarefa (retomando a sessão mais recente), nunca tenta interpretar a tarefa como um
+*id* de sessão.
+
+`/sessions` lista as sessões salvas (id, data, título — a primeira mensagem de usuário),
+mais recente primeiro, para você saber qual *id* passar a `--resume` sem abrir o arquivo:
+
+```
+> /sessions
+sessões salvas (mais recente primeiro):
+  20260724-183000-minha-sessao — 2026-07-24T18:30:00Z — qual a capital da frança
+```
 
 ## O que esperar da resposta
 
