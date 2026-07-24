@@ -44,3 +44,4 @@ Registros de decisões estruturais (ver skill `adr-writer`). Use
 | [0035](0035-saida-de-tool-visivel-na-tui-com-blocos-expansiveis.md) | Saída de tool visível na TUI, com blocos expansíveis por clique | Accepted |
 | [0036](0036-persistencia-de-sessao-opt-in-em-markdown.md) | Persistência de sessão opt-in, em Markdown (`--resume`) | Accepted |
 | [0037](0037-audit-log-persistente.md) | Audit log persistente (`.agentry/audit.log`) | Accepted |
+| [0038](0038-configuracao-global-do-usuario.md) | Configuração global do usuário (`~/.agentry/`) | Accepted |

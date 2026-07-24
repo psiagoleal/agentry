@@ -128,6 +128,62 @@ continua valendo como padrão (nada automático). Ver ADR-0036 para o registro c
 
 ---
 
+## Fase J — Configuração global do usuário (ADR-0038)
+
+Sequenciada depois da Fase G/H, antes da próxima atualização de release (pedido explícito do
+mantenedor). `~/.agentry/` com dois arquivos de propósito distinto — `agentry.settings.json`
+(preferências pessoais reutilizáveis, mesmo schema do arquivo por-projeto) e
+`credentials.json` (só credenciais, schema separado, nunca soma ao schema git-versionado).
+Variável de ambiente continua vencendo sempre — o arquivo global é *fallback* aditivo, zero
+mudança de comportamento pra quem já usa `AGENTRY_LITELLM_API_KEY`.
+
+### MT-126: ADR-0038 (Accepted) ✅ concluído
+- **Objetivo:** registrar a decisão — dois arquivos (`agentry.settings.json`/
+  `credentials.json`), precedência (`~/.agentry/ < .agentry/ do projeto < variável de
+  ambiente`), permissão `0600` em `credentials.json`, resolução de `$HOME`/`%USERPROFILE%`
+  sem dependência nova. Confirmado com o mantenedor antes de escrever: não conflita com a
+  ADR-0017 (categoria diferente — credencial/preferência é por-usuário, não estado
+  por-projeto).
+- **Arquivos no escopo:** `docs/adr/0038-*.md` (novo), `docs/adr/README.md`, `mkdocs.yml`,
+  `docs/roadmap-v0.16.md` (este arquivo).
+- **Depende de:** nenhum.
+
+### MT-127: Resolução de `~/.agentry/` + leitura de `agentry.settings.json` global
+- **Objetivo:** novo helper de resolução de diretório *home* (`$HOME`/`%USERPROFILE%`, sem
+  `dirs`/`directories`); `build_config` (`crates/cli/src/main.rs`) ganha a camada nova
+  **antes** do arquivo de projeto: `~/.agentry/agentry.settings.json < .agentry/ do projeto
+  < ambiente`. Arquivo global ausente não é erro (cai nos defaults, mesmo padrão de sempre).
+- **Arquivos no escopo:** novo módulo (`crates/core/src/global_dir.rs` ou equivalente),
+  `crates/cli/src/main.rs`.
+- **Critério de aceite:** testes — preferência só no arquivo global aparece na `Config`
+  resolvida; preferência no projeto sobrescreve a global; variável de ambiente sobrescreve as
+  duas; sem `$HOME`/arquivo global, comportamento idêntico ao de hoje (regressão zero).
+- **Depende de:** MT-126.
+
+### MT-128: `credentials.json` — leitura com permissão verificada
+- **Objetivo:** novo schema `credentials.json` (`providers.<nome>.apiKey`); leitura só como
+  *fallback* quando a variável de ambiente correspondente (ex.: `AGENTRY_LITELLM_API_KEY`)
+  não está definida — nunca os dois somados. Permissão mais aberta que `0600` gera aviso
+  (`stderr`), nunca erro fatal.
+- **Arquivos no escopo:** novo módulo (`crates/core/src/credentials.rs` ou equivalente),
+  `crates/cli/src/main.rs` (`chave_litellm`, linha ~920).
+- **Critério de aceite:** testes — variável de ambiente definida nunca consulta o arquivo;
+  variável ausente lê a chave do arquivo; permissão aberta gera aviso sem falhar; arquivo
+  ausente não é erro.
+- **Depende de:** MT-126.
+
+### MT-129: Comando/flag para gravar credencial (`--set-credential` ou equivalente)
+- **Objetivo:** forma de o usuário gravar uma credencial em `credentials.json` sem editar o
+  arquivo à mão — cria o diretório/arquivo com permissão `0600` desde a primeira escrita.
+- **Arquivos no escopo:** `crates/cli/src/main.rs`, `docs/usuario/uso.md`,
+  `docs/usuario/instalacao.md` (precedência documentada, pra não confundir usuário sobre por
+  que uma preferência de projeto "ganhou" da global).
+- **Critério de aceite:** testes — grava com permissão `0600`; sobrescreve valor existente;
+  nunca imprime a credencial de volta no terminal (mesmo princípio da skill `secrets-guard`).
+- **Depende de:** MT-128.
+
+---
+
 ## Fase I — RAG estendido às sessões salvas (adiada, depende da Fase G)
 
 Reaproveita o pipeline híbrido já completo do ADR-0011 (`tantivy` + `lancedb` + *reciprocal
@@ -148,5 +204,10 @@ levantaria).
 MT-118 → MT-119 → MT-120 → MT-121 → MT-122      (Fase G, sessão -- sequencial)
                         └→ MT-123                (lista sessões, só depende do MT-119)
 MT-124 → MT-125                                  (Fase H, audit log -- independente da Fase G)
+MT-126 → MT-127                                  (Fase J, config global)
+      └→ MT-128 → MT-129                         (credenciais, independente do MT-127)
 Fase I (RAG sobre sessões)                        (depende da Fase G, sem tickets ainda)
 ```
+
+Ordem de execução pedida pelo mantenedor: Fase G → Fase H → Fase J → atualizar release
+(Fase E/F/G/H/J juntas) → Fase I fica para depois, sem data.

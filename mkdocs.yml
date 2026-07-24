@@ -122,6 +122,7 @@ nav:
           - "0035 — Saída de tool visível na TUI com blocos expansíveis": adr/0035-saida-de-tool-visivel-na-tui-com-blocos-expansiveis.md
           - "0036 — Persistência de sessão opt-in em Markdown": adr/0036-persistencia-de-sessao-opt-in-em-markdown.md
           - "0037 — Audit log persistente": adr/0037-audit-log-persistente.md
+          - "0038 — Configuração global do usuário": adr/0038-configuracao-global-do-usuario.md
       - Roadmap:
           - Mapa de longo prazo: roadmap-longo-prazo.md
           - v0.1: roadmap-v0.1.md
