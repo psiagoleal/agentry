@@ -25,6 +25,7 @@
 //! MT-41); com `--profile <nome>`, busca o artefato real daquele perfil no
 //! repositório irmão `ai-coding-agent-profiles` (ver [`init`], MT-42).
 
+mod audit_sink;
 mod init;
 mod repl;
 mod sessao;
@@ -424,23 +425,24 @@ impl GuardrailAuditSink for StderrAuditSink {
     }
 }
 
-/// Descarta toda entrada de auditoria — usado só no modo TUI (`--tui`,
-/// MT-72), nunca no one-shot/REPL. **Achado do smoke-test manual do
-/// MT-72:** um `eprintln!` direto no modo bruto/tela-alternativa do
+/// Descarta toda entrada de auditoria — usado só em testes desde o MT-125
+/// (ADR-0037): o modo TUI (`--tui`, MT-72) trocou este sink por
+/// `audit_sink::FileAuditSink` (`stderr` continua descartado sob `--tui`,
+/// mas o audit log persistente não tem o mesmo problema de corromper a
+/// tela). **Achado do smoke-test manual do MT-72, motivo original de
+/// existir:** um `eprintln!` direto no modo bruto/tela-alternativa do
 /// `crossterm` escreve por cima do buffer que o `ratatui` está desenhando
 /// (ele não sabe da escrita, então não a repõe no próximo `draw`),
-/// corrompendo a tela a cada chamada de rede — o efeito visual observado
-/// era literalmente cada requisição HTTP quebrando a UI. Persistência de
-/// auditoria dentro da própria TUI (um *widget* de log) fica para um
-/// ticket futuro, condicionado a demanda real (YAGNI) — descartar é o
-/// comportamento correto enquanto não existe onde mostrá-la sem corromper
-/// a tela.
+/// corrompendo a tela a cada chamada de rede.
+#[cfg(test)]
 struct NoopAuditSink;
 
+#[cfg(test)]
 impl AuditSink for NoopAuditSink {
     fn record(&self, _entry: AuditEntry) {}
 }
 
+#[cfg(test)]
 impl GuardrailAuditSink for NoopAuditSink {
     fn record(&self, _entry: GuardrailAuditEntry) {}
 }
@@ -814,7 +816,10 @@ async fn main() {
         });
         let resultado = match &args.profile {
             Some(perfil) => {
-                let sink: Arc<dyn AuditSink> = Arc::new(StderrAuditSink);
+                let sink: Arc<dyn AuditSink> = Arc::new(audit_sink::SinksCombinados::new(
+                    StderrAuditSink,
+                    audit_sink::FileAuditSink::new(workspace_root.clone()),
+                ));
                 match init::fetch_profile_settings(perfil, sink).await {
                     Ok(conteudo) => write_settings_if_absent(&workspace_root, &conteudo),
                     Err(erro) => {
@@ -892,17 +897,26 @@ async fn main() {
     let guardrail_gate = Arc::new(cfg.guardrails.clone());
 
     // Sob `--tui`, `eprintln!` corrompe a tela alternativa do `crossterm`
-    // (achado do smoke-test manual do MT-72) — auditoria descartada nesse
-    // modo até existir um widget de log (ver doc de `NoopAuditSink`).
+    // (achado do smoke-test manual do MT-72) — o lado `stderr` fica
+    // descartado nesse modo (ver doc de `NoopAuditSink`), mas o
+    // `FileAuditSink` (MT-125, ADR-0037) grava em `.agentry/audit.log`
+    // independente do modo: é auditoria persistente, não uma saída de
+    // terminal, então não tem o mesmo problema de corromper a tela.
     let audit_sink: Arc<dyn AuditSink> = if args.tui {
-        Arc::new(NoopAuditSink)
+        Arc::new(audit_sink::FileAuditSink::new(workspace_root.clone()))
     } else {
-        Arc::new(StderrAuditSink)
+        Arc::new(audit_sink::SinksCombinados::new(
+            StderrAuditSink,
+            audit_sink::FileAuditSink::new(workspace_root.clone()),
+        ))
     };
     let guardrail_audit_sink: Arc<dyn GuardrailAuditSink> = if args.tui {
-        Arc::new(NoopAuditSink)
+        Arc::new(audit_sink::FileAuditSink::new(workspace_root.clone()))
     } else {
-        Arc::new(StderrAuditSink)
+        Arc::new(audit_sink::SinksCombinados::new(
+            StderrAuditSink,
+            audit_sink::FileAuditSink::new(workspace_root.clone()),
+        ))
     };
 
     let ollama_ip = args

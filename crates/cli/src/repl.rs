@@ -356,7 +356,10 @@ pub async fn run_repl<R: BufRead, W: Write>(
                 crate::run_init_local(workspace_root)
             } else {
                 let sink: Arc<dyn agentry_core::transport::AuditSink> =
-                    Arc::new(crate::StderrAuditSink);
+                    Arc::new(crate::audit_sink::SinksCombinados::new(
+                        crate::StderrAuditSink,
+                        crate::audit_sink::FileAuditSink::new(workspace_root),
+                    ));
                 match crate::init::fetch_profile_settings(perfil, sink).await {
                     Ok(conteudo) => crate::write_settings_if_absent(workspace_root, &conteudo),
                     Err(erro) => {

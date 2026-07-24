@@ -65,7 +65,8 @@ impl std::fmt::Display for GuardrailAction {
 }
 
 /// Lado de uma chamada de LLM em que uma [`GuardrailRule`] se aplica.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum GuardrailDirection {
     /// Mensagem do usuário, antes de ir ao provider.
     Input,
@@ -132,7 +133,7 @@ pub enum GuardrailCheckResult {
 /// `profile`/`egress_class` (a `Session`, único chamador, não possui nenhum
 /// dos dois — ADR-0007 §6). Nunca carrega o texto casado nem o conteúdo da
 /// mensagem.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct GuardrailAuditEntry {
     pub direction: GuardrailDirection,
     pub rule_id: String,
