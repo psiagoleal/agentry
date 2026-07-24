@@ -964,7 +964,17 @@ async fn main() {
     // (ADR-0011), não um segundo cliente.
     let ollama_provider: Arc<dyn LlmProvider> = ollama.clone();
 
-    let chave_litellm = std::env::var(LITELLM_API_KEY_ENV).ok();
+    // Variável de ambiente sempre vence; `~/.agentry/credentials.json`
+    // (MT-128, ADR-0038) só é consultado quando `AGENTRY_LITELLM_API_KEY`
+    // não está definida -- nunca os dois somados.
+    let chave_litellm = agentry_core::credentials::resolve_api_key(
+        LITELLM_PROVIDER_NAME,
+        std::env::var(LITELLM_API_KEY_ENV).ok(),
+    )
+    .unwrap_or_else(|erro| {
+        eprintln!("erro ao ler credenciais: {erro}");
+        std::process::exit(2)
+    });
     let litellm_registro: Option<RegistroDeProvider> =
         build_litellm_provider(&cfg, chave_litellm.as_deref(), Arc::clone(&audit_sink))
             .unwrap_or_else(|erro| {
