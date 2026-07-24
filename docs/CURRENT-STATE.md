@@ -597,8 +597,26 @@ sobre um corpus novo (`.agentry/session/*.md`): módulos paralelos
 exposição dupla sob o mesmo `PermissionGate`), e — achado real via *smoke-test* contra o
 Ollama local, não previsto no plano original — `OllamaProvider::embeddings` implementado de
 verdade (MT-139, fecha um gap do MT-08 que também destravava o `code_search` já existente).
-Nenhum ticket pendente na Fase I. Próximo passo: nenhum combinado ainda — aguardando
-direção do mantenedor.
+Nenhum ticket pendente na Fase I.
+
+## Release `v0.1.0-usertest` atualizada (rodada 6, 2026-07-24)
+
+Pedido do mantenedor: "Pode fazer o push e atualizar a release". Passos executados: `git
+push origin main` (20 commits, `b3b4a56..12fe3e9`); rebuild dos dois binários (Linux já
+estava atualizado do próprio DoD do MT-138, Windows recompilado via `cargo build --release
+--target x86_64-pc-windows-gnu`); empacotamento (mesmo processo das rodadas anteriores —
+`tar` pro Linux, `make windows` pro Windows, renomeado sem sufixo de versão); *smoke-test*
+de ambos os binários extraídos do pacote (`--help` real no Linux nativo mostrando
+`--resume`/`--set-credential`, `wine agentry.exe --help` idêntico no Windows; `/sessions`
+real via REPL confirmando leitura de uma sessão de teste); tag `v0.1.0-usertest` movida à
+força para `12fe3e9`; `gh release edit` com notas novas ("rodada 6", RAG sobre sessões
+salvas + correção do `OllamaProvider::embeddings`) preservando o histórico das rodadas
+anteriores; `gh release upload --clobber` substituindo os dois assets.
+
+Verificado depois: `gh release view` mostra os dois assets com timestamp de hoje; `git
+rev-parse v0.1.0-usertest` aponta para `12fe3e9` (`HEAD` no momento da atualização).
+
+Próximo passo: nenhum combinado ainda — aguardando direção do mantenedor.
 
 ## Último turno
 
