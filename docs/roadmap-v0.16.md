@@ -209,15 +209,19 @@ mudança de comportamento pra quem já usa `AGENTRY_LITELLM_API_KEY`.
   — Windows não tem o mesmo modelo *owner/group/other*; sem checagem equivalente nesta
   versão (a própria ADR-0038 não detalha um esquema Windows).
 
-### MT-129: Comando/flag para gravar credencial (`--set-credential` ou equivalente)
+### MT-129: Comando/flag para gravar credencial (`--set-credential` ou equivalente) ✅ concluído (099ae2d)
 - **Objetivo:** forma de o usuário gravar uma credencial em `credentials.json` sem editar o
   arquivo à mão — cria o diretório/arquivo com permissão `0600` desde a primeira escrita.
-- **Arquivos no escopo:** `crates/cli/src/main.rs`, `docs/usuario/uso.md`,
-  `docs/usuario/instalacao.md` (precedência documentada, pra não confundir usuário sobre por
-  que uma preferência de projeto "ganhou" da global).
+- **Arquivos no escopo:** `crates/core/src/credentials.rs` (`set_api_key`/`set_api_key_em`),
+  `crates/cli/src/main.rs`, `docs/usuario/uso.md`, `docs/usuario/instalacao.md`,
+  `docs/usuario/configuracao.md` (seção "Configuração global do usuário", nova).
 - **Critério de aceite:** testes — grava com permissão `0600`; sobrescreve valor existente;
   nunca imprime a credencial de volta no terminal (mesmo princípio da skill `secrets-guard`).
 - **Depende de:** MT-128.
+- **Decisão de interface:** o valor é lido de *stdin* (uma linha), não como argumento
+  posicional de `--set-credential` — evita a credencial aparecer em `ps`/histórico do shell
+  (o argumento da flag é só o nome do provider, nunca o segredo).
+- **Fecha a Fase J inteira.**
 
 ---
 
@@ -248,3 +252,7 @@ Fase I (RAG sobre sessões)                        (depende da Fase G, sem ticke
 
 Ordem de execução pedida pelo mantenedor: Fase G → Fase H → Fase J → atualizar release
 (Fase E/F/G/H/J juntas) → Fase I fica para depois, sem data.
+
+**Fases G, H e J concluídas** (todos os MTs desta seção ✅). Próximo passo: atualizar a
+release `v0.1.0-usertest` (build + push + assets), como pedido pelo mantenedor. Fase I segue
+sem tickets, sem data.

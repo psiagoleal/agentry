@@ -441,8 +441,27 @@ persistente, RAG estendido a sessões salvas.
   *workspace*. Verificado com *smoke-test* real (mock HTTP ecoando o header `Authorization` +
   binário `release` + `HOME=` fake): permissão `644` avisa e ainda funciona; `0600` não avisa;
   variável de ambiente definida vence e o arquivo nunca é sequer aberto.
-- MT-129 (Fase J, comando/flag para gravar credencial) pendente — último ticket da Fase J.
-  Depois dele: atualizar a release (Fase E/F/G/H/J juntas, pedido explícito do mantenedor).
+- MT-129 ✅ (`099ae2d`) — `credentials::set_api_key`/`set_api_key_em`: grava/atualiza
+  `~/.agentry/credentials.json`, preservando qualquer outro provider já gravado (recusa
+  sobrescrever às cegas se o arquivo existente for ilegível); cria/corrige a permissão para
+  `0600` (Unix) a cada escrita. `--set-credential <provider>` (main.rs) lê o valor via
+  *stdin* (uma linha) — nunca como argumento de linha de comando nem ecoado de volta.
+  `docs/usuario/configuracao.md` ganha a seção "Configuração global do usuário" (as três
+  camadas de precedência + os dois arquivos de `~/.agentry/` + `--set-credential`);
+  `instalacao.md`/`uso.md` apontam para ela. 11 testes novos, 701 no *workspace*. Verificado
+  com *smoke-test* real (binário `release` + `HOME=` fake): grava credencial nova; grava um
+  segundo provider preservando o primeiro; sobrescreve o valor de um provider já gravado; a
+  credencial gravada é de fato usada numa chamada real (mock HTTP ecoando o header
+  `Authorization`). **Fecha a Fase J inteira — Fases G, H e J todas concluídas.**
+
+## Próximo passo: atualizar a release
+
+Fases G (persistência de sessão), H (audit log persistente) e J (configuração global) estão
+todas concluídas — sequência pedida pelo mantenedor: "Depois seguimos para fase G/H e nova
+fase para configurações globais e depois atualizamos a release." Próximo passo: build +
+push + atualização dos assets da release `v0.1.0-usertest` (mesmo padrão das rodadas
+anteriores — Fase E/F/G/H/J juntas nesta atualização). Fase I (RAG estendido às sessões
+salvas) segue deliberadamente sem tickets/data, deferida pelo próprio mantenedor.
 
 ## Último turno
 
