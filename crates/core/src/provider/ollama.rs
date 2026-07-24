@@ -30,6 +30,21 @@
 //! porção de tool-call ao formato esperado. Fiação da flag com o `settings-schema`
 //! (`providers.ollama.structured_output`) fica para quando o restante do
 //! `settings-schema` de providers existir — mesmo adiamento já aplicado ao MT-17/MT-16.
+//!
+//! **Embeddings via `POST {base_url}/api/embed` (MT-139, ADR-0039):** alimenta o RAG
+//! semântico local (código, ADR-0011; sessões salvas, ADR-0039) — mesmo `Transport`
+//! único, mesmo tratamento de erro de rede/allowlist do `chat`/`chat_stream`. **Achado
+//! real ao testar contra um Ollama de verdade:** um servidor Ollama só responde com
+//! sucesso nesta rota se tiver sido iniciado com suporte a embeddings habilitado
+//! (depende da versão/config do servidor) — sem isso, a API devolve HTTP 4xx/5xx com
+//! um corpo de erro explicativo. `Transport::post_json` (MT-07) não expõe o corpo de
+//! um status de erro, só o código (`TransportError::Http("status HTTP <n>")`) — por
+//! isso a mensagem de erro que chega até o usuário é genérica ("status HTTP 400"), não
+//! o texto específico do Ollama; suficiente para diagnosticar (o RAG semântico falhou
+//! ao chamar o provider), mas não identifica a causa exata sem inspecionar o servidor
+//! Ollama diretamente. Melhorar isso (capturar o corpo do erro) fica para quando houver
+//! demanda — não é regressão introduzida aqui, `post_json` já se comportava assim para
+//! `chat`/`chat_stream`.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -87,6 +102,10 @@ impl OllamaProvider {
 
     fn chat_url(&self) -> String {
         format!("{}/api/chat", self.base_url.trim_end_matches('/'))
+    }
+
+    fn embed_url(&self) -> String {
+        format!("{}/api/embed", self.base_url.trim_end_matches('/'))
     }
 }
 
@@ -196,6 +215,24 @@ struct OllamaChatChunk {
     prompt_eval_count: u64,
     #[serde(default)]
     eval_count: u64,
+}
+
+#[derive(Serialize)]
+struct OllamaEmbedRequest<'a> {
+    model: &'a str,
+    input: &'a [String],
+}
+
+/// Resposta de `/api/embed` — `embeddings` na mesma ordem/contagem de
+/// `OllamaEmbedRequest::input`; `prompt_eval_count` é o único uso de
+/// tokens que a API reporta para embeddings (não há `eval_count`, não
+/// existe "saída" gerada).
+#[derive(Deserialize, Debug, Default)]
+struct OllamaEmbedResponse {
+    #[serde(default)]
+    embeddings: Vec<Vec<f32>>,
+    #[serde(default)]
+    prompt_eval_count: u64,
 }
 
 // ---- Conversões de/para os tipos de domínio (`crate::model`) ----
@@ -447,12 +484,36 @@ impl LlmProvider for OllamaProvider {
 
     fn embeddings(
         &self,
-        _request: EmbeddingsRequest,
+        request: EmbeddingsRequest,
     ) -> BoxFuture<'_, Result<EmbeddingsResponse, ProviderError>> {
         Box::pin(async move {
-            Err(ProviderError::Unsupported(
-                "OllamaProvider ainda não implementa /api/embed (fora do escopo do MT-08)".into(),
-            ))
+            let body = serde_json::to_value(OllamaEmbedRequest {
+                model: &request.model,
+                input: &request.input,
+            })
+            .expect("OllamaEmbedRequest sempre serializável");
+
+            let resposta = self
+                .transport
+                .post_json(
+                    &self.embed_url(),
+                    "embeddings",
+                    &body,
+                    Some(DEFAULT_TIMEOUT_WARM),
+                )
+                .await
+                .map_err(map_transport_error)?;
+
+            let parsed: OllamaEmbedResponse = serde_json::from_value(resposta)
+                .map_err(|e| ProviderError::InvalidResponse(e.to_string()))?;
+
+            Ok(EmbeddingsResponse {
+                vectors: parsed.embeddings,
+                usage: Usage {
+                    input_tokens: parsed.prompt_eval_count,
+                    output_tokens: 0,
+                },
+            })
         })
     }
 }
@@ -501,6 +562,48 @@ mod tests {
                     let _ = socket.read(&mut buf).await;
                     let resposta = format!(
                         "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\
+                         Content-Length: {}\r\nConnection: close\r\n\r\n{}",
+                        response_body.len(),
+                        response_body
+                    );
+                    let _ = socket.write_all(resposta.as_bytes()).await;
+                    let _ = socket.shutdown().await;
+                });
+            }
+        });
+
+        (addr, conexoes)
+    }
+
+    /// Mesma técnica de [`start_mock_server`], mas com um status HTTP
+    /// escolhido (MT-139) — para simular uma resposta de erro real do
+    /// Ollama (ex.: embeddings desabilitado no servidor).
+    async fn start_mock_server_com_status(
+        status: u16,
+        response_body: &'static str,
+    ) -> (std::net::SocketAddr, Arc<AtomicUsize>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind em porta efêmera deve funcionar");
+        let addr = listener
+            .local_addr()
+            .expect("socket deve ter endereço local");
+        let conexoes = Arc::new(AtomicUsize::new(0));
+        let contador = Arc::clone(&conexoes);
+
+        tokio::spawn(async move {
+            loop {
+                let Ok((mut socket, _)) = listener.accept().await else {
+                    break;
+                };
+                contador.fetch_add(1, Ordering::SeqCst);
+                tokio::spawn(async move {
+                    let mut buf = [0u8; 1024];
+                    let _ = socket.read(&mut buf).await;
+                    let resposta = format!(
+                        "HTTP/1.1 {status} Erro\r\nContent-Type: application/json\r\n\
                          Content-Length: {}\r\nConnection: close\r\n\r\n{}",
                         response_body.len(),
                         response_body
@@ -636,6 +739,137 @@ mod tests {
             0,
             "nenhuma conexão deveria ter sido aberta"
         );
+    }
+
+    // --- MT-139: OllamaProvider::embeddings (/api/embed) ---
+
+    #[tokio::test]
+    async fn embeddings_via_transporte_retorna_vetores_e_uso() {
+        let (addr, _conexoes) =
+            start_mock_server(r#"{"embeddings":[[1.0,0.0],[0.0,1.0]],"prompt_eval_count":9}"#)
+                .await;
+        let provider = OllamaProvider::new(transport_local_only(addr), format!("http://{addr}"));
+
+        let resposta = provider
+            .embeddings(EmbeddingsRequest {
+                model: "embed-x".to_string(),
+                input: vec!["primeiro".to_string(), "segundo".to_string()],
+            })
+            .await
+            .expect("embeddings deve funcionar via Transporte");
+
+        assert_eq!(resposta.vectors, vec![vec![1.0, 0.0], vec![0.0, 1.0]]);
+        assert_eq!(resposta.usage.input_tokens, 9);
+        assert_eq!(resposta.usage.output_tokens, 0);
+    }
+
+    #[tokio::test]
+    async fn embeddings_envia_model_e_input_no_corpo_da_requisicao() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind em porta efêmera deve funcionar");
+        let addr = listener
+            .local_addr()
+            .expect("socket deve ter endereço local");
+        let corpo_capturado = Arc::new(std::sync::Mutex::new(String::new()));
+        let alvo = Arc::clone(&corpo_capturado);
+
+        tokio::spawn(async move {
+            if let Ok((mut socket, _)) = listener.accept().await {
+                let mut buf = [0u8; 4096];
+                if let Ok(n) = socket.read(&mut buf).await {
+                    *alvo.lock().expect("mutex não deve envenenar") =
+                        String::from_utf8_lossy(&buf[..n]).into_owned();
+                }
+                let resposta_json = r#"{"embeddings":[[1.0]],"prompt_eval_count":1}"#;
+                let resposta = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\
+                     Content-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    resposta_json.len(),
+                    resposta_json
+                );
+                let _ = socket.write_all(resposta.as_bytes()).await;
+                let _ = socket.shutdown().await;
+            }
+        });
+
+        let provider = OllamaProvider::new(transport_local_only(addr), format!("http://{addr}"));
+        provider
+            .embeddings(EmbeddingsRequest {
+                model: "embed-x".to_string(),
+                input: vec!["um texto".to_string()],
+            })
+            .await
+            .expect("embeddings deve funcionar via Transporte");
+
+        let requisicao_bruta = corpo_capturado
+            .lock()
+            .expect("mutex não deve envenenar")
+            .clone();
+        assert!(
+            requisicao_bruta.contains("\"model\":\"embed-x\""),
+            "esperava o model no corpo; recebido:\n{requisicao_bruta}"
+        );
+        assert!(
+            requisicao_bruta.contains("\"input\":[\"um texto\"]"),
+            "esperava o input no corpo; recebido:\n{requisicao_bruta}"
+        );
+    }
+
+    #[tokio::test]
+    async fn embeddings_respeita_local_only_e_bloqueia_sem_tocar_a_rede() {
+        let (addr, conexoes) = start_mock_server(r#"{"embeddings":[]}"#).await;
+        let allowlist = Allowlist::new(vec![AllowlistEntry::new(
+            addr.ip().to_string(),
+            EgressClass::CloudOk,
+        )]);
+        let transport = Arc::new(Transport::new(
+            allowlist,
+            EgressClass::LocalOnly,
+            Some("empresa".into()),
+            Arc::new(NoopSink),
+        ));
+        let provider = OllamaProvider::new(transport, format!("http://{addr}"));
+
+        let erro = provider
+            .embeddings(EmbeddingsRequest {
+                model: "embed-x".to_string(),
+                input: vec!["texto".to_string()],
+            })
+            .await
+            .expect_err("sessão local-only não deve alcançar host cloud-ok");
+
+        assert!(matches!(erro, ProviderError::Network(_)));
+        assert_eq!(
+            conexoes.load(Ordering::SeqCst),
+            0,
+            "nenhuma conexão deveria ter sido aberta"
+        );
+    }
+
+    #[tokio::test]
+    async fn embeddings_com_servidor_recusando_a_rota_e_erro_tratado_sem_panic() {
+        // Achado real: um Ollama sem suporte a embeddings habilitado
+        // devolve um status de erro (ex.: 400) para /api/embed -- prova
+        // que isso vira um erro tratado normal, nunca um panic.
+        let (addr, _conexoes) = start_mock_server_com_status(
+            400,
+            r#"{"error":"This server does not support embeddings"}"#,
+        )
+        .await;
+        let provider = OllamaProvider::new(transport_local_only(addr), format!("http://{addr}"));
+
+        let erro = provider
+            .embeddings(EmbeddingsRequest {
+                model: "embed-x".to_string(),
+                input: vec!["texto".to_string()],
+            })
+            .await
+            .expect_err("status de erro deve virar Err, nunca panic");
+
+        assert!(matches!(erro, ProviderError::Network(_)));
     }
 
     #[test]
