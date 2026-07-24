@@ -372,8 +372,25 @@ persistente, RAG estendido a sessões salvas.
   painel de ajuda — fonte única. 8 testes novos, 217 no bin `agentry`, 644 no *workspace*.
   Verificado com smoke-test real via `tmux`: Markdown gerado reconstrói a conversa
   corretamente, aviso sempre aparece.
-- MT-122/123 (Fase G, comandos restantes), MT-125 (Fase H, `FileAuditSink`) e MT-127..129
-  (Fase J, implementação) pendentes.
+- MT-122 ✅ (`5a4a4f0`) — `Session::with_messages` pré-popula o histórico; `crates/cli/src/
+  sessao.rs` ganha `carregar_sessao`/`localizar_arquivo`/`listar_arquivos_de_sessao` (mais
+  recente por padrão, id/nome exato, ou prefixo único — ambíguo/inexistente é erro tratado,
+  nunca uma sessão errada silenciosa); `--resume` fiado uma única vez em `main.rs`, antes do
+  despacho de modo, cobrindo TUI/*one-shot*/REPL de uma vez (os três compartilham a mesma
+  `Session`). Duas lacunas achadas via *smoke-test* real (`tmux` + mock HTTP) e corrigidas
+  antes de fechar o ticket, não previstas no texto original: (1) TUI/REPL mostravam a sessão
+  retomada visualmente vazia mesmo com o histórico completo chegando certo ao *provider* —
+  `ChatState::semear_historico` (mapeia `Message` → `Mensagem`/`Bloco`, dobra `ToolResult` no
+  `Bloco::Tool` correspondente por `call_id`) e `imprimir_historico_retomado` (REPL, texto
+  simples) resolvem; (2) `--resume "tarefa"` sem `=` fazia o `clap` consumir avidamente a
+  tarefa *one-shot* seguinte como valor de `--resume` — `require_equals = true` resolve,
+  `--resume` sozinho continua "mais recente", `--resume=<id>` é a forma explícita. 21 testes
+  novos (5 `chat.rs`, 2 `repl.rs`, 14 `sessao.rs`), 663 no *workspace*. Verificado com
+  *smoke-test* real via `tmux`: histórico visível na TUI/REPL após `--resume`, mock confirma
+  contagem de mensagens entregue ao *provider* (4 retomadas + 1 nova = 5), forma ambígua da
+  flag corrigida e reverificada com o binário `release`.
+- MT-123 (Fase G, `/sessions`), MT-125 (Fase H, `FileAuditSink`) e MT-127..129 (Fase J,
+  implementação) pendentes.
 
 ## Último turno
 

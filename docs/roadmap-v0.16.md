@@ -79,17 +79,28 @@ continua valendo como padrão (nada automático). Ver ADR-0036 para o registro c
   arquivo gerado, conferir que é Markdown legível.
 - **Depende de:** MT-119.
 
-### MT-122: Flag `--resume [id-ou-nome]` — retoma uma sessão salva
+### MT-122: Flag `--resume [id-ou-nome]` — retoma uma sessão salva ✅ concluído (5a4a4f0)
 - **Objetivo:** antes do primeiro turno (REPL/*one-shot*/TUI), se `--resume` foi passado,
   localiza o arquivo em `.agentry/session/` (sem argumento: mais recente por *timestamp*; com
   argumento: correspondência exata ou prefixo único — ambíguo é erro claro, não uma escolha
   arbitrária), desserializa (MT-120) e pré-popula `Session::messages` antes de rodar.
-- **Arquivos no escopo:** `crates/cli/src/main.rs`.
+- **Arquivos no escopo:** `crates/cli/src/main.rs`, `crates/core/src/session/mod.rs`
+  (`Session::with_messages`), `crates/cli/src/sessao.rs` (`carregar_sessao`/
+  `localizar_arquivo`/`listar_arquivos_de_sessao`), `crates/cli/src/tui/chat.rs`
+  (`ChatState::semear_historico`), `crates/cli/src/tui/mod.rs` (fiação da semeadura),
+  `crates/cli/src/repl.rs` (`imprimir_historico_retomado`).
 - **Critério de aceite:** testes — sessão retomada continua exatamente de onde parou (próxima
   chamada ao provider já leva o histórico completo); sem sessão nenhuma salva, `--resume` é
   erro claro (não silenciosamente vazio); *id*/nome ambíguo é erro claro. *Smoke-test* real:
   `/save`, fechar, `--resume`, confirmar que o modelo "lembra" do que foi dito antes.
 - **Depende de:** MT-120.
+- **Achados do *smoke-test* real (corrigidos antes de fechar o ticket, não eram escopo
+  originalmente previsto no texto acima, mas necessários pra "paridade com Claude Code"):**
+  a TUI/REPL mostravam a sessão retomada visualmente vazia mesmo com o histórico completo
+  chegando certo ao provider (`ChatState::semear_historico`/`imprimir_historico_retomado`
+  resolvem); e `--resume "tarefa"` sem `=` fazia o `clap` consumir avidamente a tarefa
+  *one-shot* seguinte como valor de `--resume` (`require_equals = true` resolve — a forma
+  sem valor continua `--resume` sozinho, a forma com valor passa a ser `--resume=<id>`).
 
 ### MT-123: Comando `/sessions` — lista sessões salvas
 - **Objetivo:** lista `id`, data e um título (início da primeira mensagem do usuário) de cada
