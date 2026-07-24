@@ -194,17 +194,20 @@ mudança de comportamento pra quem já usa `AGENTRY_LITELLM_API_KEY`.
   `home_dir_de`/`Settings::from_env_vars` (função de busca injetada em vez de tocar o
   ambiente real).
 
-### MT-128: `credentials.json` — leitura com permissão verificada
+### MT-128: `credentials.json` — leitura com permissão verificada ✅ concluído (7a19ec1)
 - **Objetivo:** novo schema `credentials.json` (`providers.<nome>.apiKey`); leitura só como
   *fallback* quando a variável de ambiente correspondente (ex.: `AGENTRY_LITELLM_API_KEY`)
   não está definida — nunca os dois somados. Permissão mais aberta que `0600` gera aviso
   (`stderr`), nunca erro fatal.
-- **Arquivos no escopo:** novo módulo (`crates/core/src/credentials.rs` ou equivalente),
-  `crates/cli/src/main.rs` (`chave_litellm`, linha ~920).
+- **Arquivos no escopo:** `crates/core/src/credentials.rs` (novo), `crates/core/src/lib.rs`,
+  `crates/cli/src/main.rs` (`chave_litellm`).
 - **Critério de aceite:** testes — variável de ambiente definida nunca consulta o arquivo;
   variável ausente lê a chave do arquivo; permissão aberta gera aviso sem falhar; arquivo
   ausente não é erro.
 - **Depende de:** MT-126.
+- **Nota de escopo:** a checagem de permissão é só Unix (`std::os::unix::fs::PermissionsExt`)
+  — Windows não tem o mesmo modelo *owner/group/other*; sem checagem equivalente nesta
+  versão (a própria ADR-0038 não detalha um esquema Windows).
 
 ### MT-129: Comando/flag para gravar credencial (`--set-credential` ou equivalente)
 - **Objetivo:** forma de o usuário gravar uma credencial em `credentials.json` sem editar o

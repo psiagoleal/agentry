@@ -429,8 +429,20 @@ persistente, RAG estendido a sessões salvas.
   *workspace*. Verificado com *smoke-test* real (binário `release` + `HOME=` apontando pra um
   diretório fake com `agentry.settings.json` de verdade): preferência global sozinha
   funciona; arquivo de projeto sobrescreve o `baseUrl` da preferência global.
-- MT-128/129 (Fase J, `credentials.json` + comando de gravação) pendentes. Próximo passo:
-  MT-128 (leitura de `credentials.json` com permissão verificada).
+- MT-128 ✅ (`7a19ec1`) — `crates/core/src/credentials.rs` (novo): `Credentials`/
+  `CredentialProvider` (`providers.<nome>.apiKey`), schema separado de
+  `agentry.settings.json` (nunca soma ao schema git-versionado). `resolve_api_key(provider,
+  env_var_value)` nunca lê o arquivo se a variável de ambiente já resolveu a chave
+  (curto-circuito antes de qualquer I/O). Permissão mais aberta que `0600` vira aviso em
+  `stderr` (só Unix), nunca falha a operação. Ausência de `$HOME`/do arquivo nunca é erro;
+  JSON malformado/`schemaVersion` não suportada é erro tratado. `main.rs`: `chave_litellm`
+  passa a vir de `credentials::resolve_api_key` em vez de só `std::env::var(...).ok()` — zero
+  mudança de comportamento pra quem já usa a variável de ambiente. 13 testes novos, 695 no
+  *workspace*. Verificado com *smoke-test* real (mock HTTP ecoando o header `Authorization` +
+  binário `release` + `HOME=` fake): permissão `644` avisa e ainda funciona; `0600` não avisa;
+  variável de ambiente definida vence e o arquivo nunca é sequer aberto.
+- MT-129 (Fase J, comando/flag para gravar credencial) pendente — último ticket da Fase J.
+  Depois dele: atualizar a release (Fase E/F/G/H/J juntas, pedido explícito do mantenedor).
 
 ## Último turno
 
