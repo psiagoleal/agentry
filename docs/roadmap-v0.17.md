@@ -167,6 +167,27 @@ binário pra toda mudança observável, skill `micro-ticket-planner` para granul
   exemplo mudar.
 - **Depende de:** MT-136, MT-137.
 
+### MT-139: `OllamaProvider::embeddings` via `/api/embed` ✅ concluído (e7e15ac)
+- **Objetivo (achado durante o MT-137, não previsto no plano original):** `smoke-test` real
+  do `/recall` contra o Ollama local de verdade revelou que `OllamaProvider::embeddings`
+  (`crates/core/src/provider/ollama.rs`) nunca foi implementado desde o MT-08 — sempre
+  devolvia `ProviderError::Unsupported`. Como `session_search`/`/recall` (MT-131..137) e o
+  `code_search` já existente (ADR-0011) **sempre** usam o cliente Ollama fixo para
+  embeddings (ADR-0039 §2), esse gap tornava as duas tools inutilizáveis contra o provider
+  *default* do projeto assim que o índice semântico tivesse ao menos um chunk. Reportado ao
+  mantenedor via `AskUserQuestion`; resposta: implementar agora.
+- **Arquivos no escopo:** `crates/core/src/provider/ollama.rs`.
+- **Critério de aceite:** testes — vetores/uso reais via mock HTTP; corpo da requisição
+  contém `model`/`input`; egresso `local-only` continua bloqueando sem tocar a rede; status
+  de erro do servidor (embeddings desabilitado) vira `Err` tratado, nunca *panic*.
+- **Depende de:** nenhum (módulo independente da Fase I em si, só descoberto durante ela).
+- **Verificado contra o Ollama local de verdade:** requisição real chega em `/api/embed`
+  (confirmado no *audit log*), erro tratado corretamente quando o servidor não tem
+  embeddings habilitado (HTTP 501, endpoint/formato do corpo confirmados corretos via `curl`
+  direto antes de implementar) — sucesso completo (vetor de verdade) não verificado ao vivo
+  porque o Ollama desta máquina não está rodando com `--embeddings`/config equivalente
+  habilitada (fora do escopo deste ticket). 4 testes novos, 740 no *workspace*.
+
 ---
 
 ## Sequência crítica
@@ -176,6 +197,7 @@ MT-130                                            (ADR)
       └→ MT-131 → MT-132 ┐
                └→ MT-133 ┴→ MT-134 → MT-136 → MT-137 → MT-138
                └→ MT-135 ───────────↗
+MT-139 (independente -- achado durante o MT-137, corrige um gap do MT-08)
 ```
 
 Nenhuma dependência cruzada com as Fases G/H/J (já concluídas) além de reaproveitar

@@ -565,7 +565,20 @@ código, ambas respondidas em 2026-07-24:
   com um modelo de verdade (`llama3.1:8b`). Reportado ao mantenedor antes de seguir para o
   MT-138 (documentação) — a doc de usuário precisa refletir o estado real, e o mantenedor
   pode preferir priorizar um ticket novo pra implementar `/api/embed` primeiro.
-- MT-138 pendente — próximo passo, condicionado à decisão do mantenedor sobre o achado acima.
+- **Decisão do mantenedor sobre o achado:** "Implementar `/api/embed` agora" (respondido via
+  `AskUserQuestion`) — novo ticket MT-139, antes do MT-138.
+- MT-139 ✅ (`e7e15ac`) — `crates/core/src/provider/ollama.rs`: `OllamaProvider::embeddings`
+  implementado de verdade (`POST {base_url}/api/embed`, mesmo `Transport` único de sempre) —
+  fecha um gap que existia desde o MT-08 (sempre `ProviderError::Unsupported`). Corrige de
+  uma vez tanto `session_search`/`/recall` quanto o `code_search` já existente, já que os
+  dois sempre usam o cliente Ollama fixo para embeddings (ADR-0039 §2). 4 testes novos, 740
+  no *workspace*. Verificado contra o Ollama local de verdade: requisição real chega em
+  `/api/embed` (confirmado no *audit log*), erro tratado corretamente quando o servidor não
+  tem embeddings habilitado (HTTP 501, endpoint/formato confirmados corretos via `curl`
+  antes de implementar) — sucesso completo não verificado ao vivo nesta máquina porque o
+  Ollama local não está com embeddings habilitado (configuração do servidor, fora de
+  escopo).
+- MT-138 pendente — próximo passo, agora sem bloqueio.
 
 ## Último turno
 
