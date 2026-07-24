@@ -528,12 +528,16 @@ fn register_context_tools(
     );
 }
 
-/// Resolve a `Config` final a partir das duas camadas reais do binário:
-/// `.agentry/agentry.settings.json` (`Settings::from_file`, MT-39) e as
-/// variáveis de ambiente (`Settings::from_process_env`) — nesta ordem, para
-/// que o ambiente sobrescreva o arquivo (mesma precedência documentada em
-/// `Settings::from_file`). Extraída de `main()` para ser testável sem rodar
-/// o binário inteiro (MT-46, mesmo padrão do MT-40/`register_context_tools`).
+/// Resolve a `Config` final a partir das três camadas reais do binário, da
+/// menos específica para a mais: preferências pessoais globais
+/// (`~/.agentry/agentry.settings.json`, `Settings::from_global_file`,
+/// MT-127/ADR-0038) `<` arquivo do projeto (`.agentry/agentry.settings.json`,
+/// `Settings::from_file`, MT-39) `<` variáveis de ambiente
+/// (`Settings::from_process_env`) — o projeto sempre pode sobrescrever uma
+/// preferência pessoal global, e a variável de ambiente continua sendo o
+/// *override* mais específico (efêmero, por invocação). Extraída de `main()`
+/// para ser testável sem rodar o binário inteiro (MT-46, mesmo padrão do
+/// MT-40/`register_context_tools`).
 ///
 /// **Achado do MT-46:** até este ticket, `main()` só montava a `Config` a
 /// partir de `Settings::from_process_env()` — a camada do arquivo nunca
@@ -545,13 +549,29 @@ fn register_context_tools(
 ///
 /// # Errors
 ///
-/// Propaga o `ConfigError` de qualquer uma das duas camadas (arquivo
+/// Propaga o `ConfigError` de qualquer uma das três camadas (arquivo
 /// malformado/`schemaVersion` divergente, ou variável de ambiente numérica
 /// inválida) — nunca *panic*.
 fn build_config(
     workspace_root: &std::path::Path,
 ) -> Result<Config, agentry_core::config::ConfigError> {
+    build_config_com_camada_global(workspace_root, Settings::from_global_file()?)
+}
+
+/// Núcleo de [`build_config`], recebendo a camada global já resolvida — os
+/// testes deste módulo passam `Settings::default()` explicitamente em vez
+/// de deixar `build_config` ler o `$HOME`/`%USERPROFILE%` **real** da
+/// máquina que roda os testes (que poderia ter um
+/// `~/.agentry/agentry.settings.json` de verdade, tornando o resultado do
+/// teste dependente do ambiente de quem/onde ele roda) — mesmo cuidado de
+/// hermeticidade já aplicado por `global_dir::home_dir_de`/
+/// `Settings::from_env_vars` (injeção em vez de tocar o real).
+fn build_config_com_camada_global(
+    workspace_root: &std::path::Path,
+    camada_global: Settings,
+) -> Result<Config, agentry_core::config::ConfigError> {
     Ok(Config::resolve(vec![
+        camada_global,
         Settings::from_file(workspace_root)?,
         Settings::from_process_env()?,
     ]))
@@ -1633,7 +1653,8 @@ mod tests {
             }"#,
         );
 
-        let cfg = build_config(dir.path()).expect("arquivo válido deve resolver");
+        let cfg = build_config_com_camada_global(dir.path(), Settings::default())
+            .expect("arquivo válido deve resolver");
 
         assert_eq!(cfg.guardrails.input.len(), 1);
         assert_eq!(cfg.guardrails.input[0].id, "bloqueia-senha");
@@ -1645,10 +1666,85 @@ mod tests {
     fn ausencia_do_arquivo_de_settings_preserva_guardrails_vazio() {
         let dir = TempDir::new();
 
-        let cfg = build_config(dir.path()).expect("ausência do arquivo não é erro");
+        let cfg = build_config_com_camada_global(dir.path(), Settings::default())
+            .expect("ausência do arquivo não é erro");
 
         assert!(cfg.guardrails.input.is_empty());
         assert!(cfg.guardrails.output.is_empty());
+    }
+
+    // --- MT-127: camada global (`~/.agentry/agentry.settings.json`, ADR-0038) ---
+
+    #[test]
+    fn camada_global_preenche_uma_preferencia_ausente_do_projeto() {
+        let dir = TempDir::new();
+        // Sem `.agentry/agentry.settings.json` no "projeto" -- só a camada
+        // global declara um modelo padrão.
+        let camada_global = Settings::from_json_str(
+            r#"{
+              "$schema": "https://agentry.dev/schema/agentry-settings-schema-1.json",
+              "schemaVersion": 1,
+              "model": "modelo-pessoal-padrao"
+            }"#,
+        )
+        .expect("JSON válido");
+
+        let cfg = build_config_com_camada_global(dir.path(), camada_global)
+            .expect("deve resolver com a camada global");
+
+        assert_eq!(cfg.model.as_deref(), Some("modelo-pessoal-padrao"));
+    }
+
+    #[test]
+    fn arquivo_do_projeto_sobrescreve_a_preferencia_global() {
+        let dir = TempDir::new();
+        escreve_settings(
+            dir.path(),
+            r#"{
+              "$schema": "https://agentry.dev/schema/agentry-settings-schema-1.json",
+              "schemaVersion": 1,
+              "model": "modelo-do-projeto"
+            }"#,
+        );
+        let camada_global = Settings::from_json_str(
+            r#"{
+              "$schema": "https://agentry.dev/schema/agentry-settings-schema-1.json",
+              "schemaVersion": 1,
+              "model": "modelo-pessoal-padrao"
+            }"#,
+        )
+        .expect("JSON válido");
+
+        let cfg = build_config_com_camada_global(dir.path(), camada_global)
+            .expect("deve resolver com as duas camadas");
+
+        assert_eq!(
+            cfg.model.as_deref(),
+            Some("modelo-do-projeto"),
+            "o arquivo do projeto deve vencer a preferência pessoal global"
+        );
+    }
+
+    #[test]
+    fn camada_global_ausente_e_regressao_zero_frente_ao_comportamento_de_sempre() {
+        let dir = TempDir::new();
+        escreve_settings(
+            dir.path(),
+            r#"{
+              "$schema": "https://agentry.dev/schema/agentry-settings-schema-1.json",
+              "schemaVersion": 1,
+              "guardrails": {
+                "input": [{"id": "bloqueia-senha", "match": "senha:", "action": "block"}],
+                "output": []
+              }
+            }"#,
+        );
+
+        let cfg = build_config_com_camada_global(dir.path(), Settings::default())
+            .expect("camada global vazia não deve mudar nada");
+
+        assert_eq!(cfg.guardrails.input.len(), 1);
+        assert_eq!(cfg.guardrails.input[0].id, "bloqueia-senha");
     }
 
     #[tokio::test]
@@ -1666,7 +1762,8 @@ mod tests {
               }
             }"#,
         );
-        let cfg = build_config(dir.path()).expect("arquivo válido deve resolver");
+        let cfg = build_config_com_camada_global(dir.path(), Settings::default())
+            .expect("arquivo válido deve resolver");
         let mock = Arc::new(MockProvider::new("mock"));
         // Nenhuma resposta enfileirada de propósito: se o provider fosse
         // chamado, o mock devolveria erro de fila vazia.
@@ -1697,7 +1794,8 @@ mod tests {
               }
             }"#,
         );
-        let cfg = build_config(dir.path()).expect("arquivo válido deve resolver");
+        let cfg = build_config_com_camada_global(dir.path(), Settings::default())
+            .expect("arquivo válido deve resolver");
         let mock = Arc::new(MockProvider::new("mock"));
         mock.enqueue_chat(Ok(agentry_core::provider::ChatResponse {
             message: agentry_core::model::Message::assistant("o valor é segredo-abc, guarde bem"),

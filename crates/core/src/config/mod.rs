@@ -558,14 +558,38 @@ impl Settings {
     /// divergente da suportada, propaga o mesmo erro fail-closed de
     /// [`Self::from_json_str`] — nunca um *panic*.
     pub fn from_file(start: &std::path::Path) -> Result<Self, ConfigError> {
-        let caminho = crate::state_dir::agentry_settings_path(start);
-        match std::fs::read_to_string(&caminho) {
+        Self::from_exact_path(&crate::state_dir::agentry_settings_path(start))
+    }
+
+    /// Interpreta o arquivo de configuração no caminho **exato** dado — sem
+    /// resolver nenhuma raiz de projeto. Núcleo compartilhado por
+    /// [`Self::from_file`] (resolve o caminho a partir de uma raiz de
+    /// projeto) e [`Self::from_global_file`] (MT-127/ADR-0038, caminho já
+    /// resolvido via [`crate::global_dir::global_settings_path`]). Mesma
+    /// semântica de ausência/erro de [`Self::from_file`].
+    pub fn from_exact_path(caminho: &std::path::Path) -> Result<Self, ConfigError> {
+        match std::fs::read_to_string(caminho) {
             Ok(json) => Self::from_json_str(&json),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Self::default()),
             Err(e) => Err(ConfigError::Parse(format!(
                 "não foi possível ler {}: {e}",
                 caminho.display()
             ))),
+        }
+    }
+
+    /// Camada de preferências pessoais globais (`~/.agentry/agentry.settings.json`,
+    /// MT-127/ADR-0038) — a camada **menos específica** de todas
+    /// (`Config::resolve` recebe `[global, projeto, ambiente]`, nessa ordem:
+    /// o arquivo do projeto sobrescreve a preferência pessoal, que por sua
+    /// vez só existe pra evitar repetir a mesma preferência em todo
+    /// projeto). Camada vazia (`Settings::default`), nunca erro fatal, tanto
+    /// sem `$HOME`/`%USERPROFILE%` definida quanto sem o arquivo existir —
+    /// mesmo espírito de "ausência não é erro" de [`Self::from_file`].
+    pub fn from_global_file() -> Result<Self, ConfigError> {
+        match crate::global_dir::global_settings_path() {
+            Some(caminho) => Self::from_exact_path(&caminho),
+            None => Ok(Self::default()),
         }
     }
 

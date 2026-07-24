@@ -19,6 +19,7 @@ pub mod checkpoint;
 pub mod config;
 pub mod context;
 pub mod egress;
+pub mod global_dir;
 pub mod guardrail;
 pub mod mcp;
 pub mod memory;
