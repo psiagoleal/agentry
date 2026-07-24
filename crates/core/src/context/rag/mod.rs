@@ -15,6 +15,7 @@ pub mod lexical_index;
 pub mod semantic_index;
 pub mod session_chunk;
 pub mod session_hybrid_search;
+pub mod session_incremental;
 pub mod session_lexical_index;
 pub mod session_semantic_index;
 
