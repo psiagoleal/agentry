@@ -416,8 +416,21 @@ persistente, RAG estendido a sessões salvas.
   679 no *workspace*. Verificado com *smoke-test* real (mock HTTP + binário `release`):
   `.agentry/audit.log` grava a mesma entrada que aparece em `stderr` no *one-shot*; no
   `--tui`, o arquivo grava normalmente e a tela não corrompe. **Fecha a Fase H inteira.**
-- MT-127..129 (Fase J, implementação) pendentes — a ADR-0038 já está `Accepted` desde o
-  MT-126. Próximo passo: MT-127 (resolução de `~/.agentry/` + settings global).
+- MT-127 ✅ (`88e14a4`) — `crates/core/src/global_dir.rs` (novo): `home_dir()` resolve
+  `$HOME`/`%USERPROFILE%` via `std::env::var_os` (sem `dirs`/`directories`, ADR-0004);
+  `global_settings_path()`/`global_credentials_path()` resolvem os dois arquivos de
+  `~/.agentry/` (o segundo só o caminho, leitura fica pro MT-128). `Settings` ganha
+  `from_exact_path` (núcleo compartilhado) e `from_global_file` (camada
+  `~/.agentry/agentry.settings.json`, ausência nunca é erro). `build_config` (`main.rs`) ganha
+  a camada nova: `global < projeto < ambiente`. **Achado:** os 4 testes existentes de
+  `build_config` passariam a ler o `$HOME` real da máquina rodando os testes — resolvido com
+  `build_config_com_camada_global` (camada global injetada explicitamente nos testes), mesmo
+  cuidado de hermeticidade já aplicado por `Settings::from_env_vars`. 12 testes novos, 688 no
+  *workspace*. Verificado com *smoke-test* real (binário `release` + `HOME=` apontando pra um
+  diretório fake com `agentry.settings.json` de verdade): preferência global sozinha
+  funciona; arquivo de projeto sobrescreve o `baseUrl` da preferência global.
+- MT-128/129 (Fase J, `credentials.json` + comando de gravação) pendentes. Próximo passo:
+  MT-128 (leitura de `credentials.json` com permissão verificada).
 
 ## Último turno
 

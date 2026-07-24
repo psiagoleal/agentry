@@ -173,17 +173,26 @@ mudança de comportamento pra quem já usa `AGENTRY_LITELLM_API_KEY`.
   `docs/roadmap-v0.16.md` (este arquivo).
 - **Depende de:** nenhum.
 
-### MT-127: Resolução de `~/.agentry/` + leitura de `agentry.settings.json` global
+### MT-127: Resolução de `~/.agentry/` + leitura de `agentry.settings.json` global ✅ concluído (88e14a4)
 - **Objetivo:** novo helper de resolução de diretório *home* (`$HOME`/`%USERPROFILE%`, sem
   `dirs`/`directories`); `build_config` (`crates/cli/src/main.rs`) ganha a camada nova
   **antes** do arquivo de projeto: `~/.agentry/agentry.settings.json < .agentry/ do projeto
   < ambiente`. Arquivo global ausente não é erro (cai nos defaults, mesmo padrão de sempre).
-- **Arquivos no escopo:** novo módulo (`crates/core/src/global_dir.rs` ou equivalente),
-  `crates/cli/src/main.rs`.
+- **Arquivos no escopo:** `crates/core/src/global_dir.rs` (novo — `home_dir`/
+  `global_settings_path`/`global_credentials_path`, este último só o caminho, leitura fica
+  para o MT-128), `crates/core/src/config/mod.rs` (`Settings::from_exact_path`/
+  `from_global_file`), `crates/core/src/lib.rs`, `crates/cli/src/main.rs`.
 - **Critério de aceite:** testes — preferência só no arquivo global aparece na `Config`
   resolvida; preferência no projeto sobrescreve a global; variável de ambiente sobrescreve as
   duas; sem `$HOME`/arquivo global, comportamento idêntico ao de hoje (regressão zero).
 - **Depende de:** MT-126.
+- **Achado durante a implementação:** os 4 testes existentes de `build_config` chamavam a
+  função real, que agora lê o `$HOME` de verdade da máquina rodando os testes — risco de um
+  `~/.agentry/agentry.settings.json` real do desenvolvedor vazar pro resultado do teste.
+  Resolvido com `build_config_com_camada_global` (camada global injetada explicitamente,
+  `Settings::default()` nos testes), mesmo cuidado de hermeticidade já aplicado por
+  `home_dir_de`/`Settings::from_env_vars` (função de busca injetada em vez de tocar o
+  ambiente real).
 
 ### MT-128: `credentials.json` — leitura com permissão verificada
 - **Objetivo:** novo schema `credentials.json` (`providers.<nome>.apiKey`); leitura só como
