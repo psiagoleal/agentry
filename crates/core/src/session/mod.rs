@@ -18,6 +18,7 @@
 //! (`run`/`run_streaming`, modos `advisory`/`blocking` com retry limitado)
 //! é o MT-35.
 
+pub mod persist;
 pub mod reviewer;
 
 use std::collections::HashMap;
