@@ -102,15 +102,19 @@ continua valendo como padrão (nada automático). Ver ADR-0036 para o registro c
   *one-shot* seguinte como valor de `--resume` (`require_equals = true` resolve — a forma
   sem valor continua `--resume` sozinho, a forma com valor passa a ser `--resume=<id>`).
 
-### MT-123: Comando `/sessions` — lista sessões salvas
+### MT-123: Comando `/sessions` — lista sessões salvas ✅ concluído (36c6cf3)
 - **Objetivo:** lista `id`, data e um título (início da primeira mensagem do usuário) de cada
   sessão em `.agentry/session/`, mais recente primeiro — sem isso, `--resume <id>` exige que o
   usuário já saiba o *id* de cor.
-- **Arquivos no escopo:** `crates/cli/src/repl.rs`, `docs/usuario/uso.md`.
+- **Arquivos no escopo:** `crates/cli/src/sessao.rs` (`listar_sessoes`/
+  `formatar_lista_de_sessoes`), `crates/cli/src/repl.rs`, `crates/cli/src/tui/mod.rs`,
+  `docs/usuario/uso.md`.
 - **Critério de aceite:** testes — lista vazia sem nenhuma sessão salva (não erro); ordem mais
   recente primeiro; título extraído corretamente da primeira mensagem de usuário.
-- **Depende de:** MT-119 (só precisa ler o *front matter* + a primeira seção `## Usuário`, não
-  o histórico inteiro).
+- **Depende de:** MT-119 (reaproveita `persist::desserializar_de_markdown`, MT-120, em vez de
+  um segundo *parser* só de metadados — simplicidade preferida à otimização de não ler o
+  histórico inteiro, dado o tamanho trivial dos arquivos de sessão locais).
+- **Fecha a Fase G inteira.**
 
 ---
 

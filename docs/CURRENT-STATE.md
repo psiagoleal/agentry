@@ -389,8 +389,20 @@ persistente, RAG estendido a sessões salvas.
   *smoke-test* real via `tmux`: histórico visível na TUI/REPL após `--resume`, mock confirma
   contagem de mensagens entregue ao *provider* (4 retomadas + 1 nova = 5), forma ambígua da
   flag corrigida e reverificada com o binário `release`.
-- MT-123 (Fase G, `/sessions`), MT-125 (Fase H, `FileAuditSink`) e MT-127..129 (Fase J,
-  implementação) pendentes.
+- MT-123 ✅ (`36c6cf3`) — `listar_sessoes`/`formatar_lista_de_sessoes` em `sessao.rs`: lê cada
+  `.agentry/session/*.md` via `persist::desserializar_de_markdown` (MT-120, sem um segundo
+  *parser* só de metadados), mais recente primeiro, título da primeira mensagem de usuário
+  (trunca em 60 caracteres, `"(sem mensagem de usuário)"` se não houver nenhuma). Arquivo
+  corrompido é ignorado, não aborta a listagem inteira. `/sessions` fiado no REPL e na TUI,
+  mesmo padrão de `/save` (fonte única de formatação) + entrada no painel de ajuda.
+  `docs/usuario/uso.md` ganha a seção "Sessões salvas", cobrindo `/save`/`--resume`/`/sessions`
+  juntos (documentação da trinca inteira não existia até agora). 18 testes novos, 674 no
+  *workspace*. Verificado com *smoke-test* real (`tmux` + binário `release`): lista vazia
+  avisa pra usar `/save`, lista com uma sessão mostra id/data/título no REPL e na TUI.
+  **Fecha a Fase G inteira.**
+- MT-125 (Fase H, `FileAuditSink`) e MT-127..129 (Fase J, implementação) pendentes. Próximo
+  passo: MT-125, único ticket restante da Fase H (a ADR-0037 já está `Accepted` desde o
+  MT-124).
 
 ## Último turno
 
