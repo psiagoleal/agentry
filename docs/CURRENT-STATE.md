@@ -547,7 +547,25 @@ código, ambas respondidas em 2026-07-24:
   `main()` completo roda sem *panic*; verificação de ponta a ponta do *pipeline* coberta
   pelos testes de unidade (mesmo nível do `code_search` original, MT-30, que também não
   teve *smoke-test* de *tool-calling* ao vivo).
-- MT-137/138 pendentes — próximo passo: MT-137 (comando `/recall <busca>`, REPL e TUI).
+- MT-137 ✅ (`837715a`) — `/recall <busca>` (REPL e TUI): reaproveita a **mesma**
+  `SessionSearchSession` (`main.rs` monta uma única instância compartilhada, passada tanto a
+  `register_context_tools` quanto a `repl::run_repl`/`tui::run`) — mesmo cache de índices
+  entre a tool e o comando manual. `formatar_resultados` (`session_search.rs`) vira `pub`,
+  fonte única de formatação. Não passa pelo `PermissionGate` (nenhum comando de barra passa).
+  18 testes novos, 736 no *workspace*.
+- **⚠️ Achado real, via *smoke-test* contra o Ollama local de verdade (não só `MockProvider`):**
+  `OllamaProvider::embeddings` (`crates/core/src/provider/ollama.rs`, desde o MT-08/ADR
+  original) nunca foi implementado — sempre devolve `ProviderError::Unsupported`. Isso
+  significa que `/recall`/`session_search` (e, pelo mesmo motivo, `code_search` já existente,
+  assim que o índice semântico tiver ao menos um chunk) **falham contra o Ollama real** —
+  `erro: falha no índice semântico de sessão: provider de embeddings falhou: não suportado:
+  OllamaProvider ainda não implementa /api/embed`. Gap pré-existente (não introduzido pela
+  Fase I), invisível a qualquer teste automatizado (`MockProvider` sempre implementa
+  embeddings) — só apareceu rodando o binário `release` real contra `http://127.0.0.1:11434`
+  com um modelo de verdade (`llama3.1:8b`). Reportado ao mantenedor antes de seguir para o
+  MT-138 (documentação) — a doc de usuário precisa refletir o estado real, e o mantenedor
+  pode preferir priorizar um ticket novo pra implementar `/api/embed` primeiro.
+- MT-138 pendente — próximo passo, condicionado à decisão do mantenedor sobre o achado acima.
 
 ## Último turno
 

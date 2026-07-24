@@ -132,7 +132,7 @@ binário pra toda mudança observável, skill `micro-ticket-planner` para granul
   `register_context_tools`). 13 testes novos (mais 2 testes existentes de "3 tools de
   contexto" ampliados para "4 tools", cobrindo `session_search`), 731 no *workspace*.
 
-### MT-137: Comando `/recall <busca>` — REPL e TUI
+### MT-137: Comando `/recall <busca>` — REPL e TUI ✅ concluído (837715a)
 - **Objetivo:** mesma busca da tool (MT-136), função compartilhada extraída para não
   duplicar lógica — formata o resultado como texto simples (REPL) ou mensagem de sistema
   (TUI, mesmo padrão de `/sessions`). Não passa pelo `PermissionGate` (nenhum comando de
@@ -143,6 +143,16 @@ binário pra toda mudança observável, skill `micro-ticket-planner` para granul
   <busca>` com sessões de teste devolve os trechos esperados, formatados de forma legível.
   *Smoke-test* real via `tmux`.
 - **Depende de:** MT-136.
+- `main.rs` monta uma única `SessionSearchSession` compartilhada (não uma por caminho),
+  passada tanto a `register_context_tools` quanto a `repl::run_repl`/`tui::run` — mesmo
+  cache de índices entre a tool e o comando manual. 18 testes novos, 736 no *workspace*.
+- **⚠️ Achado real via smoke-test contra o Ollama local de verdade (não `docs/usuario/uso.md`
+  ainda, ver MT-138):** `OllamaProvider::embeddings` (`crates/core/src/provider/ollama.rs`,
+  desde o MT-08) nunca foi implementado — sempre devolve `ProviderError::Unsupported`.
+  `/recall` (e, pelo mesmo motivo, `code_search` com um índice semântico não-vazio) falha
+  contra o Ollama real assim que há ao menos um chunk pra embeddar — gap pré-existente, não
+  introduzido por este ticket, só ficou visível com um *smoke-test* real (`MockProvider` nos
+  testes sempre implementa embeddings). Reportado ao mantenedor antes de seguir pro MT-138.
 
 ### MT-138: Documentação de usuário + *settings-schema*
 - **Objetivo:** `context.sessionSearch.enabled` documentado em `docs/usuario/configuracao.md`
