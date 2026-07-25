@@ -43,6 +43,7 @@ use agentry_core::egress::allowlist::{Allowlist, AllowlistEntry, ANY_HOST};
 use agentry_core::egress::audit::AuditEntry;
 use agentry_core::guardrail::{GuardrailAuditEntry, GuardrailAuditSink, GuardrailGate};
 use agentry_core::mcp::McpClient;
+use agentry_core::provider::anthropic::AnthropicProvider;
 use agentry_core::provider::ollama::OllamaProvider;
 use agentry_core::provider::openai_compat::OpenAiCompatProvider;
 use agentry_core::provider::LlmProvider;
@@ -88,6 +89,17 @@ const LITELLM_PROVIDER_NAME: &str = "litellm";
 /// de autorização é anexado; gateways internos sem autenticação (ex.: só
 /// acessíveis via VPN corporativa) continuam funcionando sem ela.
 const LITELLM_API_KEY_ENV: &str = "AGENTRY_LITELLM_API_KEY";
+/// Nome do provider Anthropic (ADR-0040) no `Router` — Messages API por
+/// **chave de API**. Deliberadamente distinto do caminho de assinatura
+/// Pro/Max (`claude-cli`): autenticação, custo e auditoria diferentes, e o
+/// usuário precisa escolher explicitamente qual está usando.
+const ANTHROPIC_PROVIDER_NAME: &str = "anthropic";
+/// Variável de ambiente com a chave da Anthropic API (ADR-0040) — nunca lida
+/// do arquivo de configuração versionado. Ausente ⇒ `credentials::
+/// resolve_api_key` consulta `~/.agentry/credentials.json` (MT-128).
+const ANTHROPIC_API_KEY_ENV: &str = "ANTHROPIC_API_KEY";
+/// Versão da Messages API enviada em toda requisição (header obrigatório).
+const ANTHROPIC_VERSION: &str = "2023-06-01";
 /// *Language server* usado por `lsp_hover`/`lsp_definition` (MT-24, ADR-0013)
 /// quando `context.lspGrounding.enabled` está ativo. Seleção por linguagem
 /// (detectar o projeto e escolher o LS certo) fica para um ticket futuro —
@@ -208,8 +220,9 @@ struct Args {
     #[arg(long, short = 'm')]
     model: Option<String>,
 
-    /// Provider a usar nesta invocação — `ollama` (padrão) ou `litellm`, se
-    /// `providers.litellm` estiver configurado (ADR-0006/MT-49). Restringe a
+    /// Provider a usar nesta invocação — `ollama` (padrão), `litellm` (se
+    /// `providers.litellm` estiver configurado, ADR-0006/MT-49) ou `anthropic`
+    /// (se `providers.anthropic` estiver configurado, ADR-0040). Restringe a
     /// escolha aos candidatos já declarados na rota; nome desconhecido é o
     /// mesmo erro tratado de `Router::resolve_with_override`.
     #[arg(long, short = 'p')]
@@ -679,6 +692,70 @@ fn build_litellm_provider(
     Ok(Some((provider, candidato)))
 }
 
+/// Monta o provider Anthropic (Messages API por chave, ADR-0040) e o
+/// candidato de rota correspondente, a partir de `cfg.anthropic`
+/// (`providers.anthropic`) — `None` se não estiver configurado, mesmo padrão
+/// de [`build_litellm_provider`].
+///
+/// `Transport` dedicado com `Allowlist` restrita ao host de `base_url` sob a
+/// `egress_class` já resolvida por `Config` — nunca inferida aqui. A chave
+/// (de `ANTHROPIC_API_KEY` ou de `~/.agentry/credentials.json`, resolvida por
+/// `main` — nunca por esta função, para não acoplar os testes ao ambiente do
+/// processo real) vai no header `x-api-key`, **não** em `Authorization:
+/// Bearer` como no LiteLLM: a Messages API usa um esquema próprio, junto do
+/// header obrigatório `anthropic-version`.
+///
+/// Diferente do LiteLLM, a chave aqui é **obrigatória** — a Anthropic API não
+/// tem modo anônimo, então configurar o provider sem credencial é erro de
+/// configuração, reportado, e não uma requisição que falharia com 401 no
+/// primeiro uso.
+///
+/// # Errors
+///
+/// Devolve erro se `providers.anthropic.baseUrl` não puder ser interpretada
+/// como URL válida com host, ou se nenhuma credencial for encontrada.
+fn build_anthropic_provider(
+    cfg: &Config,
+    api_key: Option<&str>,
+    audit_sink: Arc<dyn AuditSink>,
+) -> Result<Option<RegistroDeProvider>, String> {
+    let Some(anthropic) = &cfg.anthropic else {
+        return Ok(None);
+    };
+
+    let Some(chave) = api_key else {
+        return Err(format!(
+            "providers.anthropic está configurado (model: {}) mas nenhuma credencial foi \
+             encontrada — defina {ANTHROPIC_API_KEY_ENV} ou grave a chave com \
+             `agentry --set-credential {ANTHROPIC_PROVIDER_NAME}`",
+            anthropic.model
+        ));
+    };
+
+    let host = host_from_url(&anthropic.base_url)
+        .map_err(|erro| format!("providers.anthropic.baseUrl inválida: {erro}"))?;
+    let allowlist = Allowlist::new(vec![AllowlistEntry::new(host, anthropic.egress_class)]);
+    let transport = Transport::new(
+        allowlist,
+        cfg.egress_class,
+        cfg.profile.map(|p| format!("{p:?}")),
+        audit_sink,
+    )
+    .with_header("x-api-key", chave)
+    .with_header("anthropic-version", ANTHROPIC_VERSION);
+
+    let provider: Arc<dyn LlmProvider> = Arc::new(AnthropicProvider::new(
+        Arc::new(transport),
+        anthropic.base_url.clone(),
+    ));
+    let candidato = RouteTarget::new(
+        ANTHROPIC_PROVIDER_NAME,
+        anthropic.model.clone(),
+        anthropic.egress_class,
+    );
+    Ok(Some((provider, candidato)))
+}
+
 /// Monta a tool `web_fetch` (MT-65, ADR-0025) só quando as **duas**
 /// condições valem: `tools.webFetch.enabled` (*opt-in* explícito) **e**
 /// `cfg.egress_class == CloudOk` (acesso amplo à internet é a capacidade
@@ -764,7 +841,7 @@ fn register_declared_task_classes(
     router: &mut Router,
     cfg: &Config,
     modelo_inicial: &str,
-    litellm_candidato: Option<&RouteTarget>,
+    candidatos_extra: &[RouteTarget],
 ) {
     for nome in TASK_CLASSES_AUXILIARES {
         if !cfg.task_classes.contains_key(nome) {
@@ -773,7 +850,7 @@ fn register_declared_task_classes(
                 modelo_inicial,
                 agentry_core::config::privacy::EgressClass::LocalOnly,
             )];
-            candidates.extend(litellm_candidato.cloned());
+            candidates.extend_from_slice(candidatos_extra);
             router.set_route(
                 nome,
                 RouteEntry {
@@ -794,26 +871,34 @@ fn register_declared_task_classes(
 /// resultado (MT-91/ADR-0031: o subagente ganha sua própria instância
 /// "equivalente" à do laço principal, já que `Router` não é `Clone`/
 /// compartilhável sob mutação concorrente).
+/// `registros_extra` são os providers de nuvem opcionais, na ordem de
+/// preferência em que devem entrar como candidatos depois do Ollama local:
+/// LiteLLM (`providers.litellm`, MT-49) e Anthropic (`providers.anthropic`,
+/// ADR-0040). Uma lista (e não um `Option` por provider) porque o número de
+/// providers opcionais cresce — o `claude-cli` da ADR-0040 é o próximo.
 fn montar_router(
     egress_class: agentry_core::config::privacy::EgressClass,
     ollama: Arc<dyn LlmProvider>,
-    litellm_registro: Option<RegistroDeProvider>,
+    registros_extra: Vec<RegistroDeProvider>,
     modelo_inicial: &str,
     cfg: &Config,
 ) -> Router {
     let mut router = Router::new(egress_class);
     router.register_provider(ollama);
-    let litellm_candidato = litellm_registro.map(|(provider, candidato)| {
-        router.register_provider(provider);
-        candidato
-    });
+    let candidatos_extra: Vec<RouteTarget> = registros_extra
+        .into_iter()
+        .map(|(provider, candidato)| {
+            router.register_provider(provider);
+            candidato
+        })
+        .collect();
     repl::set_chat_route(
         &mut router,
         modelo_inicial,
         &CallPreset::default(),
-        litellm_candidato.as_ref(),
+        &candidatos_extra,
     );
-    register_declared_task_classes(&mut router, cfg, modelo_inicial, litellm_candidato.as_ref());
+    register_declared_task_classes(&mut router, cfg, modelo_inicial, &candidatos_extra);
     router
 }
 
@@ -1029,6 +1114,30 @@ async fn main() {
                 std::process::exit(2)
             });
 
+    // Mesma disciplina do LiteLLM (ADR-0038): variável de ambiente vence e
+    // curto-circuita antes de qualquer I/O; `~/.agentry/credentials.json` só
+    // é consultado quando ela não está definida.
+    let chave_anthropic = agentry_core::credentials::resolve_api_key(
+        ANTHROPIC_PROVIDER_NAME,
+        std::env::var(ANTHROPIC_API_KEY_ENV).ok(),
+    )
+    .unwrap_or_else(|erro| {
+        eprintln!("erro ao ler credenciais: {erro}");
+        std::process::exit(2)
+    });
+    let anthropic_registro: Option<RegistroDeProvider> =
+        build_anthropic_provider(&cfg, chave_anthropic.as_deref(), Arc::clone(&audit_sink))
+            .unwrap_or_else(|erro| {
+                eprintln!("erro de configuração: {erro}");
+                std::process::exit(2)
+            });
+
+    // Ordem = preferência de candidato depois do Ollama local.
+    let registros_extra: Vec<RegistroDeProvider> = litellm_registro
+        .into_iter()
+        .chain(anthropic_registro)
+        .collect();
+
     let modelo_inicial = args
         .model
         .clone()
@@ -1046,17 +1155,21 @@ async fn main() {
     let mut router = montar_router(
         cfg.egress_class,
         ollama.clone(),
-        litellm_registro.clone(),
+        registros_extra.clone(),
         &modelo_inicial,
         &cfg,
     );
-    let litellm_candidato = litellm_registro
-        .as_ref()
-        .map(|(_, candidato)| candidato.clone());
+    // O REPL precisa de **todos** os candidatos extras, não só do primeiro:
+    // `/model` redeclara a rota inteira (ver `repl::set_chat_route`), então um
+    // candidato ausente daqui sumiria na primeira troca de modelo.
+    let candidatos_extra: Vec<RouteTarget> = registros_extra
+        .iter()
+        .map(|(_, candidato)| candidato.clone())
+        .collect();
     let router_subagente = Arc::new(montar_router(
         cfg.egress_class,
         ollama,
-        litellm_registro,
+        registros_extra,
         &modelo_inicial,
         &cfg,
     ));
@@ -1286,7 +1399,7 @@ async fn main() {
             &repl::ReplConfig {
                 workspace_root: &workspace_root,
                 preset_base: &CallPreset::default(),
-                candidato_extra: litellm_candidato.as_ref(),
+                candidatos_extra: &candidatos_extra,
                 session_search_session: &session_search_session,
             },
         )
@@ -1480,6 +1593,7 @@ mod tests {
             ollama_structured_output: true,
             guardrails: agentry_core::guardrail::GuardrailGate::default(),
             litellm: None,
+            anthropic: None,
             task_classes: std::collections::HashMap::new(),
             web_fetch_enabled: false,
             web_search: None,
@@ -2159,6 +2273,131 @@ mod tests {
         }
     }
 
+    // ---- build_anthropic_provider (ADR-0040) ----
+
+    fn cfg_com_anthropic(anthropic_json: &str) -> Config {
+        let json = format!(r#"{{ "providers": {{ "anthropic": {anthropic_json} }} }}"#);
+        let camada = agentry_core::config::Settings::from_json_str(&json)
+            .expect("JSON de teste deve ser válido");
+        Config::resolve(vec![camada])
+    }
+
+    #[test]
+    fn ausencia_de_providers_anthropic_nao_e_erro_e_nao_registra() {
+        let cfg = Config::resolve(vec![Settings::default()]);
+        assert!(
+            build_anthropic_provider(&cfg, Some("chave"), Arc::new(NoopAuditSink))
+                .expect("ausência de anthropic não é erro")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn anthropic_configurado_monta_provider_e_candidato_corretos() {
+        let cfg = cfg_com_anthropic(r#"{ "model": "claude-opus-5" }"#);
+
+        let (provider, candidato) =
+            build_anthropic_provider(&cfg, Some("chave-de-teste"), Arc::new(NoopAuditSink))
+                .expect("configuração válida não é erro")
+                .expect("model declarado deve montar Some");
+
+        assert_eq!(provider.name(), ANTHROPIC_PROVIDER_NAME);
+        assert_eq!(candidato.provider, ANTHROPIC_PROVIDER_NAME);
+        assert_eq!(candidato.model, "claude-opus-5");
+        assert_eq!(
+            candidato.egress_class,
+            agentry_core::config::privacy::EgressClass::CloudOk
+        );
+    }
+
+    /// Diferente do LiteLLM (gateway interno pode não ter autenticação), a
+    /// Messages API não tem modo anônimo — configurar sem credencial é erro
+    /// de configuração reportado no arranque, não um 401 no primeiro uso.
+    #[test]
+    fn anthropic_sem_credencial_e_erro_de_configuracao_tratado() {
+        let cfg = cfg_com_anthropic(r#"{ "model": "claude-opus-5" }"#);
+
+        match build_anthropic_provider(&cfg, None, Arc::new(NoopAuditSink)) {
+            Err(erro) => {
+                assert!(
+                    erro.contains("credencial") && erro.contains("--set-credential"),
+                    "o erro deve dizer como resolver, não só que faltou: {erro}"
+                );
+            }
+            Ok(_) => panic!("sem credencial deve ser erro, não Some silencioso"),
+        }
+    }
+
+    #[test]
+    fn anthropic_com_base_url_invalida_e_erro_tratado() {
+        let cfg = cfg_com_anthropic(r#"{ "model": "m", "baseUrl": "não-é-uma-url" }"#);
+
+        match build_anthropic_provider(&cfg, Some("chave"), Arc::new(NoopAuditSink)) {
+            Err(erro) => assert!(erro.contains("baseUrl")),
+            Ok(_) => panic!("base_url sem host deve ser erro"),
+        }
+    }
+
+    /// Regressão da fiação: antes da ADR-0040 o `AnthropicProvider` existia
+    /// completo em `crates/core` mas **nunca era registrado no `Router`** —
+    /// código morto que nenhum teste pegava, porque cada teste montava seu
+    /// próprio router.
+    #[tokio::test]
+    async fn router_registra_anthropic_junto_do_ollama_e_resolve_via_override() {
+        let cfg = cfg_com_anthropic(r#"{ "model": "claude-opus-5" }"#);
+        let registro = build_anthropic_provider(&cfg, Some("chave"), Arc::new(NoopAuditSink))
+            .expect("configuração válida")
+            .expect("deve montar Some");
+
+        let router = montar_router(
+            agentry_core::config::privacy::EgressClass::CloudOk,
+            Arc::new(MockProvider::new("ollama")),
+            vec![registro],
+            "modelo-ollama",
+            &cfg,
+        );
+
+        let override_anthropic = RuntimeOverride {
+            provider: Some(ANTHROPIC_PROVIDER_NAME.to_string()),
+            ..RuntimeOverride::default()
+        };
+        let rota = router
+            .resolve_with_override("chat", &override_anthropic)
+            .expect("anthropic deve estar declarada como candidato de `chat`");
+
+        assert_eq!(rota.provider.name(), ANTHROPIC_PROVIDER_NAME);
+        assert_eq!(rota.model, "claude-opus-5");
+    }
+
+    /// O Ollama local continua sendo o candidato preferencial mesmo com a
+    /// Anthropic configurada — configurar nuvem nunca muda o default para
+    /// sair da máquina sozinho.
+    #[tokio::test]
+    async fn ollama_continua_preferencial_com_anthropic_configurada() {
+        let cfg = cfg_com_anthropic(r#"{ "model": "claude-opus-5" }"#);
+        let registro = build_anthropic_provider(&cfg, Some("chave"), Arc::new(NoopAuditSink))
+            .expect("configuração válida")
+            .expect("deve montar Some");
+
+        let router = montar_router(
+            agentry_core::config::privacy::EgressClass::CloudOk,
+            Arc::new(MockProvider::new("ollama")),
+            vec![registro],
+            "modelo-ollama",
+            &cfg,
+        );
+
+        let rota = router
+            .resolve_with_override("chat", &RuntimeOverride::default())
+            .expect("chat deve resolver");
+
+        assert_eq!(
+            rota.provider.name(),
+            "ollama",
+            "sem override explícito, o local vence"
+        );
+    }
+
     #[tokio::test]
     async fn router_com_ollama_e_litellm_resolve_o_candidato_pedido_via_runtime_override() {
         let cfg = cfg_com_litellm(
@@ -2181,7 +2420,7 @@ mod tests {
             &mut router,
             "modelo-ollama",
             &CallPreset::default(),
-            Some(&candidato),
+            std::slice::from_ref(&candidato),
         );
 
         // Sem override de provider: o candidato preferencial (Ollama, posição
@@ -2221,9 +2460,9 @@ mod tests {
         let cfg = cfg_com_flags(true, true, true, true); // task_classes vazio
         let mut router = agentry_core::router::Router::new(cfg.egress_class);
         router.register_provider(Arc::new(MockProvider::new("ollama")));
-        repl::set_chat_route(&mut router, "modelo-x", &CallPreset::default(), None);
+        repl::set_chat_route(&mut router, "modelo-x", &CallPreset::default(), &[]);
 
-        register_declared_task_classes(&mut router, &cfg, "modelo-x", None);
+        register_declared_task_classes(&mut router, &cfg, "modelo-x", &[]);
 
         for nome in ["chat", "compact", "guardrail-compliance"] {
             let rota = router
@@ -2247,9 +2486,9 @@ mod tests {
         let mut router = agentry_core::router::Router::new(cfg.egress_class);
         router.register_provider(Arc::new(MockProvider::new("ollama")));
         router.register_provider(Arc::new(MockProvider::new(LITELLM_PROVIDER_NAME)));
-        repl::set_chat_route(&mut router, "modelo-x", &CallPreset::default(), None);
+        repl::set_chat_route(&mut router, "modelo-x", &CallPreset::default(), &[]);
 
-        register_declared_task_classes(&mut router, &cfg, "modelo-x", None);
+        register_declared_task_classes(&mut router, &cfg, "modelo-x", &[]);
 
         let rota = router
             .resolve_with_override("revisao", &RuntimeOverride::default())
@@ -2278,9 +2517,9 @@ mod tests {
         let mut router = agentry_core::router::Router::new(cfg.egress_class);
         router.register_provider(Arc::new(MockProvider::new("ollama")));
         router.register_provider(Arc::new(MockProvider::new(LITELLM_PROVIDER_NAME)));
-        repl::set_chat_route(&mut router, "modelo-x", &CallPreset::default(), None);
+        repl::set_chat_route(&mut router, "modelo-x", &CallPreset::default(), &[]);
 
-        register_declared_task_classes(&mut router, &cfg, "modelo-x", None);
+        register_declared_task_classes(&mut router, &cfg, "modelo-x", &[]);
 
         let rota = router
             .resolve_with_override("compact", &RuntimeOverride::default())
@@ -2295,22 +2534,25 @@ mod tests {
 
     #[test]
     fn task_class_com_provider_nao_registrado_e_erro_tratado_sem_panic() {
+        // Nome deliberadamente fictício: `anthropic` deixou de servir como
+        // exemplo de "provider inexistente" quando a ADR-0040 passou a
+        // registrá-lo de verdade.
         let cfg = cfg_com_task_classes(
             r#"{ "revisao": {
                 "candidates": [
-                    { "provider": "anthropic", "model": "modelo-que-nao-existe-aqui", "egressClass": "local-only" }
+                    { "provider": "provider-inexistente", "model": "modelo-que-nao-existe-aqui", "egressClass": "local-only" }
                 ]
             } }"#,
         );
         let mut router = agentry_core::router::Router::new(cfg.egress_class);
         router.register_provider(Arc::new(MockProvider::new("ollama")));
-        repl::set_chat_route(&mut router, "modelo-x", &CallPreset::default(), None);
+        repl::set_chat_route(&mut router, "modelo-x", &CallPreset::default(), &[]);
 
-        register_declared_task_classes(&mut router, &cfg, "modelo-x", None);
+        register_declared_task_classes(&mut router, &cfg, "modelo-x", &[]);
 
         let erro = router
             .resolve_with_override("revisao", &RuntimeOverride::default())
-            .expect_err("provider 'anthropic' não está registrado no router desta CLI");
+            .expect_err("provider 'provider-inexistente' não está registrado no router");
         assert!(matches!(
             erro,
             agentry_core::router::RouterError::NoAvailableRoute { .. }
@@ -2333,8 +2575,8 @@ mod tests {
 
         let mut router = agentry_core::router::Router::new(cfg.egress_class);
         router.register_provider(mock.clone());
-        repl::set_chat_route(&mut router, "modelo-x", &CallPreset::default(), None);
-        register_declared_task_classes(&mut router, &cfg, "modelo-x", None);
+        repl::set_chat_route(&mut router, "modelo-x", &CallPreset::default(), &[]);
+        register_declared_task_classes(&mut router, &cfg, "modelo-x", &[]);
 
         let mut session = sessao_de_teste(&cfg, mock);
         session.push_user_message("mensagem original");

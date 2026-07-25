@@ -53,8 +53,9 @@ const RECALL_LIMITE_PADRAO: usize = 5;
 /// Reconfigura a entrada de roteamento `chat` (sempre `chat`, nunca a
 /// task-class ativa escolhida via `/task-class` — ver a constante
 /// [`TASK_CLASS`]) para ter `modelo` (Ollama, `local-only`) como candidato
-/// preferencial, seguido de `candidato_extra` se houver (ex.: o endpoint
-/// LiteLLM resolvido de `providers.litellm`, MT-49) — preserva o
+/// preferencial, seguido de `candidatos_extra` na ordem dada (ex.: o endpoint
+/// LiteLLM de `providers.litellm`, MT-49, e o provider Anthropic de
+/// `providers.anthropic`, ADR-0040) — preserva o
 /// preset-base (ex.: `max_tokens` vindo da configuração). Chamado sempre
 /// que o usuário troca de modelo via `/model` — como [`Router::set_route`]
 /// substitui a entrada inteira (não existe "adicionar candidato"), **todo**
@@ -68,10 +69,10 @@ pub fn set_chat_route(
     router: &mut Router,
     modelo: &str,
     preset_base: &CallPreset,
-    candidato_extra: Option<&RouteTarget>,
+    candidatos_extra: &[RouteTarget],
 ) {
     let mut candidates = vec![RouteTarget::new(PROVIDER, modelo, EgressClass::LocalOnly)];
-    candidates.extend(candidato_extra.cloned());
+    candidates.extend_from_slice(candidatos_extra);
     router.set_route(
         TASK_CLASS,
         RouteEntry {
@@ -185,11 +186,14 @@ pub struct ReplConfig<'a> {
     pub workspace_root: &'a Path,
     /// Preset-base da `task-class` de chat, reaplicado a cada `/model`.
     pub preset_base: &'a CallPreset,
-    /// Candidato de rota extra (hoje só LiteLLM, se `providers.litellm`
-    /// estiver configurado, MT-49) — redeclarado a cada `/model` (ver
-    /// [`set_chat_route`]), já que `Router::set_route` substitui a entrada
-    /// inteira em vez de aceitar um candidato adicional.
-    pub candidato_extra: Option<&'a RouteTarget>,
+    /// Candidatos de rota extras, na ordem de preferência: LiteLLM
+    /// (`providers.litellm`, MT-49) e Anthropic (`providers.anthropic`,
+    /// ADR-0040), cada um presente só se configurado. Redeclarados **todos**
+    /// a cada `/model` (ver [`set_chat_route`]), já que `Router::set_route`
+    /// substitui a entrada inteira em vez de aceitar um candidato adicional —
+    /// carregar só um deles aqui faria o outro desaparecer silenciosamente na
+    /// primeira troca de modelo.
+    pub candidatos_extra: &'a [RouteTarget],
     /// Sessão compartilhada de busca sobre sessões salvas (MT-136/137,
     /// ADR-0039) — `/recall <busca>` reaproveita a **mesma instância** que
     /// alimenta a tool `session_search`, registrada em `main.rs` (mesmo
@@ -257,7 +261,7 @@ pub async fn run_repl<R: BufRead, W: Write>(
     let ReplConfig {
         workspace_root,
         preset_base,
-        candidato_extra,
+        candidatos_extra,
         session_search_session,
     } = *config;
     imprimir_historico_retomado(&mut output, session)?;
@@ -419,7 +423,7 @@ pub async fn run_repl<R: BufRead, W: Write>(
                     writeln!(output, "{mensagem}").map_err(|e| e.to_string())?;
                     if mudou_model {
                         if let Some(modelo) = session_override.model.clone() {
-                            set_chat_route(router, &modelo, preset_base, candidato_extra);
+                            set_chat_route(router, &modelo, preset_base, candidatos_extra);
                         }
                     }
                     let rota = router
@@ -498,7 +502,7 @@ mod tests {
     fn router_com_ollama(mock: Arc<MockProvider>, modelo_inicial: &str) -> Router {
         let mut router = Router::new(EgressClass::LocalOnly);
         router.register_provider(mock);
-        set_chat_route(&mut router, modelo_inicial, &CallPreset::default(), None);
+        set_chat_route(&mut router, modelo_inicial, &CallPreset::default(), &[]);
         router
     }
 
@@ -590,7 +594,7 @@ mod tests {
             &ReplConfig {
                 workspace_root: &std::env::temp_dir(),
                 preset_base: &CallPreset::default(),
-                candidato_extra: None,
+                candidatos_extra: &[],
                 session_search_session: &session_search_session_de_teste(
                     &std::env::temp_dir(),
                     Arc::new(MockProvider::new("mock-recall")),
@@ -634,7 +638,7 @@ mod tests {
             &ReplConfig {
                 workspace_root: &std::env::temp_dir(),
                 preset_base: &CallPreset::default(),
-                candidato_extra: None,
+                candidatos_extra: &[],
                 session_search_session: &session_search_session_de_teste(
                     &std::env::temp_dir(),
                     Arc::new(MockProvider::new("mock-recall")),
@@ -678,7 +682,7 @@ mod tests {
             &ReplConfig {
                 workspace_root: &std::env::temp_dir(),
                 preset_base: &CallPreset::default(),
-                candidato_extra: None,
+                candidatos_extra: &[],
                 session_search_session: &session_search_session_de_teste(
                     &std::env::temp_dir(),
                     Arc::new(MockProvider::new("mock-recall")),
@@ -710,7 +714,7 @@ mod tests {
             &mut router,
             "modelo-ollama",
             &CallPreset::default(),
-            Some(&candidato_litellm),
+            std::slice::from_ref(&candidato_litellm),
         );
         let rota = router.resolve(TASK_CLASS).expect("deve resolver");
         let mut session = Session::new(rota, Arc::new(NoopExecutor), TokenBudget::new(100_000));
@@ -728,7 +732,7 @@ mod tests {
             &ReplConfig {
                 workspace_root: &std::env::temp_dir(),
                 preset_base: &CallPreset::default(),
-                candidato_extra: Some(&candidato_litellm),
+                candidatos_extra: std::slice::from_ref(&candidato_litellm),
                 session_search_session: &session_search_session_de_teste(
                     &std::env::temp_dir(),
                     Arc::new(MockProvider::new("mock-recall")),
@@ -775,7 +779,7 @@ mod tests {
             &ReplConfig {
                 workspace_root: &std::env::temp_dir(),
                 preset_base: &CallPreset::default(),
-                candidato_extra: None,
+                candidatos_extra: &[],
                 session_search_session: &session_search_session_de_teste(
                     &std::env::temp_dir(),
                     Arc::new(MockProvider::new("mock-recall")),
@@ -811,7 +815,7 @@ mod tests {
             &ReplConfig {
                 workspace_root: &std::env::temp_dir(),
                 preset_base: &CallPreset::default(),
-                candidato_extra: None,
+                candidatos_extra: &[],
                 session_search_session: &session_search_session_de_teste(
                     &std::env::temp_dir(),
                     Arc::new(MockProvider::new("mock-recall")),
@@ -851,7 +855,7 @@ mod tests {
             &ReplConfig {
                 workspace_root: &std::env::temp_dir(),
                 preset_base: &CallPreset::default(),
-                candidato_extra: None,
+                candidatos_extra: &[],
                 session_search_session: &session_search_session_de_teste(
                     &std::env::temp_dir(),
                     Arc::new(MockProvider::new("mock-recall")),
@@ -904,7 +908,7 @@ mod tests {
             &ReplConfig {
                 workspace_root: &std::env::temp_dir(),
                 preset_base: &CallPreset::default(),
-                candidato_extra: None,
+                candidatos_extra: &[],
                 session_search_session: &session_search_session_de_teste(
                     &std::env::temp_dir(),
                     Arc::new(MockProvider::new("mock-recall")),
@@ -945,7 +949,7 @@ mod tests {
             &ReplConfig {
                 workspace_root: &std::env::temp_dir(),
                 preset_base: &CallPreset::default(),
-                candidato_extra: None,
+                candidatos_extra: &[],
                 session_search_session: &session_search_session_de_teste(
                     &std::env::temp_dir(),
                     Arc::new(MockProvider::new("mock-recall")),
@@ -984,7 +988,7 @@ mod tests {
             &ReplConfig {
                 workspace_root: &std::env::temp_dir(),
                 preset_base: &CallPreset::default(),
-                candidato_extra: None,
+                candidatos_extra: &[],
                 session_search_session: &session_search_session_de_teste(
                     &std::env::temp_dir(),
                     Arc::new(MockProvider::new("mock-recall")),
@@ -1031,7 +1035,7 @@ mod tests {
             &ReplConfig {
                 workspace_root: &std::env::temp_dir(),
                 preset_base: &CallPreset::default(),
-                candidato_extra: None,
+                candidatos_extra: &[],
                 session_search_session: &session_search_session_de_teste(
                     &std::env::temp_dir(),
                     Arc::new(MockProvider::new("mock-recall")),
@@ -1091,7 +1095,7 @@ mod tests {
             &ReplConfig {
                 workspace_root: dir.path(),
                 preset_base: &CallPreset::default(),
-                candidato_extra: None,
+                candidatos_extra: &[],
                 session_search_session: &session_search_session_de_teste(
                     dir.path(),
                     Arc::new(MockProvider::new("mock-recall")),
@@ -1131,7 +1135,7 @@ mod tests {
             &ReplConfig {
                 workspace_root: dir.path(),
                 preset_base: &CallPreset::default(),
-                candidato_extra: None,
+                candidatos_extra: &[],
                 session_search_session: &session_search_session_de_teste(
                     dir.path(),
                     Arc::new(MockProvider::new("mock-recall")),
@@ -1167,7 +1171,7 @@ mod tests {
             &ReplConfig {
                 workspace_root: dir.path(),
                 preset_base: &CallPreset::default(),
-                candidato_extra: None,
+                candidatos_extra: &[],
                 session_search_session: &session_search_session_de_teste(
                     dir.path(),
                     Arc::new(MockProvider::new("mock-recall")),
@@ -1214,7 +1218,7 @@ mod tests {
             &ReplConfig {
                 workspace_root: dir.path(),
                 preset_base: &CallPreset::default(),
-                candidato_extra: None,
+                candidatos_extra: &[],
                 session_search_session: &session_search_session_de_teste(
                     dir.path(),
                     Arc::new(MockProvider::new("mock-recall")),
@@ -1250,7 +1254,7 @@ mod tests {
             &ReplConfig {
                 workspace_root: dir.path(),
                 preset_base: &CallPreset::default(),
-                candidato_extra: None,
+                candidatos_extra: &[],
                 session_search_session: &session_search_session_de_teste(
                     dir.path(),
                     Arc::new(MockProvider::new("mock-recall")),
@@ -1286,7 +1290,7 @@ mod tests {
             &ReplConfig {
                 workspace_root: dir.path(),
                 preset_base: &CallPreset::default(),
-                candidato_extra: None,
+                candidatos_extra: &[],
                 session_search_session: &session_search_session_de_teste(
                     dir.path(),
                     Arc::new(MockProvider::new("mock-recall")),
@@ -1328,7 +1332,7 @@ mod tests {
             &ReplConfig {
                 workspace_root: dir.path(),
                 preset_base: &CallPreset::default(),
-                candidato_extra: None,
+                candidatos_extra: &[],
                 session_search_session: &session_search_session_de_teste(dir.path(), mock_recall),
             },
         )
@@ -1386,7 +1390,7 @@ mod tests {
             &ReplConfig {
                 workspace_root: dir.path(),
                 preset_base: &CallPreset::default(),
-                candidato_extra: None,
+                candidatos_extra: &[],
                 session_search_session: &session_search_session_de_teste(dir.path(), mock_recall),
             },
         )
@@ -1418,7 +1422,7 @@ mod tests {
             &ReplConfig {
                 workspace_root: dir.path(),
                 preset_base: &CallPreset::default(),
-                candidato_extra: None,
+                candidatos_extra: &[],
                 session_search_session: &session_search_session_de_teste(
                     dir.path(),
                     Arc::new(MockProvider::new("mock-recall")),
@@ -1460,7 +1464,7 @@ mod tests {
             &ReplConfig {
                 workspace_root: dir.path(),
                 preset_base: &CallPreset::default(),
-                candidato_extra: None,
+                candidatos_extra: &[],
                 session_search_session: &session_search_session_de_teste(
                     dir.path(),
                     Arc::new(MockProvider::new("mock-recall")),
@@ -1533,7 +1537,7 @@ mod tests {
             &ReplConfig {
                 workspace_root: dir.path(),
                 preset_base: &CallPreset::default(),
-                candidato_extra: None,
+                candidatos_extra: &[],
                 session_search_session: &session_search_session_de_teste(
                     dir.path(),
                     Arc::new(MockProvider::new("mock-recall")),
@@ -1596,7 +1600,7 @@ mod tests {
             &ReplConfig {
                 workspace_root: &std::env::temp_dir(),
                 preset_base: &CallPreset::default(),
-                candidato_extra: None,
+                candidatos_extra: &[],
                 session_search_session: &session_search_session_de_teste(
                     &std::env::temp_dir(),
                     Arc::new(MockProvider::new("mock-recall")),
@@ -1638,7 +1642,7 @@ mod tests {
             &ReplConfig {
                 workspace_root: &std::env::temp_dir(),
                 preset_base: &CallPreset::default(),
-                candidato_extra: None,
+                candidatos_extra: &[],
                 session_search_session: &session_search_session_de_teste(
                     &std::env::temp_dir(),
                     Arc::new(MockProvider::new("mock-recall")),

@@ -124,6 +124,7 @@ nav:
           - "0037 — Audit log persistente": adr/0037-audit-log-persistente.md
           - "0038 — Configuração global do usuário": adr/0038-configuracao-global-do-usuario.md
           - "0039 — RAG estendido às sessões salvas": adr/0039-rag-estendido-as-sessoes-salvas.md
+          - "0040 — Provider Anthropic (API key e assinatura Pro/Max)": adr/0040-provider-anthropic-api-e-assinatura.md
       - Roadmap:
           - Mapa de longo prazo: roadmap-longo-prazo.md
           - v0.1: roadmap-v0.1.md

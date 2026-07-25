@@ -25,10 +25,12 @@
 //! `max_tokens` é campo obrigatório da API; na ausência de um valor no
 //! `ChatRequest`, usa-se [`DEFAULT_MAX_TOKENS`]. Raciocínio estendido
 //! (MT-32/ADR-0014, `reasoning: Some(true)`) traduz para o campo `thinking`
-//! nativo (`{"type":"enabled","budget_tokens":..}`); blocos de resposta que
-//! esse modo produz (`thinking`/`redacted_thinking`) são reconhecidos mas
-//! descartados na conversão para o tipo de domínio — o `StreamEvent` do
-//! MT-02 não tem uma variante de raciocínio para carregá-los.
+//! nativo como `{"type":"adaptive"}` (ADR-0040 — a forma antiga
+//! `{"type":"enabled","budget_tokens":..}` é rejeitada com HTTP 400 nos
+//! modelos atuais); blocos de resposta que esse modo produz
+//! (`thinking`/`redacted_thinking`) são reconhecidos mas descartados na
+//! conversão para o tipo de domínio — o `StreamEvent` do MT-02 não tem uma
+//! variante de raciocínio para carregá-los.
 //!
 //! O formato de fio da API Anthropic (`AnthropicMessage`, `AnthropicContentBlock`
 //! etc.) é interno a este módulo — os tipos de domínio (`crate::model`) nunca
@@ -49,10 +51,6 @@ use crate::transport::{Transport, TransportError};
 /// `max_tokens` é obrigatório na Messages API; usado quando o `ChatRequest`
 /// não define um valor.
 const DEFAULT_MAX_TOKENS: u32 = 4096;
-/// Orçamento de tokens de raciocínio quando `reasoning` está ativo e nenhum
-/// controle mais fino é exposto (fora de escopo do MT-16) — valor mínimo
-/// documentado pela API.
-const DEFAULT_THINKING_BUDGET_TOKENS: u32 = 1024;
 
 /// Adapter para a Messages API da Anthropic.
 pub struct AnthropicProvider {
@@ -96,11 +94,17 @@ struct AnthropicRequest<'a> {
     thinking: Option<AnthropicThinking>,
 }
 
+/// Campo `thinking` da Messages API.
+///
+/// **Só `{"type":"adaptive"}` (ADR-0040).** A forma antiga
+/// `{"type":"enabled","budget_tokens":N}` foi **removida** nos modelos atuais
+/// (Opus 4.7 em diante, Opus 5, Sonnet 5, Fable 5) e é rejeitada com HTTP 400
+/// — profundidade de raciocínio passou a ser controlada por
+/// `output_config.effort`, não por orçamento de tokens.
 #[derive(Serialize)]
 struct AnthropicThinking {
     #[serde(rename = "type")]
     kind: &'static str,
-    budget_tokens: u32,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -323,12 +327,9 @@ fn build_request<'a>(request: &'a ChatRequest, stream: bool) -> AnthropicRequest
         tools: request.tools.iter().map(tool_spec_to_anthropic).collect(),
         temperature: request.temperature,
         top_p: request.top_p,
-        thinking: request.reasoning.and_then(|ligado| {
-            ligado.then_some(AnthropicThinking {
-                kind: "enabled",
-                budget_tokens: DEFAULT_THINKING_BUDGET_TOKENS,
-            })
-        }),
+        thinking: request
+            .reasoning
+            .and_then(|ligado| ligado.then_some(AnthropicThinking { kind: "adaptive" })),
     }
 }
 
@@ -793,17 +794,18 @@ mod tests {
     }
 
     #[test]
-    fn build_request_inclui_thinking_habilitado_quando_reasoning_e_true() {
+    fn build_request_inclui_thinking_adaptativo_quando_reasoning_e_true() {
         let mut request = ChatRequest::new("modelo-x", vec![Message::user("oi")]);
         request.reasoning = Some(true);
 
         let anthropic_request = build_request(&request, false);
         let json = serde_json::to_value(&anthropic_request).expect("deve serializar");
 
-        assert_eq!(json["thinking"]["type"], "enabled");
-        assert_eq!(
-            json["thinking"]["budget_tokens"],
-            DEFAULT_THINKING_BUDGET_TOKENS
+        assert_eq!(json["thinking"]["type"], "adaptive");
+        assert!(
+            json["thinking"].get("budget_tokens").is_none(),
+            "ADR-0040: budget_tokens foi removido dos modelos atuais e é \
+             rejeitado com HTTP 400 — o campo nunca deve ser emitido"
         );
     }
 

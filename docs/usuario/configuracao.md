@@ -212,8 +212,20 @@ segredos/
 
 ### `providers.ollama.structuredOutput`
 
-Liga (`true`, padrão) ou desliga saída estruturada (*constrained decoding*) nas chamadas ao
-Ollama, usada para tornar as chamadas de tool mais confiáveis.
+Liga ou desliga (`false`, **padrão**) a saída estruturada (*constrained decoding*) nas
+chamadas ao Ollama.
+
+!!! warning "Mantenha em `false` para qualquer modelo moderno"
+    O campo `format` do Ollama restringe a geração do **texto**, não das chamadas de tool.
+    Com ele ligado, um modelo que suporta *tool-calling* nativo (praticamente todos os
+    atuais — `llama3.1`, `qwen2.5`, etc.) devolve a chamada como um **texto JSON** em vez de
+    uma chamada de verdade, e **nenhuma tool chega a executar**: o agente imprime algo como
+    `{"name":"fs_read","arguments":{...}}` e encerra o turno.
+
+    Ligue (`true`) apenas para modelos antigos, **sem** suporte nativo a tools, onde
+    restringir o schema é a única forma de obter JSON bem-formado. Para saber se o seu
+    modelo tem suporte nativo, veja se `ollama show <modelo>` lista `tools` entre as
+    capacidades.
 
 ### `providers.litellm`
 
@@ -243,6 +255,46 @@ de ambiente `AGENTRY_LITELLM_API_KEY` ou de `~/.agentry/credentials.json` (ver
 momento de montar a conexão. Ausente dos dois lugares, a CLI simplesmente não anexa nenhum
 cabeçalho de autorização (gateways internos sem autenticação continuam funcionando
 normalmente).
+
+### `providers.anthropic`
+
+Conecta a CLI diretamente à [Messages API da Anthropic](https://docs.anthropic.com) como
+mais um provider, selecionável via `--provider anthropic` / `/provider anthropic` — por
+padrão, sem essa flag, o Ollama local continua sendo usado.
+
+- `model` — identificador do modelo (ex.: `claude-opus-5`). **É o campo que ativa o
+  provider:** ausente, a CLI se comporta como se `providers.anthropic` não existisse.
+- `baseUrl` — opcional; ausente usa `https://api.anthropic.com`. Existe para apontar a um
+  proxy compatível com a Messages API.
+- `egressClass` — opcional; ausente usa `"cloud-ok"`, coerente com o endpoint ser a nuvem
+  pública da Anthropic.
+
+A chave de API **não vai neste arquivo** — vem da variável de ambiente `ANTHROPIC_API_KEY`
+ou de `~/.agentry/credentials.json` (ver [Configuração global do
+usuário](#configuracao-global-do-usuario-agentry) abaixo):
+
+```bash
+agentry --set-credential anthropic     # lê a chave de stdin, nunca como argumento
+```
+
+Diferente do LiteLLM, a chave aqui é **obrigatória**: a Messages API não tem modo anônimo,
+então configurar o provider sem credencial é reportado como erro de configuração no
+arranque, em vez de falhar com `401` na primeira chamada.
+
+```json
+{
+  "profile": "pessoal",
+  "providers": {
+    "anthropic": { "model": "claude-opus-5" }
+  }
+}
+```
+
+!!! note "O perfil ativo continua mandando"
+    Configurar a Anthropic não afrouxa a classe de egresso da sessão. Sob o perfil
+    `empresa` (`local-only`), o candidato existe mas **nunca resolve** — o mesmo
+    comportamento *fail-closed* de qualquer outro endpoint de nuvem. Use o perfil
+    `pessoal` (`cloud-ok`) para alcançá-lo de fato.
 
 ### `guardrails`
 
@@ -417,7 +469,8 @@ Arquivo **separado**, schema próprio, só para credenciais:
   "$schema": "https://agentry.dev/schema/agentry-credentials-schema-1.json",
   "schemaVersion": 1,
   "providers": {
-    "litellm": { "apiKey": "..." }
+    "litellm": { "apiKey": "..." },
+    "anthropic": { "apiKey": "..." }
   }
 }
 ```
@@ -426,6 +479,7 @@ Grave (ou atualize) uma credencial sem editar o arquivo à mão:
 
 ```bash
 agentry --set-credential litellm
+agentry --set-credential anthropic
 ```
 
 O valor é pedido interativamente (lido de *stdin*, uma linha) — nunca como argumento de

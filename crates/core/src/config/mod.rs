@@ -236,6 +236,46 @@ impl LiteLlmSettings {
     }
 }
 
+/// URL base *default* da Messages API da Anthropic (ADR-0040) — diferente do
+/// LiteLLM, onde não existe endpoint canônico e `baseUrl` é obrigatória.
+pub const ANTHROPIC_DEFAULT_BASE_URL: &str = "https://api.anthropic.com";
+
+/// Configuração do provider Anthropic (ADR-0040), dentro de
+/// `providers.anthropic` — Messages API por **chave de API**. O caminho de
+/// assinatura Pro/Max é o provider separado `claude-cli`
+/// (`providers.claudeCli`), com autenticação, custo e auditoria diferentes.
+///
+/// A chave **nunca** entra aqui — vem de variável de ambiente ou de
+/// `~/.agentry/credentials.json` (MT-128/ADR-0038), nunca do arquivo de
+/// configuração versionado (mesma disciplina de `providers.litellm`).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct AnthropicSettings {
+    /// `providers.anthropic.model` — identificador do modelo (ex.:
+    /// `claude-opus-5`). **É o campo que ativa o provider:** ausente ⇒ não
+    /// registrado, mesmo padrão de `providers.litellm`.
+    #[serde(default)]
+    pub model: Option<String>,
+    /// `providers.anthropic.baseUrl` — ausente ⇒ [`ANTHROPIC_DEFAULT_BASE_URL`].
+    /// Existe para apontar a um proxy compatível com a Messages API.
+    #[serde(default, rename = "baseUrl")]
+    pub base_url: Option<String>,
+    /// `providers.anthropic.egressClass` — ausente ⇒ `Config::resolve` aplica
+    /// `cloud-ok`, coerente com o endpoint ser a nuvem pública da Anthropic
+    /// (nunca inferido do host aqui, mesma regra da ADR-0006).
+    #[serde(default, rename = "egressClass")]
+    pub egress_class: Option<EgressClass>,
+}
+
+impl AnthropicSettings {
+    fn merged_over(self, base: Self) -> Self {
+        Self {
+            model: self.model.or(base.model),
+            base_url: self.base_url.or(base.base_url),
+            egress_class: self.egress_class.or(base.egress_class),
+        }
+    }
+}
+
 /// Bloco `providers.*` do schema mínimo (ADR-0018 §5).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct ProvidersSettings {
@@ -245,6 +285,9 @@ pub struct ProvidersSettings {
     /// `providers.litellm` (ADR-0006).
     #[serde(default)]
     pub litellm: LiteLlmSettings,
+    /// `providers.anthropic` (ADR-0040).
+    #[serde(default)]
+    pub anthropic: AnthropicSettings,
 }
 
 impl ProvidersSettings {
@@ -252,6 +295,7 @@ impl ProvidersSettings {
         Self {
             ollama: self.ollama.merged_over(base.ollama),
             litellm: self.litellm.merged_over(base.litellm),
+            anthropic: self.anthropic.merged_over(base.anthropic),
         }
     }
 }
@@ -727,6 +771,17 @@ pub struct LiteLlmConfig {
     pub egress_class: EgressClass,
 }
 
+/// Provider Anthropic resolvido (ADR-0040) — `model` já garantido presente
+/// (`Config.anthropic` só é `Some` quando declarado); `base_url` já resolvido
+/// para [`ANTHROPIC_DEFAULT_BASE_URL`] e `egress_class` para o *default* de
+/// risco (`cloud-ok`) quando a camada não declarou nenhum.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AnthropicConfig {
+    pub base_url: String,
+    pub model: String,
+    pub egress_class: EgressClass,
+}
+
 /// Endpoint SearXNG resolvido (ADR-0025, MT-66) — `searxng_url` já
 /// garantido presente (`Config.web_search` só é `Some` quando declarado);
 /// `egress_class` já resolvido para o *default* de risco (`cloud-ok`)
@@ -782,6 +837,11 @@ pub struct Config {
     /// simplesmente não está configurado, não é um erro). Consumido pela
     /// CLI para registrar um segundo candidato de provider (MT-49).
     pub litellm: Option<LiteLlmConfig>,
+    /// Provider Anthropic resolvido (`providers.anthropic`, ADR-0040) — `None`
+    /// quando `model` não está declarado (Anthropic simplesmente não está
+    /// configurada, não é um erro). Consumido pela CLI para registrar mais um
+    /// candidato de provider.
+    pub anthropic: Option<AnthropicConfig>,
     /// Task-classes declaradas pelo usuário (`taskClasses`, ADR-0021), já
     /// convertidas para os tipos do `Router` (`RouteEntry`/`RouteTarget`/
     /// `CallPreset`, ADR-0008/0014) — prontas para `Router::set_route`.
@@ -851,6 +911,26 @@ impl Config {
                 }),
                 _ => None,
             },
+            // Só `model` ativa o provider: `base_url` tem default canônico
+            // (ADR-0040), diferente do LiteLLM, onde não existe endpoint
+            // conhecido e a URL é obrigatória.
+            anthropic: merged
+                .providers
+                .anthropic
+                .model
+                .map(|model| AnthropicConfig {
+                    model,
+                    base_url: merged
+                        .providers
+                        .anthropic
+                        .base_url
+                        .unwrap_or_else(|| ANTHROPIC_DEFAULT_BASE_URL.to_string()),
+                    egress_class: merged
+                        .providers
+                        .anthropic
+                        .egress_class
+                        .unwrap_or(EgressClass::CloudOk),
+                }),
             task_classes: merged
                 .task_classes
                 .into_iter()
@@ -1446,6 +1526,95 @@ mod tests {
     fn ausencia_do_bloco_litellm_resolve_none_comportamento_atual_preservado() {
         let cfg = Config::resolve(vec![Settings::default()]);
         assert!(cfg.litellm.is_none());
+    }
+
+    // ---- providers.anthropic (ADR-0040) ----
+
+    #[test]
+    fn ausencia_do_bloco_anthropic_resolve_none() {
+        let cfg = Config::resolve(vec![Settings::default()]);
+        assert!(
+            cfg.anthropic.is_none(),
+            "Anthropic não configurada não é erro — só não registra o provider"
+        );
+    }
+
+    #[test]
+    fn anthropic_so_com_model_usa_base_url_e_egress_class_default() {
+        let camada = Settings::from_json_str(
+            r#"{ "providers": { "anthropic": { "model": "claude-opus-5" } } }"#,
+        )
+        .expect("JSON válido");
+        let cfg = Config::resolve(vec![camada]);
+
+        let anthropic = cfg
+            .anthropic
+            .expect("model declarado deve ativar o provider");
+        assert_eq!(anthropic.model, "claude-opus-5");
+        assert_eq!(
+            anthropic.base_url, ANTHROPIC_DEFAULT_BASE_URL,
+            "baseUrl ausente cai no endpoint canônico, diferente do LiteLLM"
+        );
+        assert_eq!(
+            anthropic.egress_class,
+            EgressClass::CloudOk,
+            "endpoint é a nuvem pública da Anthropic"
+        );
+    }
+
+    #[test]
+    fn anthropic_sem_model_nao_registra_mesmo_com_base_url() {
+        let camada = Settings::from_json_str(
+            r#"{ "providers": { "anthropic": { "baseUrl": "https://proxy.interno" } } }"#,
+        )
+        .expect("JSON válido");
+        let cfg = Config::resolve(vec![camada]);
+
+        assert!(
+            cfg.anthropic.is_none(),
+            "`model` é o campo que ativa o provider — baseUrl sozinha não basta"
+        );
+    }
+
+    #[test]
+    fn anthropic_camada_mais_especifica_sobrescreve_campo_a_campo() {
+        let base = Settings::from_json_str(
+            r#"{ "providers": { "anthropic": {
+                "model": "claude-sonnet-5",
+                "egressClass": "cloud-ok"
+            } } }"#,
+        )
+        .expect("base válida");
+        // Só `baseUrl` é redeclarada: `model`/`egressClass` devem sobreviver.
+        let especifica = Settings::from_json_str(
+            r#"{ "providers": { "anthropic": { "baseUrl": "https://proxy.interno" } } }"#,
+        )
+        .expect("camada válida");
+
+        let cfg = Config::resolve(vec![base, especifica]);
+        let anthropic = cfg.anthropic.expect("deve resolver Some");
+
+        assert_eq!(anthropic.base_url, "https://proxy.interno");
+        assert_eq!(anthropic.model, "claude-sonnet-5");
+        assert_eq!(anthropic.egress_class, EgressClass::CloudOk);
+    }
+
+    #[test]
+    fn anthropic_pode_declarar_egress_class_mais_restritiva() {
+        let camada = Settings::from_json_str(
+            r#"{ "providers": { "anthropic": {
+                "model": "claude-opus-5",
+                "egressClass": "cloud-opt-out"
+            } } }"#,
+        )
+        .expect("JSON válido");
+        let cfg = Config::resolve(vec![camada]);
+
+        assert_eq!(
+            cfg.anthropic.expect("deve resolver Some").egress_class,
+            EgressClass::CloudOptOut,
+            "a classe declarada nunca é afrouxada pelo default"
+        );
     }
 
     #[test]
