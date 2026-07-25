@@ -618,6 +618,79 @@ rev-parse v0.1.0-usertest` aponta para `12fe3e9` (`HEAD` no momento da atualiza�
 
 Próximo passo: nenhum combinado ainda — aguardando direção do mantenedor.
 
+## Rodada 7 (2026-07-25) — bug crítico do Ollama + provider Anthropic (ADR-0040)
+
+Pedido do mantenedor: avaliar código/planejamento, adicionar a Anthropic como provider (API
+**e** assinatura Pro/Max) e testar o `agentry` de verdade contra Ollama local e contra a
+própria conta do Claude Code.
+
+### 1. Bug crítico achado pelo teste com Ollama — `2955651`
+
+Rodar o binário `release` contra Ollama real (`qwen2.5:7b`) mostrou que **nenhuma tool
+executava na configuração default**: o agente imprimia `{"arguments":{…},"name":"fs_read"}`
+como texto e encerrava no primeiro turno.
+
+Causa raiz: o campo `format` do Ollama restringe a geração do **texto**, não das
+`tool_calls`. Com `providers.ollama.structuredOutput` no default `true` (ADR-0012/MT-22), um
+modelo com tool-calling nativo devolve a chamada como string JSON em `content` e
+`tool_calls` volta vazio — `ollama_message_to_domain` só lê `tool_calls`, então o JSON vira
+mensagem comum e o laço para com `StopReason::Done`. Confirmado por `curl` direto nos dois
+sentidos. Default invertido para `false` (emenda à ADR-0012); a flag continua como escape
+para modelos antigos sem suporte nativo.
+
+**Este é o terceiro bug da mesma família** (junto com `Session::with_tools` nunca chamado e o
+`stream_options` ausente): todos vivem na fronteira `main()` → provider real, que os testes
+unitários não cobrem porque cada um monta sua própria `Session` com `MockProvider`.
+**Recomendação registrada:** um teste de integração em CI que suba o binário real contra um
+mock HTTP fiel (ou o Ollama do container) e verifique efeito colateral em disco vale mais que
+a próxima feature.
+
+### 2. ADR-0040 — provider Anthropic, dois caminhos (`815bb35`, `08816a8`)
+
+Achado: o `AnthropicProvider` existia **completo e testado** desde o MT-16, mas **nunca era
+registrado no `Router` da CLI** — código morto, com um teste usando `anthropic` como exemplo
+de "provider inexistente". A metade "API" era fiação, não código novo.
+
+- **Parte A — `anthropic`** (`815bb35`): `providers.anthropic` no schema (`model` ativa;
+  `baseUrl`/`egressClass` têm default), `build_anthropic_provider` no molde do LiteLLM,
+  headers `x-api-key` + `anthropic-version` (não `Bearer`), credencial via
+  `~/.agentry/credentials.json` (MT-128) — obrigatória, já que a Messages API não tem modo
+  anônimo. **Correção acoplada:** o campo `thinking` emitia
+  `{"type":"enabled","budget_tokens":N}`, formato **rejeitado com HTTP 400** nos modelos
+  atuais; passa a emitir `{"type":"adaptive"}`.
+- **Parte B — `claude-cli`** (`08816a8`): `ClaudeCliProvider` faz *spawn* de
+  `claude -p --output-format stream-json`, usando a assinatura Pro/Max sem nunca tocar no
+  token OAuth. Como não passa pelo `Transport`, emite ele próprio uma `AuditEntry` por
+  invocação no mesmo `.agentry/audit.log`, e recusa o *spawn* (auditando o bloqueio) quando a
+  classe de egresso não permite nuvem.
+
+**Achado que mudou o desenho da parte B:** `claude -p` **não é um endpoint de modelo — é um
+agente completo**, com laço, ferramentas e permissões próprios. Delegar por inteiro faria as
+edições escaparem do `PermissionGate`/*checkpoints*/auditoria do `agentry`. Decisão: desligar
+as ferramentas embutidas (`--tools ""`) e usar o subprocesso como gerador de **texto puro** —
+`claude-cli` serve para conversa/`/compact`/revisão, **não** para o laço agêntico. Paridade
+completa exigiria expor as tools do `agentry` como **servidor** MCP (só existe cliente hoje,
+ADR-0028): **trabalho futuro registrado na ADR-0040, não assumido.**
+
+### Verificação real (não só testes unitários)
+
+- Ollama, sem nenhum arquivo de configuração: laço completo (`fs_read` + `fs_edit`), arquivo
+  corrigido de fato no disco.
+- Anthropic contra mock da Messages API: `POST /v1/messages`, `x-api-key` presente e
+  `Authorization` ausente, 16 tools no corpo, `thinking:{"type":"adaptive"}` sem
+  `budget_tokens`; `--set-credential` grava com `0600` e a chave do arquivo chega ao servidor
+  sem variável de ambiente.
+- `claude-cli` contra a assinatura **real**: resposta correta, uso de tokens, entrada gravada
+  em `.agentry/audit.log`. Sob `egressClass: local-only`, a rota resolve mas o provider recusa
+  o *spawn* e registra o bloqueio com motivo.
+
+### Dívida apontada, não resolvida
+
+**Este arquivo tem ~2550 linhas (~114k tokens).** Virou log append-only, não handoff: um
+agente novo não consegue lê-lo dentro do contexto, que é exatamente o propósito da skill
+`handoff-updater`. Recomendação: cortar para "estado atual" + mover o histórico para
+`docs/handoff-arquivo.md`. Não feito nesta rodada por ser decisão do mantenedor.
+
 ## Último turno
 
 - **Data:** 2026-07-16
