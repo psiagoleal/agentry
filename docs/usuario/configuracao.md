@@ -296,6 +296,47 @@ arranque, em vez de falhar com `401` na primeira chamada.
     comportamento *fail-closed* de qualquer outro endpoint de nuvem. Use o perfil
     `pessoal` (`cloud-ok`) para alcançá-lo de fato.
 
+### `providers.claudeCli`
+
+Usa sua assinatura **Claude Pro ou Max** (a mesma que paga o [Claude
+Code](https://claude.com/claude-code)) em vez de uma chave de API cobrada por token.
+Selecionável via `--provider claude-cli` / `/provider claude-cli`.
+
+- `model` — identificador ou alias do modelo (ex.: `claude-opus-5`, `opus`, `haiku`). **É o
+  campo que ativa o provider.**
+- `egressClass` — opcional; ausente usa `"cloud-ok"`.
+
+```json
+{
+  "profile": "pessoal",
+  "providers": {
+    "claudeCli": { "model": "opus" }
+  }
+}
+```
+
+**Não há chave de API para configurar.** O `agentry` invoca o binário `claude` já instalado e
+autenticado na sua máquina, que resolve o login sozinho — o `agentry` nunca lê, copia ou
+guarda o seu token. Pré-requisito: `claude` disponível no `PATH` e autenticado (`claude
+login`); se faltar, o erro diz exatamente isso.
+
+!!! warning "Este provider não executa ferramentas"
+    `claude -p` é um **agente completo**, com laço e ferramentas próprios — não um endpoint
+    de modelo. Para que nenhuma edição de arquivo escape do controle de permissão, dos
+    *checkpoints* e da auditoria do `agentry`, as ferramentas embutidas do Claude Code são
+    **desligadas** (`--tools ""`) e o subprocesso é usado só como gerador de texto.
+
+    Na prática: `claude-cli` serve para **conversa**, `/compact` e revisão — **não** para o
+    laço agêntico (ler/editar arquivos, rodar comandos). Para isso use `ollama`, `litellm` ou
+    `anthropic`. Se você mandar uma tarefa agêntica, o `agentry` avisa no terminal em vez de
+    falhar em silêncio.
+
+!!! note "Auditoria"
+    Por não usar HTTP, este provider fica fora da *allowlist* de egresso. Em compensação ele
+    registra **cada invocação** no mesmo `.agentry/audit.log` dos demais, identificada como
+    `subprocess:claude-cli` — e recusa executar (registrando o bloqueio) quando o perfil ativo
+    não permite alcançar a nuvem.
+
 ### `guardrails`
 
 Ver [Guardrails de conteúdo](guardrails.md) — regras de bloqueio/mascaramento determinístico

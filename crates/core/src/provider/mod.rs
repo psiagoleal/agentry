@@ -15,6 +15,7 @@
 //! os métodos devolvem [`BoxFuture`] em vez de usar `async fn` nativo.
 
 pub mod anthropic;
+pub mod claude_cli;
 pub mod mock;
 pub mod ollama;
 pub mod openai_compat;

@@ -44,6 +44,7 @@ use agentry_core::egress::audit::AuditEntry;
 use agentry_core::guardrail::{GuardrailAuditEntry, GuardrailAuditSink, GuardrailGate};
 use agentry_core::mcp::McpClient;
 use agentry_core::provider::anthropic::AnthropicProvider;
+use agentry_core::provider::claude_cli::ClaudeCliProvider;
 use agentry_core::provider::ollama::OllamaProvider;
 use agentry_core::provider::openai_compat::OpenAiCompatProvider;
 use agentry_core::provider::LlmProvider;
@@ -100,6 +101,10 @@ const ANTHROPIC_PROVIDER_NAME: &str = "anthropic";
 const ANTHROPIC_API_KEY_ENV: &str = "ANTHROPIC_API_KEY";
 /// Versão da Messages API enviada em toda requisição (header obrigatório).
 const ANTHROPIC_VERSION: &str = "2023-06-01";
+/// Nome do provider de assinatura Pro/Max (ADR-0040) no `Router` — separado
+/// de `anthropic` de propósito: modelo de custo, de autenticação e de
+/// auditoria diferentes, e o usuário precisa escolher explicitamente.
+const CLAUDE_CLI_PROVIDER_NAME: &str = "claude-cli";
 /// *Language server* usado por `lsp_hover`/`lsp_definition` (MT-24, ADR-0013)
 /// quando `context.lspGrounding.enabled` está ativo. Seleção por linguagem
 /// (detectar o projeto e escolher o LS certo) fica para um ticket futuro —
@@ -164,6 +169,17 @@ const GENERIC_SETTINGS_EXAMPLE: &str = r#"{
       "baseUrl": null,
       "model": null,
       "egressClass": null
+    },
+    "anthropic": {
+      "_comentario": "Messages API da Anthropic por chave de API (cobrada por token). Preencha model (ex.: claude-opus-5) para ativar; baseUrl ausente usa https://api.anthropic.com e egressClass ausente usa cloud-ok. A chave NUNCA vai neste arquivo: use a variável ANTHROPIC_API_KEY ou `agentry --set-credential anthropic`. Exige o perfil 'pessoal' (cloud-ok) para ser alcançável.",
+      "model": null,
+      "baseUrl": null,
+      "egressClass": null
+    },
+    "claudeCli": {
+      "_comentario": "Usa sua assinatura Claude Pro/Max via o binário `claude` já instalado e autenticado (nenhuma chave de API; o agentry nunca lê seu token). Preencha model (ex.: opus, haiku, claude-opus-5) para ativar. ATENÇÃO: este provider é SÓ TEXTO — as ferramentas embutidas do Claude Code são desligadas para que nenhuma edição escape do controle de permissão/checkpoints do agentry, então ele não serve para o laço agêntico (ler/editar arquivos). Use para conversa, /compact e revisão. Cada invocação é registrada em .agentry/audit.log como subprocess:claude-cli.",
+      "model": null,
+      "egressClass": null
     }
   },
   "guardrails": {
@@ -220,11 +236,13 @@ struct Args {
     #[arg(long, short = 'm')]
     model: Option<String>,
 
-    /// Provider a usar nesta invocação — `ollama` (padrão), `litellm` (se
-    /// `providers.litellm` estiver configurado, ADR-0006/MT-49) ou `anthropic`
-    /// (se `providers.anthropic` estiver configurado, ADR-0040). Restringe a
-    /// escolha aos candidatos já declarados na rota; nome desconhecido é o
-    /// mesmo erro tratado de `Router::resolve_with_override`.
+    /// Provider a usar nesta invocação — `ollama` (padrão), `litellm`
+    /// (ADR-0006/MT-49), `anthropic` (chave de API) ou `claude-cli`
+    /// (assinatura Pro/Max, só texto: não executa ferramentas) — ADR-0040;
+    /// cada um disponível se o bloco `providers.*` correspondente estiver
+    /// configurado. Restringe a escolha aos candidatos já declarados na rota;
+    /// nome desconhecido é o mesmo erro tratado de
+    /// `Router::resolve_with_override`.
     #[arg(long, short = 'p')]
     provider: Option<String>,
 
@@ -756,6 +774,35 @@ fn build_anthropic_provider(
     Ok(Some((provider, candidato)))
 }
 
+/// Monta o provider `claude-cli` (assinatura Pro/Max via subprocesso,
+/// ADR-0040) e o candidato de rota correspondente — `None` se
+/// `providers.claudeCli.model` não estiver declarado.
+///
+/// **Sem `Transport`**: o egresso sai por um subprocesso, então não há
+/// `Allowlist` nem audit log de transporte no caminho. O `ClaudeCliProvider`
+/// compensa emitindo ele próprio uma `AuditEntry` por invocação, no **mesmo**
+/// `audit_sink` da CLI — por isso o sink é passado aqui, e não um `Transport`.
+/// A `egress_class` **da sessão** vai junto para o provider poder recusar o
+/// *spawn* antes de criar o processo (ver a ADR-0040 §Decisão).
+fn build_claude_cli_provider(
+    cfg: &Config,
+    audit_sink: Arc<dyn AuditSink>,
+) -> Option<RegistroDeProvider> {
+    let claude_cli = cfg.claude_cli.as_ref()?;
+
+    let provider: Arc<dyn LlmProvider> = Arc::new(ClaudeCliProvider::new(
+        audit_sink,
+        cfg.egress_class,
+        cfg.profile.map(|p| format!("{p:?}")),
+    ));
+    let candidato = RouteTarget::new(
+        CLAUDE_CLI_PROVIDER_NAME,
+        claude_cli.model.clone(),
+        claude_cli.egress_class,
+    );
+    Some((provider, candidato))
+}
+
 /// Monta a tool `web_fetch` (MT-65, ADR-0025) só quando as **duas**
 /// condições valem: `tools.webFetch.enabled` (*opt-in* explícito) **e**
 /// `cfg.egress_class == CloudOk` (acesso amplo à internet é a capacidade
@@ -1132,10 +1179,13 @@ async fn main() {
                 std::process::exit(2)
             });
 
+    let claude_cli_registro = build_claude_cli_provider(&cfg, Arc::clone(&audit_sink));
+
     // Ordem = preferência de candidato depois do Ollama local.
     let registros_extra: Vec<RegistroDeProvider> = litellm_registro
         .into_iter()
         .chain(anthropic_registro)
+        .chain(claude_cli_registro)
         .collect();
 
     let modelo_inicial = args
@@ -1594,6 +1644,7 @@ mod tests {
             guardrails: agentry_core::guardrail::GuardrailGate::default(),
             litellm: None,
             anthropic: None,
+            claude_cli: None,
             task_classes: std::collections::HashMap::new(),
             web_fetch_enabled: false,
             web_search: None,
@@ -2367,6 +2418,81 @@ mod tests {
 
         assert_eq!(rota.provider.name(), ANTHROPIC_PROVIDER_NAME);
         assert_eq!(rota.model, "claude-opus-5");
+    }
+
+    // ---- build_claude_cli_provider (ADR-0040, assinatura Pro/Max) ----
+
+    fn cfg_com_claude_cli(json_interno: &str) -> Config {
+        let json = format!(r#"{{ "providers": {{ "claudeCli": {json_interno} }} }}"#);
+        let camada = agentry_core::config::Settings::from_json_str(&json)
+            .expect("JSON de teste deve ser válido");
+        Config::resolve(vec![camada])
+    }
+
+    #[test]
+    fn ausencia_de_providers_claude_cli_nao_registra() {
+        let cfg = Config::resolve(vec![Settings::default()]);
+        assert!(build_claude_cli_provider(&cfg, Arc::new(NoopAuditSink)).is_none());
+    }
+
+    /// Diferente de `anthropic`, este provider **não** pede credencial: a
+    /// autenticação é do binário `claude`, que o agentry nunca lê.
+    #[test]
+    fn claude_cli_configurado_monta_sem_exigir_credencial() {
+        let cfg = cfg_com_claude_cli(r#"{ "model": "claude-opus-5" }"#);
+
+        let (provider, candidato) = build_claude_cli_provider(&cfg, Arc::new(NoopAuditSink))
+            .expect("model declarado deve montar Some");
+
+        assert_eq!(provider.name(), CLAUDE_CLI_PROVIDER_NAME);
+        assert_eq!(candidato.provider, CLAUDE_CLI_PROVIDER_NAME);
+        assert_eq!(candidato.model, "claude-opus-5");
+    }
+
+    /// `anthropic` e `claude-cli` são nomes distintos no `Router` (diretriz de
+    /// conformidade da ADR-0040) — nunca fundidos sob um nome só.
+    #[tokio::test]
+    async fn anthropic_e_claude_cli_coexistem_como_candidatos_distintos() {
+        let camada = agentry_core::config::Settings::from_json_str(
+            r#"{ "providers": {
+                "anthropic": { "model": "claude-opus-5" },
+                "claudeCli": { "model": "claude-sonnet-5" }
+            } }"#,
+        )
+        .expect("JSON válido");
+        let cfg = Config::resolve(vec![camada]);
+
+        let anthropic = build_anthropic_provider(&cfg, Some("chave"), Arc::new(NoopAuditSink))
+            .expect("configuração válida")
+            .expect("deve montar Some");
+        let claude_cli =
+            build_claude_cli_provider(&cfg, Arc::new(NoopAuditSink)).expect("deve montar Some");
+
+        let router = montar_router(
+            agentry_core::config::privacy::EgressClass::CloudOk,
+            Arc::new(MockProvider::new("ollama")),
+            vec![anthropic, claude_cli],
+            "modelo-ollama",
+            &cfg,
+        );
+
+        for (nome, modelo) in [
+            (ANTHROPIC_PROVIDER_NAME, "claude-opus-5"),
+            (CLAUDE_CLI_PROVIDER_NAME, "claude-sonnet-5"),
+        ] {
+            let over = RuntimeOverride {
+                provider: Some(nome.to_string()),
+                ..RuntimeOverride::default()
+            };
+            let rota = router
+                .resolve_with_override("chat", &over)
+                .unwrap_or_else(|e| panic!("'{nome}' deveria resolver, mas: {e}"));
+            assert_eq!(rota.provider.name(), nome);
+            assert_eq!(
+                rota.model, modelo,
+                "cada provider mantém seu próprio modelo"
+            );
+        }
     }
 
     /// O Ollama local continua sendo o candidato preferencial mesmo com a

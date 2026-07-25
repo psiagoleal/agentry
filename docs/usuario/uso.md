@@ -75,7 +75,7 @@ e do comando `/usage` do REPL, atualizado automaticamente a cada resposta.
 | Flag | Efeito |
 |---|---|
 | `-m, --model <nome>` | Modelo a usar nesta invocação (sobrescreve o *default*). |
-| `-p, --provider <nome>` | Provider a usar nesta invocação — `ollama` (padrão), `litellm` (se [`providers.litellm`](configuracao.md#providerslitellm) estiver configurado) ou `anthropic` (se [`providers.anthropic`](configuracao.md#providersanthropic) estiver configurado). Restringe a escolha aos candidatos já declarados na rota; nome fora dela é erro tratado. |
+| `-p, --provider <nome>` | Provider a usar nesta invocação — `ollama` (padrão), `litellm`, `anthropic` (chave de API) ou `claude-cli` (assinatura Pro/Max; [só texto, sem ferramentas](configuracao.md#providersclaudecli)), cada um disponível se o bloco correspondente em [`providers`](configuracao.md#providerslitellm) estiver configurado. Restringe a escolha aos candidatos já declarados na rota; nome fora dela é erro tratado. |
 | `--temperature <n>` | Temperatura de amostragem. |
 | `--top-p <n>` | *Top-p* (*nucleus sampling*). |
 | `--max-tokens <n>` | Limite de tokens de saída. |

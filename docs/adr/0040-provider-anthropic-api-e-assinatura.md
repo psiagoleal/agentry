@@ -77,6 +77,34 @@ Descartada a alternativa de ler o token OAuth do Claude Code diretamente: além 
 termos, colocaria o projeto na posição de manusear credencial de terceiro — o oposto da
 postura da ADR-0038, onde a CLI nunca ecoa nem copia segredo.
 
+#### Achado durante a implementação: `claude -p` é um agente, não um endpoint
+
+Ao inspecionar o `stream-json` real, ficou claro que `claude -p` **não é um endpoint de
+modelo — é um agente completo**, com laço próprio, ferramentas próprias (`Read`/`Edit`/
+`Bash`/…) e sistema de permissão próprio. Isso é estruturalmente incompatível com o contrato
+de `LlmProvider`, onde quem executa tool é o `agentry`, sob `PermissionGate`, `CheckpointStore`
+e guardrails.
+
+Três caminhos foram considerados:
+
+1. **Delegar por inteiro** — deixar o Claude Code usar as próprias ferramentas. Rejeitado:
+   as edições de arquivo escapariam do `PermissionGate`/*checkpoints*/auditoria do `agentry`,
+   contradizendo o propósito do projeto.
+2. **Texto puro** (`--tools ""`) — desligar as ferramentas embutidas e usar o subprocesso só
+   como gerador de texto. **Escolhido.**
+3. **Ponte MCP** — expor as tools do `agentry` como **servidor** MCP para o `claude -p`
+   consumir (`--mcp-config --strict-mcp-config`), mantendo o `PermissionGate` na camada de
+   tool. Arquitetonicamente o caminho "certo" para paridade agêntica completa, mas é um
+   projeto próprio: o `agentry` hoje tem apenas um **cliente** MCP (ADR-0028), não um
+   servidor. **Registrado como trabalho futuro, não assumido aqui.**
+
+Consequência da escolha (2), explícita para não virar surpresa: **`claude-cli` não faz
+tool-calling.** Serve para conversa, `/compact`, revisão (`guardrail-compliance`) e qualquer
+task-class de texto — **não** para o laço agêntico principal. Quando uma requisição chega com
+`tools` não vazias, o provider avisa em `stderr` (uma vez por processo) em vez de ignorar em
+silêncio: o silêncio exatamente nesse ponto foi a causa-raiz do bug de tool-calling do Ollama
+(emenda de 2026-07-24 à ADR-0012), e não se repete aqui.
+
 ## Consequências
 
 - **Impacto positivo:** os dois modos de acesso que o mantenedor pediu passam a existir sem
@@ -88,7 +116,8 @@ postura da ADR-0038, onde a CLI nunca ecoa nem copia segredo.
   mudar entre versões.
 - **Trade-offs aceitos:** aceitar a dependência de um binário externo e o acoplamento a um
   formato de terceiro, em troca de acesso legítimo à assinatura Pro/Max sem manusear token
-  OAuth alheio.
+  OAuth alheio. Aceitar também que `claude-cli` seja um provider **só de texto** nesta
+  versão — paridade agêntica completa depende da ponte MCP descrita acima.
 
 ## Diretriz de Conformidade de Código
 

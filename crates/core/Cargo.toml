@@ -18,7 +18,10 @@ serde_json = { workspace = true }
 # "rt": Transport::post_json_lines (MT-08) faz tokio::spawn para bombear o
 # fluxo de linhas — passa a ser runtime, não só dev-dependency.
 # "process": SystemCommandRunner (MT-13) roda comandos via tokio::process.
-tokio = { workspace = true, features = ["sync", "rt", "process"] }
+# "io-util": ClaudeCliProvider (ADR-0040) lê o stream-json do subprocesso linha
+# a linha via AsyncBufReadExt — já estava habilitada em [dev-dependencies],
+# então não é dependência nova na árvore, só passa a valer em runtime.
+tokio = { workspace = true, features = ["sync", "rt", "process", "io-util"] }
 reqwest = { workspace = true }
 ignore = { workspace = true }
 tree-sitter = { workspace = true }

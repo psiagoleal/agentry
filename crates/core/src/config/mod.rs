@@ -276,6 +276,32 @@ impl AnthropicSettings {
     }
 }
 
+/// Configuração do provider `claude-cli` (ADR-0040), dentro de
+/// `providers.claudeCli` — assinatura **Claude Pro/Max** via *spawn* do
+/// binário `claude`. Não tem chave de API: a autenticação é do próprio
+/// binário, que o `agentry` nunca lê nem copia.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct ClaudeCliSettings {
+    /// `providers.claudeCli.model` — identificador do modelo (ex.:
+    /// `claude-opus-5`, ou um alias como `opus`/`haiku`). **É o campo que
+    /// ativa o provider**, mesmo padrão de `providers.anthropic`.
+    #[serde(default)]
+    pub model: Option<String>,
+    /// `providers.claudeCli.egressClass` — ausente ⇒ `cloud-ok`. Declarar algo
+    /// mais restritivo faz o provider recusar o *spawn* e auditar o bloqueio.
+    #[serde(default, rename = "egressClass")]
+    pub egress_class: Option<EgressClass>,
+}
+
+impl ClaudeCliSettings {
+    fn merged_over(self, base: Self) -> Self {
+        Self {
+            model: self.model.or(base.model),
+            egress_class: self.egress_class.or(base.egress_class),
+        }
+    }
+}
+
 /// Bloco `providers.*` do schema mínimo (ADR-0018 §5).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct ProvidersSettings {
@@ -288,6 +314,9 @@ pub struct ProvidersSettings {
     /// `providers.anthropic` (ADR-0040).
     #[serde(default)]
     pub anthropic: AnthropicSettings,
+    /// `providers.claudeCli` (ADR-0040).
+    #[serde(default, rename = "claudeCli")]
+    pub claude_cli: ClaudeCliSettings,
 }
 
 impl ProvidersSettings {
@@ -296,6 +325,7 @@ impl ProvidersSettings {
             ollama: self.ollama.merged_over(base.ollama),
             litellm: self.litellm.merged_over(base.litellm),
             anthropic: self.anthropic.merged_over(base.anthropic),
+            claude_cli: self.claude_cli.merged_over(base.claude_cli),
         }
     }
 }
@@ -782,6 +812,14 @@ pub struct AnthropicConfig {
     pub egress_class: EgressClass,
 }
 
+/// Provider `claude-cli` resolvido (ADR-0040) — `model` já garantido presente;
+/// `egress_class` já resolvida para `cloud-ok` quando não declarada.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ClaudeCliConfig {
+    pub model: String,
+    pub egress_class: EgressClass,
+}
+
 /// Endpoint SearXNG resolvido (ADR-0025, MT-66) — `searxng_url` já
 /// garantido presente (`Config.web_search` só é `Some` quando declarado);
 /// `egress_class` já resolvido para o *default* de risco (`cloud-ok`)
@@ -842,6 +880,9 @@ pub struct Config {
     /// configurada, não é um erro). Consumido pela CLI para registrar mais um
     /// candidato de provider.
     pub anthropic: Option<AnthropicConfig>,
+    /// Provider `claude-cli` resolvido (`providers.claudeCli`, ADR-0040) —
+    /// `None` quando `model` não está declarado.
+    pub claude_cli: Option<ClaudeCliConfig>,
     /// Task-classes declaradas pelo usuário (`taskClasses`, ADR-0021), já
     /// convertidas para os tipos do `Router` (`RouteEntry`/`RouteTarget`/
     /// `CallPreset`, ADR-0008/0014) — prontas para `Router::set_route`.
@@ -928,6 +969,18 @@ impl Config {
                     egress_class: merged
                         .providers
                         .anthropic
+                        .egress_class
+                        .unwrap_or(EgressClass::CloudOk),
+                }),
+            claude_cli: merged
+                .providers
+                .claude_cli
+                .model
+                .map(|model| ClaudeCliConfig {
+                    model,
+                    egress_class: merged
+                        .providers
+                        .claude_cli
                         .egress_class
                         .unwrap_or(EgressClass::CloudOk),
                 }),
