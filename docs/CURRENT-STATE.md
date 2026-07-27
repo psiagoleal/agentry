@@ -11,10 +11,10 @@
 
 ## Último turno
 
-- **Data:** 2026-07-25
+- **Data:** 2026-07-27
 - **Branch:** `main`
-- **Commit:** `34376f0`
-- **Estado da árvore:** limpa · **DoD:** `fmt`/`clippy` limpos, **765 testes** verdes, build
+- **Commit:** `f394f23`
+- **Estado da árvore:** limpa · **DoD:** `fmt`/`clippy` limpos, **772 testes** verdes, build
   `release` OK.
 
 ## Metas cumpridas neste turno
@@ -26,6 +26,12 @@
 - [x] **`08816a8`** — `feat(claude-cli)`: provider `claude-cli` (assinatura Pro/Max via
       subprocesso, com auditoria equivalente). ADR-0040 parte B.
 - [x] **`34376f0`** — `docs(handoff)`: relato da rodada 7.
+- [x] **`0e7cdba`** — `docs(handoff)`: separa estado corrente de histórico; skill exige a
+      divisão (replicada no `ai-coding-agent-profiles`).
+- [x] **`d0153f6`** — `docs(handoff)`: achados de confidencialidade da rodada 8.
+- [x] **`275b682`** — `fix(auditoria,ask_user)`: audit distingue destino local de nuvem; EOF
+      não vira laço.
+- [x] **`f394f23`** — `feat(ux)`: prompt do REPL e título da TUI mostram a rota ativa.
 
 ## Rodada 7 (2026-07-25) — bug crítico do Ollama + provider Anthropic (ADR-0040)
 
@@ -102,7 +108,7 @@ agente novo não conseguia lê-lo dentro do contexto, o oposto do propósito da 
 estado corrente**. A skill (neste repositório e no `ai-coding-agent-profiles`) foi atualizada
 para tornar essa separação a forma de trabalho padrão, com teto explícito de tamanho.
 
-## Rodada 8 (2026-07-27) — em andamento: roteamento entre modelos e confidencialidade
+## Rodada 8 (2026-07-27) — roteamento entre modelos e confidencialidade
 
 Pedido do mantenedor: testar o `agentry` com o modelo local (Ollama) tratando dados
 confidenciais e delegando à nuvem (Claude) **apenas o não-confidencial**, via `taskClasses`;
@@ -141,20 +147,44 @@ binário `claude` (audita o que de fato sai da máquina).
    confiança do usuário sobre onde seus dados foram parar.
 7. **O subagente foi invocado 4× para um pedido**, sem nenhuma visibilidade disso na saída.
 
-### Estado
+### Correções entregues nesta rodada
 
-Achados 1-3 são arquiteturais (exigem ADR). Achados 4-6 são corrigíveis diretamente e é por
-onde o trabalho segue. Nenhum código alterado ainda nesta rodada.
+- **Achado 4 ✅ `275b682`** — `Allowlist::check` passa a devolver a classe exigida pelo
+  destino (já a calculava e descartava); `AuditEntry` ganha `destination_class`. O log agora
+  distingue `destino local-only, sessão cloud-ok` de `cloud-ok`, no terminal e no
+  `.agentry/audit.log`.
+- **Achado 5 ✅ `275b682`** — `InteractivePrompter` trata `Ok(0)` (EOF) como ausência de
+  humano, devolvendo ao modelo um texto que diz que ninguém responderá **e o que fazer em
+  seguida**. Medido no mesmo pedido: **19k → 5.8k tokens**, 4 → 1 chamada ao subagente.
+- **Achado 6 ✅ `f394f23`** — `repl::rotulo_de_rota` (fonte única) alimenta o prompt do REPL
+  (`⌂ ollama:qwen2.5:7b >`) e o título da TUI (` agentry — ↗ claude-cli:haiku `), com `⌂`/`↗`
+  sinalizando se a mensagem sai da máquina.
+
+### Achados 1-3: em aberto, exigem decisão do mantenedor
+
+São **arquiteturais** e não têm correção segura sem ADR. O ponto comum: hoje a confidencialidade
+na fronteira local→nuvem depende de um modelo pequeno obedecer a uma instrução, e não há como
+verificar depois se ele obedeceu.
+
+Direções possíveis (nenhuma escolhida):
+- **Guardrails com padrão**, não literal — emendar a ADR-0007, que hoje proíbe regex.
+  Sem isso não há como expressar CPF/e-mail/telefone.
+- **Guardrail obrigatório na saída do `subagent`** quando o alvo é mais permissivo que a
+  sessão-mãe — hoje a delegação cruza a fronteira sem inspeção dedicada.
+- **Registrar no audit log um resumo verificável do que saiu** (ex.: hash + contagem de
+  padrões sensíveis detectados), sem gravar o conteúdo — permitiria detectar vazamento depois
+  do fato sem transformar o log num novo repositório de dados sensíveis.
 
 ## Em andamento
 
-- [ ] Correção dos achados 4, 5 e 6 (audit de classe do destino; `ask_user` não-interativo;
-      visibilidade do provider por turno).
+Nada em execução. Árvore limpa.
 
 ## Próximo passo sugerido
 
 Decisões do mantenedor, em ordem de impacto:
 
+0. **Achados 1-3 da rodada 8** (confidencialidade na fronteira local→nuvem) — as três
+   direções possíveis estão listadas acima; nenhuma é segura de escolher sem ADR.
 1. **Teste de integração ponta a ponta em CI** — causa estrutural dos três bugs de produção
    já encontrados (todos na fronteira `main()` → provider real, que os 765 testes unitários
    não cobrem). Maior retorno disponível hoje; acima de qualquer feature nova.
