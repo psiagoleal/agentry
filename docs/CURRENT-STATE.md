@@ -102,9 +102,54 @@ agente novo não conseguia lê-lo dentro do contexto, o oposto do propósito da 
 estado corrente**. A skill (neste repositório e no `ai-coding-agent-profiles`) foi atualizada
 para tornar essa separação a forma de trabalho padrão, com teto explícito de tamanho.
 
+## Rodada 8 (2026-07-27) — em andamento: roteamento entre modelos e confidencialidade
+
+Pedido do mantenedor: testar o `agentry` com o modelo local (Ollama) tratando dados
+confidenciais e delegando à nuvem (Claude) **apenas o não-confidencial**, via `taskClasses`;
+observar também usabilidade/fluidez sem perder segurança.
+
+**Cenário montado** (`taskClasses`): `chat` → `ollama`/`qwen2.5:7b`/`local-only`;
+`nuvem` → `claude-cli`/`haiku`/`cloud-ok`. Sessão sob perfil `pessoal`. Delegação pela tool
+`subagent` com `task_class='nuvem'`. Egresso para a nuvem capturado com um *wrapper* do
+binário `claude` (audita o que de fato sai da máquina).
+
+### Achados — confidencialidade (ordenados por gravidade)
+
+1. **Nada impõe a sanitização na fronteira local→nuvem.** Com instrução explícita, o modelo
+   local sanitizou corretamente (só `plano`/`mrr`/`churn_risco` saíram — verificado). **Sem**
+   a instrução, o CSV inteiro com nomes, CPFs e e-mails saiu da máquina. A proteção depende
+   inteiramente de um modelo 7B obedecer — não há mecanismo do `agentry` no caminho.
+2. **Guardrails são só correspondência literal (ADR-0007, "sem regex") — o modelo contorna.**
+   Com `guardrails.input/output = [{match:"cpf", action:"block"}]`, o payload com o literal
+   `cpf` foi bloqueado; o modelo então **reformatou os dados sem aquela coluna e mandou os
+   nomes assim mesmo**. Bloquear literal dá falsa sensação de proteção: PII precisa de padrão
+   (CPF/e-mail/telefone), não de literal.
+3. **O audit log registra *que* houve egresso, não *o que* saiu.** Não há como verificar nem
+   detectar o vazamento depois do fato — foi preciso instrumentar o binário externo para
+   descobrir. Para o objetivo de conformidade do projeto, é a lacuna central.
+4. **O audit log registra a classe de egresso da *sessão*, não a do destino.** Toda chamada
+   puramente local ao Ollama aparece como `classe=cloud-ok` (a do perfil). Quem audita não
+   distingue "ficou na máquina" de "foi para a nuvem" a não ser conhecendo os *hosts*.
+
+### Achados — usabilidade
+
+5. **Laço de `ask_user` em modo *one-shot*, sem humano para responder.** O modelo perguntou e
+   "esperou" repetidamente até o teto de turnos; uma execução gastou 19k tokens sem entregar
+   resposta. Em *one-shot* não há interatividade: a tool deveria falhar cedo e explicitamente.
+6. **Nenhuma indicação de qual modelo/provider respondeu cada turno.** Num cenário
+   multi-modelo — exatamente o que este teste exercita — é a informação que dá (ou tira) a
+   confiança do usuário sobre onde seus dados foram parar.
+7. **O subagente foi invocado 4× para um pedido**, sem nenhuma visibilidade disso na saída.
+
+### Estado
+
+Achados 1-3 são arquiteturais (exigem ADR). Achados 4-6 são corrigíveis diretamente e é por
+onde o trabalho segue. Nenhum código alterado ainda nesta rodada.
+
 ## Em andamento
 
-Nada em execução. Árvore limpa.
+- [ ] Correção dos achados 4, 5 e 6 (audit de classe do destino; `ask_user` não-interativo;
+      visibilidade do provider por turno).
 
 ## Próximo passo sugerido
 
