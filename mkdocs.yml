@@ -81,6 +81,7 @@ nav:
       - Arquitetura: architecture.md
       - Guia de testes: testing.md
       - Estado corrente (handoff): CURRENT-STATE.md
+      - Arquivo de handoff (histórico): handoff-arquivo.md
       - Decisões autônomas (loop): decisoes-autonomas.md
       - "Pesquisa de referência: UX/TUI": pesquisa-tui-referencias.md
       - Registros de Decisão (ADRs):
