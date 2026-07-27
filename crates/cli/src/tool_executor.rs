@@ -192,12 +192,29 @@ fn formata_pergunta(question: &str, options: &[String]) -> String {
     }
 }
 
+/// Resposta devolvida ao modelo quando não há humano para responder (ver
+/// [`InteractivePrompter`]). É texto endereçado ao **modelo**, não ao usuário:
+/// precisa dizer o que aconteceu **e** o que fazer em seguida, senão o modelo
+/// só repete a pergunta.
+pub(crate) const SEM_USUARIO_INTERATIVO: &str =
+    "[erro: não há usuário interativo nesta sessão — a entrada padrão chegou ao fim. \
+     Ninguém vai responder esta nem nenhuma pergunta futura. Não use `ask_user` de novo; \
+     prossiga com a suposição mais razoável e diga explicitamente na resposta final qual \
+     suposição você adotou.]";
+
 /// Implementação real de [`Prompter`] (`agentry_core::tools::ask_user`,
 /// MT-63/ADR-0024): imprime a pergunta (e sugestões numeradas, se houver) e
 /// lê uma linha de `stdin` — mesmo padrão síncrono de
 /// [`InteractiveConfirmer`], sem *parsing*/validação da resposta. Funciona
 /// tanto no modo *one-shot* quanto no REPL, sem distinção — mesma raiz de
 /// código dos dois modos.
+///
+/// **EOF é tratado como ausência de humano, não como resposta vazia** (achado
+/// real da rodada 8): `read_line` devolve `Ok(0)` no fim da entrada padrão —
+/// sucesso, não erro —, então a implementação anterior devolvia `""` ao
+/// modelo, que interpretava como "o usuário não respondeu ainda" e perguntava
+/// de novo. Numa execução *one-shot* sem terminal isso vira um laço até o teto
+/// de turnos (ADR-0033): uma medição gastou 19k tokens sem produzir resposta.
 pub struct InteractivePrompter;
 
 impl Prompter for InteractivePrompter {
@@ -208,10 +225,14 @@ impl Prompter for InteractivePrompter {
             let _ = std::io::stdout().flush();
 
             let mut linha = String::new();
-            if std::io::stdin().read_line(&mut linha).is_err() {
-                return String::new();
+            match std::io::stdin().read_line(&mut linha) {
+                // `Ok(0)` é EOF: não há (mais) ninguém do outro lado.
+                Ok(0) | Err(_) => {
+                    println!("(sem entrada interativa — prosseguindo sem resposta)");
+                    SEM_USUARIO_INTERATIVO.to_string()
+                }
+                Ok(_) => linha.trim().to_string(),
             }
-            linha.trim().to_string()
         })
     }
 }

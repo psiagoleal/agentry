@@ -36,8 +36,22 @@ pub struct AuditEntry {
     pub destination: String,
     /// Identificador do perfil ativo, se houver.
     pub profile: Option<String>,
-    /// Classe de egresso resolvida para a sessão.
+    /// Classe de egresso resolvida para a sessão — o **teto** do que a sessão
+    /// inteira pode alcançar, não o alcance desta chamada.
     pub egress_class: EgressClass,
+    /// Classe exigida pelo **destino** desta chamada (a entrada mais restritiva
+    /// da `Allowlist` que casou com o host).
+    ///
+    /// Sem ela, uma chamada puramente local ao Ollama e uma chamada à nuvem
+    /// aparecem idênticas no log quando a sessão é `cloud-ok` — quem audita
+    /// não distingue "ficou na máquina" de "saiu da máquina" sem conhecer os
+    /// *hosts* de cor (achado real de teste, rodada 8).
+    ///
+    /// `None` quando o egresso foi bloqueado **antes** de casar qualquer
+    /// entrada (host fora da allowlist): não existe classe de destino nesse
+    /// caso, e inventar uma seria pior que omitir.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub destination_class: Option<EgressClass>,
     /// Descrição da tarefa que originou a tentativa de egresso, já redigida.
     pub task: String,
     /// Resultado da decisão.
@@ -63,10 +77,22 @@ impl AuditEntry {
             destination: redact_text(&destination.into()),
             profile,
             egress_class,
+            destination_class: None,
             task: redact_text(&task.into()),
             outcome,
             reason: reason.map(|r| redact_text(&r)),
         }
+    }
+
+    /// Declara a classe exigida pelo destino (ver [`Self::destination_class`]).
+    ///
+    /// Construtor separado, e não parâmetro de [`Self::new`], porque só quem
+    /// consultou a `Allowlist` conhece esse valor — quem audita um egresso que
+    /// nem chegou a casar entrada nenhuma não tem o que informar aqui.
+    #[must_use]
+    pub fn with_destination_class(mut self, class: EgressClass) -> Self {
+        self.destination_class = Some(class);
+        self
     }
 
     /// Cria uma entrada para um egresso **permitido**.
@@ -121,11 +147,18 @@ impl std::fmt::Display for AuditEntry {
     /// `scripts/usability-test.sh`). Continua obrigatório pelo ADR-0002
     /// (audit trail de todo egresso) — só o formato de impressão muda.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{} -> {} ({}",
-            self.task, self.destination, self.egress_class
-        )?;
+        write!(f, "{} -> {} (", self.task, self.destination)?;
+        // A classe do destino vem primeiro por ser a que responde à pergunta
+        // que o usuário realmente faz ao ler esta linha: "esse dado saiu da
+        // minha máquina?". A da sessão é o teto, e só aparece quando difere —
+        // repetir "local-only, local-only" é ruído.
+        match self.destination_class {
+            Some(destino) if destino != self.egress_class => {
+                write!(f, "destino {destino}, sessão {}", self.egress_class)?;
+            }
+            Some(destino) => write!(f, "{destino}")?,
+            None => write!(f, "{}", self.egress_class)?,
+        }
         match self.outcome {
             AuditOutcome::Allowed => write!(f, ", allowed)"),
             AuditOutcome::Blocked => {
@@ -252,6 +285,71 @@ mod tests {
         assert_eq!(
             entrada.to_string(),
             "chat -> endpoint.desconhecido (local-only, blocked: host fora da allowlist)"
+        );
+    }
+
+    // ---- classe do destino (rodada 8) ----
+
+    /// O caso que motivou o campo: sessão `cloud-ok` chamando um endpoint
+    /// local. Antes, a linha dizia só `cloud-ok` e era indistinguível de uma
+    /// chamada à nuvem de verdade.
+    #[test]
+    fn destino_local_em_sessao_cloud_ok_mostra_as_duas_classes() {
+        let entrada = AuditEntry::allowed(
+            "http://127.0.0.1:11434/api/chat",
+            None,
+            EgressClass::CloudOk,
+            "chat_stream",
+        )
+        .with_destination_class(EgressClass::LocalOnly);
+
+        assert_eq!(
+            entrada.to_string(),
+            "chat_stream -> http://127.0.0.1:11434/api/chat \
+             (destino local-only, sessão cloud-ok, allowed)"
+        );
+    }
+
+    #[test]
+    fn destino_igual_a_sessao_nao_repete_a_classe() {
+        let entrada =
+            AuditEntry::allowed("https://api.exemplo", None, EgressClass::CloudOk, "chat")
+                .with_destination_class(EgressClass::CloudOk);
+
+        assert_eq!(
+            entrada.to_string(),
+            "chat -> https://api.exemplo (cloud-ok, allowed)",
+            "repetir a mesma classe duas vezes só polui a linha"
+        );
+    }
+
+    #[test]
+    fn classe_do_destino_vai_para_o_json_do_audit_log() {
+        let json =
+            AuditEntry::allowed("http://127.0.0.1:11434", None, EgressClass::CloudOk, "chat")
+                .with_destination_class(EgressClass::LocalOnly)
+                .to_json();
+
+        assert!(
+            json.contains(r#""destination_class":"local-only""#),
+            "o log persistente também precisa distinguir local de nuvem: {json}"
+        );
+    }
+
+    #[test]
+    fn bloqueio_sem_entrada_casada_omite_a_classe_do_destino() {
+        let json = AuditEntry::blocked(
+            "endpoint.desconhecido",
+            None,
+            EgressClass::LocalOnly,
+            "chat",
+            "host fora da allowlist",
+        )
+        .to_json();
+
+        assert!(
+            !json.contains("destination_class"),
+            "sem entrada casada não existe classe de destino — omitir é melhor que inventar"
         );
     }
 }

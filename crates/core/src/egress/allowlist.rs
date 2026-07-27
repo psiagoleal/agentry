@@ -75,12 +75,19 @@ impl Allowlist {
     /// a decisão nunca é mais permissiva do que a entrada mais exigente
     /// cadastrada para aquele host.
     ///
+    /// Em caso de sucesso devolve a **classe exigida pelo destino** (a mais
+    /// restritiva entre as entradas que casaram) — não a classe ativa da
+    /// sessão. É essa que descreve o alcance real daquela chamada: um destino
+    /// `local-only` nunca tira dado da máquina, mesmo numa sessão `cloud-ok`.
+    /// O audit log registra as duas (ADR-0002), para quem audita distinguir
+    /// "ficou na máquina" de "poderia ter ido para qualquer lugar".
+    ///
     /// # Errors
     ///
     /// Devolve [`EgressError::NotAllowlisted`] se nenhuma entrada casar com o
     /// host, e [`EgressError::ClassInsufficient`] se a classe ativa não cobrir
     /// a classe mínima exigida.
-    pub fn check(&self, active_class: EgressClass, host: &str) -> Result<(), EgressError> {
+    pub fn check(&self, active_class: EgressClass, host: &str) -> Result<EgressClass, EgressError> {
         let required = self
             .0
             .iter()
@@ -93,7 +100,7 @@ impl Allowlist {
         };
 
         if active_class.permits(required) {
-            Ok(())
+            Ok(required)
         } else {
             Err(EgressError::ClassInsufficient {
                 host: host.into(),

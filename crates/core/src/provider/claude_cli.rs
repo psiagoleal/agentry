@@ -123,12 +123,18 @@ impl ClaudeCliProvider {
     /// alcança a nuvem — sem nunca criar o processo.
     fn autorizar_e_auditar(&self, task: &str) -> Result<(), ProviderError> {
         if self.egress_class.permits(EgressClass::CloudOk) {
-            self.audit_sink.record(AuditEntry::allowed(
-                AUDIT_DESTINATION,
-                self.profile.clone(),
-                self.egress_class,
-                task,
-            ));
+            self.audit_sink.record(
+                AuditEntry::allowed(
+                    AUDIT_DESTINATION,
+                    self.profile.clone(),
+                    self.egress_class,
+                    task,
+                )
+                // Este destino é sempre a nuvem pública: declará-lo
+                // explicitamente é o que faz a linha do audit log dizer "saiu
+                // da máquina", em vez de repetir o teto da sessão.
+                .with_destination_class(EgressClass::CloudOk),
+            );
             return Ok(());
         }
 

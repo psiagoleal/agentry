@@ -181,23 +181,26 @@ impl Transport {
             .ok_or_else(|| TransportError::InvalidUrl(format!("'{url}' não tem host")))?
             .to_string();
 
-        if let Err(egress_err) = self.allowlist.check(self.egress_class, &host) {
-            self.sink.record(AuditEntry::blocked(
-                url,
-                self.profile.clone(),
-                self.egress_class,
-                task,
-                egress_err.to_string(),
-            ));
-            return Err(TransportError::Blocked(egress_err));
-        }
+        let classe_do_destino = match self.allowlist.check(self.egress_class, &host) {
+            Ok(classe) => classe,
+            Err(egress_err) => {
+                // Bloqueio antes de casar entrada: sem classe de destino a
+                // declarar (ver `AuditEntry::destination_class`).
+                self.sink.record(AuditEntry::blocked(
+                    url,
+                    self.profile.clone(),
+                    self.egress_class,
+                    task,
+                    egress_err.to_string(),
+                ));
+                return Err(TransportError::Blocked(egress_err));
+            }
+        };
 
-        self.sink.record(AuditEntry::allowed(
-            url,
-            self.profile.clone(),
-            self.egress_class,
-            task,
-        ));
+        self.sink.record(
+            AuditEntry::allowed(url, self.profile.clone(), self.egress_class, task)
+                .with_destination_class(classe_do_destino),
+        );
 
         Ok(parsed)
     }
