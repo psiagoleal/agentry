@@ -236,6 +236,16 @@ struct Estado {
     /// movida para a *task* de streaming durante um turno em voo; ver
     /// [`disparar_turno`]). Renderizado no rodapé por [`draw`].
     usage_total: Usage,
+    /// Rótulo `provider:modelo` da rota ativa, exibido no título do painel de
+    /// conversa (rodada 8) — mesma informação que o prompt do REPL mostra, pela
+    /// mesma razão: numa configuração multi-modelo, saber para onde a próxima
+    /// mensagem vai é o que decide se o usuário pode colar um dado sensível.
+    ///
+    /// Guardado como `String` porque a `Session` **não** vive em `Estado` (é
+    /// movida para a *task* de streaming durante um turno em voo, ver
+    /// [`disparar_turno`]) — não dá para consultá-la na hora de desenhar.
+    /// Atualizado no arranque e a cada troca confirmada no seletor.
+    rotulo_rota: String,
     /// `true` só enquanto o painel de ajuda de tela cheia está aberto
     /// (`?` com a caixa de entrada vazia, MT-110) — mesmo padrão de
     /// `seletor`/`solicitacao` (um modal por vez, com prioridade sobre a
@@ -260,7 +270,7 @@ struct Estado {
 }
 
 impl Estado {
-    fn new(overrides: RuntimeOverride, auto: Arc<AtomicBool>) -> Self {
+    fn new(overrides: RuntimeOverride, auto: Arc<AtomicBool>, rotulo_rota: String) -> Self {
         Self {
             chat: ChatState::new(),
             entrada: String::new(),
@@ -271,6 +281,7 @@ impl Estado {
             solicitacao: None,
             auto,
             usage_total: Usage::default(),
+            rotulo_rota,
             ajuda_aberta: false,
             logo: logo::linhas(),
             scroll_confirmacao: 0,
@@ -324,6 +335,14 @@ impl Estado {
 /// tipicamente quando o candidato escolhido exige mais classe de egresso do
 /// que a sessão ativa permite (ADR-0002 *fail-closed*: o seletor nunca
 /// contorna essa checagem, só chama a mesma função que o REPL já usa).
+/// Título do painel de conversa: o nome da ferramenta mais a rota ativa
+/// (rodada 8). O rótulo já vem com o símbolo `⌂`/`↗` de
+/// [`crate::repl::rotulo_de_rota`] — mesma fonte que o prompt do REPL usa, para
+/// os dois modos nunca divergirem sobre como sinalizar "isto sai da máquina".
+fn titulo_da_conversa(rotulo_rota: &str) -> String {
+    format!(" agentry — {rotulo_rota} ")
+}
+
 fn aplicar_selecao(
     alvo: &RouteTarget,
     task_class: &str,
@@ -1287,7 +1306,7 @@ fn draw(frame: &mut Frame<'_>, estado: &Estado) {
         linhas_do_logo.extend(estado.logo.iter().cloned());
         let logo = Paragraph::new(linhas_do_logo)
             .alignment(Alignment::Center)
-            .block(Block::bordered().title(" agentry "));
+            .block(Block::bordered().title(titulo_da_conversa(&estado.rotulo_rota)));
         frame.render_widget(logo, areas[0]);
     } else {
         // `estado.scroll` conta "quantas linhas rolar para cima a partir do
@@ -1306,7 +1325,7 @@ fn draw(frame: &mut Frame<'_>, estado: &Estado) {
             .map(|(linha, _)| linha)
             .collect();
         let historico = Paragraph::new(linhas)
-            .block(Block::bordered().title(" agentry "))
+            .block(Block::bordered().title(titulo_da_conversa(&estado.rotulo_rota)))
             .scroll((layout.deslocamento_do_topo, 0));
         frame.render_widget(historico, areas[0]);
     }
@@ -1687,7 +1706,11 @@ async fn loop_eventos(
 ) -> io::Result<()> {
     let router = Arc::new(router);
     let checkpoint_store = agentry_core::checkpoint::CheckpointStore::new(workspace_root.clone());
-    let mut estado = Estado::new(overrides, auto);
+    let mut estado = Estado::new(
+        overrides,
+        auto,
+        crate::repl::rotulo_de_rota(&sessao_inicial),
+    );
     estado.chat.semear_historico(sessao_inicial.messages());
     let mut sessao_atual = Some(sessao_inicial);
     let mut rx_terminal = iniciar_leitor_de_terminal();
@@ -1854,7 +1877,15 @@ async fn loop_eventos(
                                     &mut estado.overrides,
                                     sessao,
                                 ) {
-                                    Ok(()) => estado.seletor = None,
+                                    Ok(()) => {
+                                        // O título precisa refletir a rota nova
+                                        // imediatamente: trocar de modelo e o
+                                        // painel continuar anunciando o antigo
+                                        // é pior que não anunciar nada.
+                                        estado.rotulo_rota =
+                                            crate::repl::rotulo_de_rota(sessao);
+                                        estado.seletor = None;
+                                    }
                                     Err(erro) => {
                                         if let Some(seletor) = estado.seletor.as_mut() {
                                             seletor.erro = Some(erro);
@@ -2029,7 +2060,20 @@ mod tests {
     use ratatui::crossterm::event::KeyEvent;
 
     fn estado_vazio() -> Estado {
-        Estado::new(RuntimeOverride::default(), Arc::new(AtomicBool::new(false)))
+        Estado::new(
+            RuntimeOverride::default(),
+            Arc::new(AtomicBool::new(false)),
+            "⌂ ollama:modelo-de-teste".to_string(),
+        )
+    }
+
+    #[test]
+    fn titulo_da_conversa_carrega_a_rota_ativa() {
+        assert_eq!(
+            titulo_da_conversa("↗ claude-cli:haiku"),
+            " agentry — ↗ claude-cli:haiku ",
+            "o título é onde o usuário da TUI vê para onde a mensagem vai"
+        );
     }
 
     // --- quebrar_em_linhas / fatiar_palavra_longa (achado de usabilidade:

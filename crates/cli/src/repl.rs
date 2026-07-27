@@ -65,6 +65,20 @@ const RECALL_LIMITE_PADRAO: usize = 5;
 /// declarado antes de [`Router::resolve_with_override`] poder escolhê-lo
 /// (ADR-0014/MT-33: o override nunca introduz um alvo não vetado; aqui é a
 /// própria CLI, a pedido explícito do humano, quem declara os candidatos).
+/// Rótulo curto de rota (`provider:modelo`) para o prompt do REPL.
+///
+/// Sinaliza com um símbolo se a conversa está saindo da máquina — `⌂` para o
+/// provider local, `↗` para qualquer outro. É deliberadamente derivado do
+/// **nome do provider**, não da classe de egresso da sessão: a classe é o teto
+/// do que a sessão poderia alcançar, enquanto o que o usuário precisa saber
+/// antes de digitar é para onde esta mensagem vai de fato (mesma distinção que
+/// a rodada 8 corrigiu no audit log).
+pub(crate) fn rotulo_de_rota(session: &Session) -> String {
+    let provider = session.provider_name();
+    let sinal = if provider == PROVIDER { "⌂" } else { "↗" };
+    format!("{sinal} {provider}:{}", session.model())
+}
+
 pub fn set_chat_route(
     router: &mut Router,
     modelo: &str,
@@ -266,7 +280,11 @@ pub async fn run_repl<R: BufRead, W: Write>(
     } = *config;
     imprimir_historico_retomado(&mut output, session)?;
     loop {
-        write!(output, "> ").map_err(|e| e.to_string())?;
+        // O prompt carrega provider/modelo ativos (rodada 8): numa configuração
+        // multi-modelo — parte do propósito do projeto — "com quem estou
+        // falando agora?" decide se o usuário pode colar um dado sensível na
+        // próxima linha. Deixar isso implícito é pedir para alguém errar.
+        write!(output, "{} > ", rotulo_de_rota(session)).map_err(|e| e.to_string())?;
         output.flush().map_err(|e| e.to_string())?;
 
         let mut linha = String::new();
@@ -523,6 +541,43 @@ mod tests {
                 root, provider, "embed-x", "rerank-x",
             ),
         )
+    }
+
+    // ---- rótulo de rota no prompt (rodada 8) ----
+
+    #[test]
+    fn rotulo_marca_provider_local_com_simbolo_de_casa() {
+        let mock = Arc::new(MockProvider::new(PROVIDER));
+        let router = router_com_ollama(mock, "qwen2.5:7b");
+        let rota = router.resolve(TASK_CLASS).expect("deve resolver");
+        let session = Session::new(rota, Arc::new(NoopExecutor), TokenBudget::new(100_000));
+
+        assert_eq!(rotulo_de_rota(&session), "⌂ ollama:qwen2.5:7b");
+    }
+
+    #[test]
+    fn rotulo_marca_provider_remoto_com_simbolo_de_saida() {
+        let mut router = Router::new(EgressClass::CloudOk);
+        router.register_provider(Arc::new(MockProvider::new("claude-cli")));
+        router.set_route(
+            TASK_CLASS,
+            agentry_core::router::RouteEntry {
+                candidates: vec![agentry_core::router::RouteTarget::new(
+                    "claude-cli",
+                    "haiku",
+                    EgressClass::CloudOk,
+                )],
+                preset: CallPreset::default(),
+            },
+        );
+        let rota = router.resolve(TASK_CLASS).expect("deve resolver");
+        let session = Session::new(rota, Arc::new(NoopExecutor), TokenBudget::new(100_000));
+
+        assert_eq!(
+            rotulo_de_rota(&session),
+            "↗ claude-cli:haiku",
+            "qualquer provider que não seja o local precisa avisar que a mensagem sai daqui"
+        );
     }
 
     #[test]
