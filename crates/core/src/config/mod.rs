@@ -312,6 +312,13 @@ pub struct ClaudeCliSettings {
     /// mais restritivo faz o provider recusar o *spawn* e auditar o bloqueio.
     #[serde(default, rename = "egressClass")]
     pub egress_class: Option<EgressClass>,
+    /// `providers.claudeCli.mcpTools` (ADR-0042) — liga a ponte MCP: o
+    /// subprocesso passa a enxergar as tools do `agentry`, sob a mesma
+    /// política (`permissions`/`readAllow`). **Default `false`**: sem isto o
+    /// provider segue como gerador de texto puro (ADR-0040), que é o
+    /// comportamento já documentado.
+    #[serde(default, rename = "mcpTools")]
+    pub mcp_tools: Option<bool>,
 }
 
 impl ClaudeCliSettings {
@@ -319,6 +326,7 @@ impl ClaudeCliSettings {
         Self {
             model: self.model.or(base.model),
             egress_class: self.egress_class.or(base.egress_class),
+            mcp_tools: self.mcp_tools.or(base.mcp_tools),
         }
     }
 }
@@ -852,6 +860,8 @@ pub struct AnthropicConfig {
 pub struct ClaudeCliConfig {
     pub model: String,
     pub egress_class: EgressClass,
+    /// Ponte MCP ativa (ADR-0042) — ver `ClaudeCliSettings::mcp_tools`.
+    pub mcp_tools: bool,
 }
 
 /// Endpoint SearXNG resolvido (ADR-0025, MT-66) — `searxng_url` já
@@ -1025,6 +1035,7 @@ impl Config {
                         .claude_cli
                         .egress_class
                         .unwrap_or(EgressClass::CloudOk),
+                    mcp_tools: merged.providers.claude_cli.mcp_tools.unwrap_or(false),
                 }),
             task_classes: merged
                 .task_classes

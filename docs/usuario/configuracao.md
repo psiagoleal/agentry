@@ -381,16 +381,50 @@ autenticado na sua máquina, que resolve o login sozinho — o `agentry` nunca l
 guarda o seu token. Pré-requisito: `claude` disponível no `PATH` e autenticado (`claude
 login`); se faltar, o erro diz exatamente isso.
 
-!!! warning "Este provider não executa ferramentas"
-    `claude -p` é um **agente completo**, com laço e ferramentas próprios — não um endpoint
-    de modelo. Para que nenhuma edição de arquivo escape do controle de permissão, dos
-    *checkpoints* e da auditoria do `agentry`, as ferramentas embutidas do Claude Code são
-    **desligadas** (`--tools ""`) e o subprocesso é usado só como gerador de texto.
+#### `mcpTools` — dar ferramentas ao Claude, sob a sua política
 
-    Na prática: `claude-cli` serve para **conversa**, `/compact` e revisão — **não** para o
-    laço agêntico (ler/editar arquivos, rodar comandos). Para isso use `ollama`, `litellm` ou
-    `anthropic`. Se você mandar uma tarefa agêntica, o `agentry` avisa no terminal em vez de
-    falhar em silêncio.
+Por padrão (`mcpTools` ausente ou `false`), este provider é só **texto**: as ferramentas
+embutidas do Claude Code ficam desligadas, para que nenhuma edição escape do controle de
+permissão, dos *checkpoints* e da auditoria do `agentry`. Serve para conversa, `/compact` e
+revisão — não para o laço agêntico.
+
+Com `"mcpTools": true`, o `agentry` devolve ao Claude **as suas próprias ferramentas**, sob a
+mesma política de [`permissions`](#permissions)/[`readAllow`](#readallow--limitar-a-leitura-a-caminhos-específicos):
+
+```json
+{
+  "profile": "pessoal",
+  "permissions": {
+    "readAllow": ["README.md", "AGENTS.md", "docs/**"],
+    "deny": ["shell_exec", "shell_background", "glob", "fs_search"]
+  },
+  "subagentPermissions": { "deny": [] },
+  "providers": {
+    "claudeCli": { "model": "opus", "mcpTools": true }
+  },
+  "taskClasses": {
+    "chat":  { "candidates": [{ "provider": "claude-cli", "model": "opus", "egressClass": "cloud-ok" }] },
+    "local": { "candidates": [{ "provider": "ollama", "model": "llama3.1:8b", "egressClass": "local-only" }] }
+  }
+}
+```
+
+É a configuração de referência para **"o Claude planeja, o modelo local lê o que é
+sensível"**: o Claude usa a sua assinatura Pro/Max, lê a documentação do projeto, **não
+consegue** abrir os arquivos fora do `readAllow`, e delega essas leituras à task-class `local`
+pela ferramenta `subagent`.
+
+As ferramentas embutidas do Claude Code continuam desligadas nos dois modos — as únicas que
+ele enxerga são as que o `agentry` expõe.
+
+!!! warning "O laço de agente passa a ser do Claude Code"
+    Com `mcpTools`, quem conduz o laço é o `claude -p`, não o `agentry`. Continua valendo tudo
+    o que é **por ferramenta**: permissões, `readAllow`, *checkpoints*, audit log de egresso.
+
+    **Deixa de valer** o que é por turno da sessão do `agentry`: [guardrails de
+    conteúdo](guardrails.md), teto de turnos e compactação automática. Se você precisa dessas
+    garantias, use o provider [`anthropic`](#providersanthropic) (chave de API), onde o laço é
+    do `agentry`.
 
 !!! note "Auditoria"
     Por não usar HTTP, este provider fica fora da *allowlist* de egresso. Em compensação ele

@@ -20,33 +20,34 @@
 //! criar o processo — espelhando o `Transport` sob `Allowlist`, que bloqueia
 //! antes de tocar a rede.
 //!
-//! ## Limitação estrutural: sem *tool-calling*
+//! ## Dois modos: texto puro e ponte MCP
 //!
 //! `claude -p` **não é um endpoint de modelo — é um agente completo**, com
 //! laço próprio, ferramentas próprias (`Read`/`Edit`/`Bash`/…) e sistema de
-//! permissão próprio. Isso é incompatível com o contrato de [`LlmProvider`],
-//! onde quem executa tool é o `agentry` (sob `PermissionGate`, *checkpoints* e
-//! guardrails).
+//! permissão próprio. Deixá-lo usar as ferramentas dele faria as edições
+//! escaparem do `PermissionGate`/`CheckpointStore` do `agentry`, então
+//! **`--tools ""` é passado sempre**, nos dois modos: as ferramentas embutidas
+//! ficam desligadas em qualquer configuração.
 //!
-//! A escolha desta implementação é **desligar as ferramentas do Claude Code**
-//! (`--tools ""`), usando o subprocesso como gerador de **texto puro**. As
-//! consequências, deliberadas:
+//! **Texto puro** (`ponte_mcp: None`, ADR-0040): o subprocesso é só um gerador
+//! de texto. Serve para conversa, `/compact` e revisão — não para o laço
+//! agêntico. Quando uma [`ChatRequest`] chega com `tools` não vazias neste
+//! modo, o provider avisa em `stderr` **uma vez por processo** em vez de
+//! ignorar em silêncio: o silêncio nesse exato ponto foi a causa-raiz do bug
+//! de *tool-calling* do Ollama (emenda de 2026-07-24 à ADR-0012).
 //!
-//! - o modelo nunca executa nada na máquina por fora do `agentry` — nenhuma
-//!   edição de arquivo escapa do `PermissionGate`/`CheckpointStore`;
-//! - em compensação, este provider **não faz tool-calling**. Serve para
-//!   conversa, `/compact`, revisão (`guardrail-compliance`) e qualquer
-//!   task-class de texto — **não** para o laço agêntico principal.
+//! **Ponte MCP** ([`PonteMcp`], ADR-0042): o subprocesso recebe de volta as
+//! tools do `agentry` por `--mcp-config`/`--strict-mcp-config`, servidas por
+//! `agentry --mcp-server` sob o **mesmo** `PermissionGate` (incluindo
+//! `readAllow`/`subagentPermissions`, ADR-0041). Verificado com o `claude`
+//! real: `--tools ""` desliga as embutidas mas preserva as de MCP, então a
+//! sessão de nuvem enxerga exatamente o que o `agentry` expõe, e nada mais.
 //!
-//! Tool-calling real por esta via exigiria expor as tools do `agentry` como
-//! **servidor** MCP para o `claude -p` consumir (`--mcp-config
-//! --strict-mcp-config`) — decisão de arquitetura própria, registrada como
-//! trabalho futuro na ADR-0040, não assumida aqui.
-//!
-//! Quando uma [`ChatRequest`] chega com `tools` não vazias, o provider avisa
-//! em `stderr` **uma vez por processo** em vez de ignorar em silêncio: o
-//! silêncio nesse exato ponto foi a causa-raiz do bug de *tool-calling* do
-//! Ollama (emenda de 2026-07-24 à ADR-0012), e não se repete aqui.
+//! Neste modo o **laço de agente pertence ao Claude Code**: o que é por tool
+//! continua valendo (permissões, `readAllow`, *checkpoints*, audit log), e o
+//! que é por turno da [`crate::session::Session`] **não se aplica** —
+//! guardrails de conteúdo (ADR-0007), teto de turnos (ADR-0033) e compactação
+//! (ADR-0016). Quem precisa dessas garantias usa o provider `anthropic`.
 
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -86,6 +87,11 @@ pub struct ClaudeCliProvider {
     /// Garante que o aviso de "tools ignoradas" saia uma vez por processo, não
     /// a cada turno (viraria ruído e o usuário pararia de ler).
     ja_avisou_sobre_tools: AtomicBool,
+    /// Ponte MCP (ADR-0042) — `Some` faz o subprocesso receber as tools do
+    /// `agentry` de volta, transformando este provider de gerador de texto em
+    /// agente com tool-calling real. `None` mantém o comportamento da
+    /// ADR-0040 (só texto).
+    ponte_mcp: Option<PonteMcp>,
 }
 
 impl ClaudeCliProvider {
@@ -102,7 +108,16 @@ impl ClaudeCliProvider {
             profile,
             binary: CLAUDE_BINARY.to_string(),
             ja_avisou_sobre_tools: AtomicBool::new(false),
+            ponte_mcp: None,
         }
+    }
+
+    /// Liga a ponte MCP (ADR-0042): o subprocesso passa a enxergar as tools do
+    /// `agentry`, sob a mesma política de permissões.
+    #[must_use]
+    pub fn with_ponte_mcp(mut self, ponte: PonteMcp) -> Self {
+        self.ponte_mcp = Some(ponte);
+        self
     }
 
     /// Substitui o binário invocado — usado pelos testes para apontar a um
@@ -158,7 +173,12 @@ impl ClaudeCliProvider {
     /// Avisa (uma vez por processo) que as `tools` da requisição não serão
     /// usadas — ver a limitação estrutural na doc do módulo.
     fn avisar_sobre_tools_ignoradas(&self, tools: &[ToolSpec]) {
-        if tools.is_empty() || self.ja_avisou_sobre_tools.swap(true, Ordering::SeqCst) {
+        // Com a ponte MCP ativa as tools NÃO são ignoradas — chegam ao modelo
+        // pelo outro caminho, e o aviso seria falso.
+        if self.ponte_mcp.is_some()
+            || tools.is_empty()
+            || self.ja_avisou_sobre_tools.swap(true, Ordering::SeqCst)
+        {
             return;
         }
         eprintln!(
@@ -183,12 +203,89 @@ impl ClaudeCliProvider {
             .arg("--verbose")
             .arg("--model")
             .arg(model)
+            // Sempre desligadas, com ou sem MCP: nenhuma ação na máquina do
+            // usuário pode escapar do `PermissionGate` do `agentry`.
             .arg("--tools")
-            .arg("")
-            .stdin(Stdio::piped())
+            .arg("");
+
+        if let Some(ponte) = &self.ponte_mcp {
+            cmd.arg("--mcp-config")
+                .arg(&ponte.caminho_do_config)
+                // Sem isto, a sessão herdaria os servidores MCP do usuário —
+                // ferramentas fora de qualquer política do `agentry`
+                // (diretriz de conformidade da ADR-0042).
+                .arg("--strict-mcp-config")
+                // Em modo headless não há aprovação interativa: sem esta
+                // lista o modelo apenas responde pedindo permissão e a tarefa
+                // não avança (verificado com o `claude` real).
+                .arg("--allowedTools")
+                .arg(&ponte.concessao);
+        }
+
+        cmd.stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         cmd
+    }
+}
+
+/// Ponte MCP ativa (ADR-0042): o arquivo de configuração que aponta para
+/// `agentry --mcp-server` e a lista de tools que a sessão pode usar sem
+/// aprovação interativa.
+///
+/// O arquivo é temporário e **de propriedade desta struct**: `Drop` o remove,
+/// para não deixar configuração para trás depois da execução (diretriz de
+/// conformidade da ADR-0042).
+pub struct PonteMcp {
+    caminho_do_config: std::path::PathBuf,
+    /// Concessão em `--allowedTools`, no nível do **servidor**
+    /// (`mcp__<servidor>`), não tool a tool.
+    ///
+    /// Verificado com o `claude` real: essa grafia libera todas as tools
+    /// daquele servidor. É a forma certa aqui por dois motivos — continua
+    /// correta quando o conjunto de tools muda (uma lista fixa envelheceria em
+    /// silêncio), e a concessão já é **limitada pelo próprio servidor**, que só
+    /// anuncia o que o `PermissionGate` permite e decide cada chamada de novo.
+    /// Quem restringe é a política do `agentry` (ADR-0041), não esta lista.
+    concessao: String,
+}
+
+impl PonteMcp {
+    /// Monta o arquivo de `--mcp-config` apontando para `binario_agentry
+    /// --mcp-server`.
+    ///
+    /// # Errors
+    ///
+    /// Devolve erro se o arquivo temporário não puder ser escrito.
+    pub fn nova(
+        binario_agentry: &std::path::Path,
+        nome_do_servidor: &str,
+        dir_temporario: &std::path::Path,
+    ) -> Result<Self, String> {
+        let config = serde_json::json!({
+            "mcpServers": {
+                nome_do_servidor: {
+                    "command": binario_agentry.to_string_lossy(),
+                    "args": ["--mcp-server"],
+                }
+            }
+        });
+        // Nome com PID: dois `agentry` rodando ao mesmo tempo não podem
+        // disputar o mesmo arquivo (nem um sobrescrever o do outro).
+        let caminho = dir_temporario.join(format!("agentry-mcp-{}.json", std::process::id()));
+        std::fs::write(&caminho, config.to_string())
+            .map_err(|e| format!("falha ao escrever a configuração MCP em {caminho:?}: {e}"))?;
+
+        Ok(Self {
+            caminho_do_config: caminho,
+            concessao: format!("mcp__{nome_do_servidor}"),
+        })
+    }
+}
+
+impl Drop for PonteMcp {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.caminho_do_config);
     }
 }
 
@@ -744,6 +841,96 @@ mod tests {
         assert_eq!(
             texto, "olá",
             "sem duplicar o texto entre assistant e result"
+        );
+    }
+
+    // ---- ponte MCP (ADR-0042) ----
+
+    #[test]
+    fn ponte_gera_config_apontando_para_o_mcp_server_e_prefixa_as_tools() {
+        let dir = TempDir::new();
+        let ponte = PonteMcp::nova(
+            std::path::Path::new("/usr/local/bin/agentry"),
+            "agentry",
+            &dir.0,
+        )
+        .expect("deve escrever a config");
+
+        let escrito: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&ponte.caminho_do_config).unwrap())
+                .expect("JSON válido");
+        assert_eq!(
+            escrito["mcpServers"]["agentry"]["command"],
+            "/usr/local/bin/agentry"
+        );
+        assert_eq!(escrito["mcpServers"]["agentry"]["args"][0], "--mcp-server");
+        assert_eq!(
+            ponte.concessao, "mcp__agentry",
+            "concessão no nível do servidor: continua correta quando as tools mudam"
+        );
+    }
+
+    /// Diretriz de conformidade da ADR-0042: nada de configuração deixada para
+    /// trás depois da execução.
+    #[test]
+    fn config_temporaria_some_ao_soltar_a_ponte() {
+        let dir = TempDir::new();
+        let caminho = {
+            let ponte = PonteMcp::nova(std::path::Path::new("/bin/agentry"), "agentry", &dir.0)
+                .expect("deve escrever");
+            let c = ponte.caminho_do_config.clone();
+            assert!(c.exists());
+            c
+        };
+        assert!(
+            !caminho.exists(),
+            "o arquivo temporário precisa ser removido"
+        );
+    }
+
+    #[test]
+    fn sem_ponte_o_comando_nao_menciona_mcp() {
+        let sink = Arc::new(SinkColetor::default());
+        let provider = ClaudeCliProvider::new(sink, EgressClass::CloudOk, None);
+        let cmd = provider.montar_comando("haiku");
+        let args: Vec<String> = cmd
+            .as_std()
+            .get_args()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect();
+
+        assert!(args.contains(&"--tools".to_string()));
+        assert!(
+            !args.iter().any(|a| a.starts_with("--mcp")),
+            "sem ponte, o comportamento da ADR-0040 (texto puro) é preservado: {args:?}"
+        );
+    }
+
+    #[test]
+    fn com_ponte_o_comando_traz_strict_mcp_config_e_allowed_tools() {
+        let dir = TempDir::new();
+        let ponte = PonteMcp::nova(std::path::Path::new("/bin/agentry"), "agentry", &dir.0)
+            .expect("deve escrever");
+        let sink = Arc::new(SinkColetor::default());
+        let provider =
+            ClaudeCliProvider::new(sink, EgressClass::CloudOk, None).with_ponte_mcp(ponte);
+
+        let cmd = provider.montar_comando("haiku");
+        let args: Vec<String> = cmd
+            .as_std()
+            .get_args()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect();
+
+        assert!(args.contains(&"--mcp-config".to_string()));
+        assert!(
+            args.contains(&"--strict-mcp-config".to_string()),
+            "sem isto a sessão herdaria os MCP do usuário, fora da política do agentry"
+        );
+        assert!(args.contains(&"mcp__agentry".to_string()));
+        assert!(
+            args.contains(&"--tools".to_string()) && args.contains(&String::new()),
+            "as ferramentas embutidas do Claude Code continuam desligadas mesmo com MCP"
         );
     }
 

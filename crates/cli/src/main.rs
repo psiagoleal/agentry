@@ -45,7 +45,7 @@ use agentry_core::egress::audit::AuditEntry;
 use agentry_core::guardrail::{GuardrailAuditEntry, GuardrailAuditSink, GuardrailGate};
 use agentry_core::mcp::McpClient;
 use agentry_core::provider::anthropic::AnthropicProvider;
-use agentry_core::provider::claude_cli::ClaudeCliProvider;
+use agentry_core::provider::claude_cli::{ClaudeCliProvider, PonteMcp};
 use agentry_core::provider::ollama::OllamaProvider;
 use agentry_core::provider::openai_compat::OpenAiCompatProvider;
 use agentry_core::provider::LlmProvider;
@@ -181,9 +181,11 @@ const GENERIC_SETTINGS_EXAMPLE: &str = r#"{
       "egressClass": null
     },
     "claudeCli": {
-      "_comentario": "Usa sua assinatura Claude Pro/Max via o binário `claude` já instalado e autenticado (nenhuma chave de API; o agentry nunca lê seu token). Preencha model (ex.: opus, haiku, claude-opus-5) para ativar. ATENÇÃO: este provider é SÓ TEXTO — as ferramentas embutidas do Claude Code são desligadas para que nenhuma edição escape do controle de permissão/checkpoints do agentry, então ele não serve para o laço agêntico (ler/editar arquivos). Use para conversa, /compact e revisão. Cada invocação é registrada em .agentry/audit.log como subprocess:claude-cli.",
+      "_comentario": "Usa sua assinatura Claude Pro/Max via o binário `claude` já instalado e autenticado (nenhuma chave de API; o agentry nunca lê seu token). Preencha model (ex.: opus, haiku, claude-opus-5) para ativar. Sem mcpTools é SÓ TEXTO: as ferramentas embutidas do Claude Code ficam desligadas para que nenhuma edição escape do controle de permissão/checkpoints do agentry — serve para conversa, /compact e revisão. Cada invocação é registrada em .agentry/audit.log como subprocess:claude-cli.",
       "model": null,
-      "egressClass": null
+      "egressClass": null,
+      "_comentario_mcpTools": "mcpTools (ADR-0042): devolve ao Claude as ferramentas do PRÓPRIO agentry, sob a mesma política (permissions/readAllow) — é o que permite usar a assinatura Pro/Max como agente principal COM tool-calling. As ferramentas embutidas do Claude Code continuam desligadas nos dois modos. Combine com readAllow para o padrão 'o Claude planeja, o modelo local lê o que é sensível'. ATENÇÃO: com mcpTools o laço de agente passa a ser do Claude Code, então guardrails de conteúdo, teto de turnos e compactação (que são por turno da sessão do agentry) NÃO se aplicam — permissões, readAllow, checkpoints e audit log continuam valendo. Precisa dessas garantias? use o provider anthropic.",
+      "mcpTools": false
     }
   },
   "guardrails": {
@@ -802,14 +804,41 @@ fn build_anthropic_provider(
 fn build_claude_cli_provider(
     cfg: &Config,
     audit_sink: Arc<dyn AuditSink>,
+    montar_ponte_mcp: bool,
 ) -> Option<RegistroDeProvider> {
     let claude_cli = cfg.claude_cli.as_ref()?;
 
-    let provider: Arc<dyn LlmProvider> = Arc::new(ClaudeCliProvider::new(
+    let mut provider = ClaudeCliProvider::new(
         audit_sink,
         cfg.egress_class,
         cfg.profile.map(|p| format!("{p:?}")),
-    ));
+    );
+
+    // Ponte MCP (ADR-0042): devolve ao subprocesso as tools do `agentry`, sob
+    // a mesma política. Falha ao montar a ponte é avisada e **degrada para
+    // texto puro** em vez de derrubar a sessão — o provider continua útil sem
+    // ela, e um erro fatal aqui seria desproporcional. Nunca o contrário:
+    // jamais seguir em silêncio dando a impressão de que as tools chegaram.
+    // `montar_ponte_mcp` é `false` quando este processo **é** o servidor MCP:
+    // um servidor não tem motivo para lançar o `claude`, e montar a ponte ali
+    // criaria um arquivo temporário que nunca seria removido — o processo
+    // servidor é encerrado pelo cliente, sem rodar destrutores (achado real:
+    // sobrava um `/tmp/agentry-mcp-<pid>.json` por execução).
+    if claude_cli.mcp_tools && montar_ponte_mcp {
+        match std::env::current_exe()
+            .map_err(|e| format!("não foi possível localizar o próprio binário: {e}"))
+            .and_then(|exe| {
+                PonteMcp::nova(&exe, mcp_server::NOME_DO_SERVIDOR, &std::env::temp_dir())
+            }) {
+            Ok(ponte) => provider = provider.with_ponte_mcp(ponte),
+            Err(erro) => eprintln!(
+                "[claude-cli] aviso: providers.claudeCli.mcpTools está ligado mas a ponte MCP \
+                 não pôde ser montada ({erro}) — seguindo sem tool-calling (só texto)."
+            ),
+        }
+    }
+
+    let provider: Arc<dyn LlmProvider> = Arc::new(provider);
     let candidato = RouteTarget::new(
         CLAUDE_CLI_PROVIDER_NAME,
         claude_cli.model.clone(),
@@ -1200,7 +1229,8 @@ async fn main() {
                 std::process::exit(2)
             });
 
-    let claude_cli_registro = build_claude_cli_provider(&cfg, Arc::clone(&audit_sink));
+    let claude_cli_registro =
+        build_claude_cli_provider(&cfg, Arc::clone(&audit_sink), !args.mcp_server);
 
     // Ordem = preferência de candidato depois do Ollama local.
     let registros_extra: Vec<RegistroDeProvider> = litellm_registro
@@ -2540,7 +2570,7 @@ mod tests {
     #[test]
     fn ausencia_de_providers_claude_cli_nao_registra() {
         let cfg = Config::resolve(vec![Settings::default()]);
-        assert!(build_claude_cli_provider(&cfg, Arc::new(NoopAuditSink)).is_none());
+        assert!(build_claude_cli_provider(&cfg, Arc::new(NoopAuditSink), false).is_none());
     }
 
     /// Diferente de `anthropic`, este provider **não** pede credencial: a
@@ -2549,12 +2579,42 @@ mod tests {
     fn claude_cli_configurado_monta_sem_exigir_credencial() {
         let cfg = cfg_com_claude_cli(r#"{ "model": "claude-opus-5" }"#);
 
-        let (provider, candidato) = build_claude_cli_provider(&cfg, Arc::new(NoopAuditSink))
+        let (provider, candidato) = build_claude_cli_provider(&cfg, Arc::new(NoopAuditSink), false)
             .expect("model declarado deve montar Some");
 
         assert_eq!(provider.name(), CLAUDE_CLI_PROVIDER_NAME);
         assert_eq!(candidato.provider, CLAUDE_CLI_PROVIDER_NAME);
         assert_eq!(candidato.model, "claude-opus-5");
+    }
+
+    /// Regressão da ADR-0042: quando o próprio processo é o servidor MCP, o
+    /// provider não pode montar a ponte. Montá-la ali criaria um arquivo
+    /// temporário que nunca seria removido — quem encerra o servidor é o
+    /// cliente, sem rodar destrutores (achado real: sobrava um
+    /// `/tmp/agentry-mcp-<pid>.json` por execução) — e um servidor MCP não tem
+    /// motivo nenhum para lançar o `claude`.
+    #[test]
+    fn modo_servidor_mcp_nao_monta_a_ponte() {
+        fn configs_mcp_em_tmp() -> usize {
+            std::fs::read_dir(std::env::temp_dir())
+                .expect("ler o diretório temporário")
+                .filter_map(Result::ok)
+                .filter(|e| e.file_name().to_string_lossy().starts_with("agentry-mcp-"))
+                .count()
+        }
+
+        let cfg = cfg_com_claude_cli(r#"{ "model": "haiku", "mcpTools": true }"#);
+        let antes = configs_mcp_em_tmp();
+
+        let registro = build_claude_cli_provider(&cfg, Arc::new(NoopAuditSink), false)
+            .expect("o provider continua sendo montado, só sem a ponte");
+        assert_eq!(registro.0.name(), CLAUDE_CLI_PROVIDER_NAME);
+
+        assert_eq!(
+            antes,
+            configs_mcp_em_tmp(),
+            "nenhum arquivo de configuração MCP deve ser criado no modo servidor"
+        );
     }
 
     /// `anthropic` e `claude-cli` são nomes distintos no `Router` (diretriz de
@@ -2573,8 +2633,8 @@ mod tests {
         let anthropic = build_anthropic_provider(&cfg, Some("chave"), Arc::new(NoopAuditSink))
             .expect("configuração válida")
             .expect("deve montar Some");
-        let claude_cli =
-            build_claude_cli_provider(&cfg, Arc::new(NoopAuditSink)).expect("deve montar Some");
+        let claude_cli = build_claude_cli_provider(&cfg, Arc::new(NoopAuditSink), false)
+            .expect("deve montar Some");
 
         let router = montar_router(
             agentry_core::config::privacy::EgressClass::CloudOk,

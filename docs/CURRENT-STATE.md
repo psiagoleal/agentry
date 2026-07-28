@@ -13,7 +13,7 @@
 
 - **Data:** 2026-07-28
 - **Branch:** `main`
-- **Commit:** `bf7867f`
+- **Commit:** (esta rodada)
 - **Estado da árvore:** limpa · **DoD:** `fmt`/`clippy` limpos, **786 testes** verdes, build
   `release` OK.
 
@@ -166,6 +166,43 @@ E o mecanismo garante que nenhuma leitura confidencial ocorre **sem passar por u
 local** — não que a resposta dele venha sanitizada (isso depende dos achados 1-3, ainda
 abertos).
 
+### Rodada 8d — ADR-0042: servidor MCP, assinatura Pro/Max como agente principal
+
+Fecha o caminho **(c)** da rodada 8b, o último pendente. Três incógnitas foram resolvidas
+**experimentalmente antes de decidir**, com um servidor MCP descartável e o `claude` real:
+
+1. `--tools ""` desliga as ferramentas embutidas mas **preserva as de MCP** — com
+   `--strict-mcp-config`, a única coisa visível é `mcp__agentry__*`. É a propriedade central.
+2. Em *headless* a aprovação não é interativa: sem `--allowedTools` o modelo só responde
+   pedindo permissão. `mcp__agentry` (nível de servidor) libera tudo daquele servidor.
+3. O ciclo completo funciona: tool chamada com os argumentos certos, resultado de volta.
+
+**Entregue:** `agentry --mcp-server` serve o `ToolRegistry` já montado pela configuração —
+mesmas tools, mesmo `PermissionGate`. Servir a partir do ponto em que `main()` já construiu o
+registry (em vez de montar um próprio) é o que impede o servidor de virar porta lateral em
+volta da ADR-0041. `providers.claudeCli.mcpTools` liga a ponte no provider.
+
+Decisão registrada: **expor o registry inteiro**, não só o `subagent`. Com `readAllow` o
+agente principal já é contido por caminho, e obrigá-lo a delegar até a leitura do `README.md`
+o deixaria inútil para planejar — que é o papel dele nesta arquitetura.
+
+**Verificado ponta a ponta com a assinatura Pro/Max real**, num único comando `agentry`: a
+sessão do Claude lista só `mcp__agentry__*`, lê `README.md`, é **bloqueada** em
+`clientes.csv` (`tool 'fs_read' bloqueada por política (deny)`) e reconhece sozinha que deve
+delegar via `subagent` (as `instructions` do handshake ensinam o padrão).
+
+**Bug achado e corrigido no processo:** o próprio processo `--mcp-server` construía o provider
+`claude-cli` e montava uma **segunda** ponte, cujo arquivo temporário nunca era removido — o
+servidor é encerrado pelo cliente, sem rodar destrutores. Sobrava um
+`/tmp/agentry-mcp-<pid>.json` por execução. Um servidor MCP não tem motivo para lançar o
+`claude`; corrigido com teste de regressão.
+
+**Limitação declarada na ADR e na documentação:** com `mcpTools` o **laço de agente pertence
+ao Claude Code**. O que é por tool continua valendo (permissões, `readAllow`, *checkpoints*,
+audit log); o que é por turno da `Session` **não se aplica** — guardrails de conteúdo
+(ADR-0007), teto de turnos (ADR-0033) e compactação (ADR-0016). Quem precisa dessas garantias
+usa o provider `anthropic`.
+
 ## Em andamento
 
 Nada em execução. Árvore limpa.
@@ -174,11 +211,7 @@ Nada em execução. Árvore limpa.
 
 Decisões do mantenedor, em ordem de impacto:
 
-0. **Servidor MCP mínimo expondo só o `subagent`** — caminho (c) da rodada 8b, agora o único
-   pendente: é o que permite usar a **assinatura Pro/Max** (via `claude -p`) em vez de chave
-   de API no papel de agente principal. O caminho (b) foi implementado (ADR-0041); o (a) já
-   funcionava.
-0b. **Achados 1-3 da rodada 8** (confidencialidade na fronteira local→nuvem) — as três
+0. **Achados 1-3 da rodada 8** (confidencialidade na fronteira local→nuvem) — as três
    direções possíveis estão listadas acima; nenhuma é segura de escolher sem ADR.
 1. **Teste de integração ponta a ponta em CI** — causa estrutural dos três bugs de produção
    já encontrados (todos na fronteira `main()` → provider real, que os 765 testes unitários
