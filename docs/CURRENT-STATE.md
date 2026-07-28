@@ -13,7 +13,7 @@
 
 - **Data:** 2026-07-28
 - **Branch:** `main`
-- **Commit:** (esta rodada)
+- **Commit:** `bf7867f`
 - **Estado da árvore:** limpa · **DoD:** `fmt`/`clippy` limpos, **786 testes** verdes, build
   `release` OK.
 
