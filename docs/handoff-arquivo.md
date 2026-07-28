@@ -12,12 +12,129 @@
 
 ## Índice
 
+- [Rodadas 8, 8b e 8c (2026-07-27/28) — confidencialidade, roteamento entre modelos, ADR-0041](#rodada-8-2026-07-27--roteamento-entre-modelos-e-confidencialidade)
 - [Rodada 7 (2026-07-25) — bug do Ollama e provider Anthropic](#rodada-7-2026-07-25--bug-crítico-do-ollama--provider-anthropic-adr-0040)
 - [Rodadas de teste manual e fases (2026-07-17 a 2026-07-24)](#nota-fora-do-loop-2026-07-17)
 - [Turno de 2026-07-16 — roadmap v0.1..v0.4 e Fases 10-20](#último-turno)
 - [Tabela de commits (mais recente no topo)](#histórico-mais-recente-no-topo)
 
 ---
+
+## Rodada 8 (2026-07-27) — roteamento entre modelos e confidencialidade
+
+Pedido do mantenedor: testar o `agentry` com o modelo local (Ollama) tratando dados
+confidenciais e delegando à nuvem (Claude) **apenas o não-confidencial**, via `taskClasses`;
+observar também usabilidade/fluidez sem perder segurança.
+
+**Cenário montado** (`taskClasses`): `chat` → `ollama`/`qwen2.5:7b`/`local-only`;
+`nuvem` → `claude-cli`/`haiku`/`cloud-ok`. Sessão sob perfil `pessoal`. Delegação pela tool
+`subagent` com `task_class='nuvem'`. Egresso para a nuvem capturado com um *wrapper* do
+binário `claude` (audita o que de fato sai da máquina).
+
+### Achados — confidencialidade (ordenados por gravidade)
+
+1. **Nada impõe a sanitização na fronteira local→nuvem.** Com instrução explícita, o modelo
+   local sanitizou corretamente (só `plano`/`mrr`/`churn_risco` saíram — verificado). **Sem**
+   a instrução, o CSV inteiro com nomes, CPFs e e-mails saiu da máquina. A proteção depende
+   inteiramente de um modelo 7B obedecer — não há mecanismo do `agentry` no caminho.
+2. **Guardrails são só correspondência literal (ADR-0007, "sem regex") — o modelo contorna.**
+   Com `guardrails.input/output = [{match:"cpf", action:"block"}]`, o payload com o literal
+   `cpf` foi bloqueado; o modelo então **reformatou os dados sem aquela coluna e mandou os
+   nomes assim mesmo**. Bloquear literal dá falsa sensação de proteção: PII precisa de padrão
+   (CPF/e-mail/telefone), não de literal.
+3. **O audit log registra *que* houve egresso, não *o que* saiu.** Não há como verificar nem
+   detectar o vazamento depois do fato — foi preciso instrumentar o binário externo para
+   descobrir. Para o objetivo de conformidade do projeto, é a lacuna central.
+4. **O audit log registra a classe de egresso da *sessão*, não a do destino.** Toda chamada
+   puramente local ao Ollama aparece como `classe=cloud-ok` (a do perfil). Quem audita não
+   distingue "ficou na máquina" de "foi para a nuvem" a não ser conhecendo os *hosts*.
+
+### Achados — usabilidade
+
+5. **Laço de `ask_user` em modo *one-shot*, sem humano para responder.** O modelo perguntou e
+   "esperou" repetidamente até o teto de turnos; uma execução gastou 19k tokens sem entregar
+   resposta. Em *one-shot* não há interatividade: a tool deveria falhar cedo e explicitamente.
+6. **Nenhuma indicação de qual modelo/provider respondeu cada turno.** Num cenário
+   multi-modelo — exatamente o que este teste exercita — é a informação que dá (ou tira) a
+   confiança do usuário sobre onde seus dados foram parar.
+7. **O subagente foi invocado 4× para um pedido**, sem nenhuma visibilidade disso na saída.
+
+### Correções entregues nesta rodada
+
+- **Achado 4 ✅ `275b682`** — `Allowlist::check` passa a devolver a classe exigida pelo
+  destino (já a calculava e descartava); `AuditEntry` ganha `destination_class`. O log agora
+  distingue `destino local-only, sessão cloud-ok` de `cloud-ok`, no terminal e no
+  `.agentry/audit.log`.
+- **Achado 5 ✅ `275b682`** — `InteractivePrompter` trata `Ok(0)` (EOF) como ausência de
+  humano, devolvendo ao modelo um texto que diz que ninguém responderá **e o que fazer em
+  seguida**. Medido no mesmo pedido: **19k → 5.8k tokens**, 4 → 1 chamada ao subagente.
+- **Achado 6 ✅ `f394f23`** — `repl::rotulo_de_rota` (fonte única) alimenta o prompt do REPL
+  (`⌂ ollama:qwen2.5:7b >`) e o título da TUI (` agentry — ↗ claude-cli:haiku `), com `⌂`/`↗`
+  sinalizando se a mensagem sai da máquina.
+
+## Rodada 8b — `llama3.1:8b` e a arquitetura invertida (2026-07-28)
+
+**Teste repetido com `llama3.1:8b`** (mesmos prompts da Fase D): modo de falha **diferente**
+do `qwen2.5:7b`, mesma conclusão. Com instrução de sanitizar, chamou o `subagent` mas passou
+como prompt um fragmento da instrução do usuário — delegação inútil, sem vazamento. **Sem** a
+instrução, entrou em laço: 25 chamadas ao subagente com o prompt "Analisar retenção", parou no
+teto do ADR-0033, **72k tokens**. Não vazou porque nunca conseguiu passar dado nenhum.
+
+Conclusão reforçada: a sanitização é **loteria de modelo**. `qwen2.5:7b` compõe prompts
+razoáveis mas vaza tudo quando não é instruído; `llama3.1:8b` não vaza, mas também não delega.
+Nenhum dos dois é confiável, e nada no `agentry` está no caminho.
+
+**Efeito colateral achado:** o teto de turnos protege o laço, não a fatura — as 25 iterações
+foram 25 chamadas reais à nuvem. Não há teto de *chamadas de subagente* por turno.
+
+**Arquitetura invertida (Claude como sessão principal) — VERIFICADA, funciona hoje.** Com
+`providers.anthropic` (chave de API) na task-class `chat` e o Ollama numa task-class `local`,
+o rastro de auditoria mostra exatamente o padrão desejado: `cloud-ok` (Claude recebe a tarefa)
+→ `destino local-only` (subagente lê o arquivo confidencial) → `cloud-ok` (Claude recebe só o
+resumo). Nenhuma PII chegou ao Claude. Verificado com mock da Messages API devolvendo um
+`tool_use` de `subagent`.
+
+**Lacuna de isolamento (verificada em código e em execução):** `register_subagent_tool`
+(`main.rs`) passa as **mesmas** `Permissions` da sessão-mãe ao registry do subagente. Logo,
+negar `fs_read` para impedir o Claude de ler também **cega o subagente** — confirmado: com
+`permissions.deny=["fs_read"]` o subagente passou a inventar o conteúdo do CSV. Hoje só é
+possível *pedir* ao Claude que não leia, não *impedir*.
+
+## Rodada 8c — ADR-0041 implementada (2026-07-28)
+
+Mantenedor escolheu a estratégia **(b)** (permissões próprias para o subagente) e acrescentou
+o requisito de o agente principal continuar lendo parte do repositório (`README.md`,
+`AGENTS.md`, `docs/`, `skills/`) — o que transformou "negar `fs_read`" em **escopo por
+caminho**, granularidade certa do problema.
+
+**ADR-0041 (Accepted)** — dois mecanismos independentes e combináveis:
+
+- **`readAllow`** em `permissions`: lista fechada de caminhos legíveis, sintaxe `.gitignore`
+  (crate `ignore` já presente, nenhuma dependência nova). **Allowlist, não denylist** —
+  arquivo confidencial novo nasce protegido. Ausente ⇒ sem restrição (nada muda para quem já
+  usa). A decisão vive no `PermissionGate`, único ponto de estrangulamento, e normaliza o
+  argumento `path` pela **mesma** função da tool (`resolve_within_root`) — `../` e caminho
+  absoluto recusados antes da comparação.
+- **`subagentPermissions`**: conjunto próprio do subagente; ausente ⇒ herda. **Substitui, não
+  soma** — somar não conseguiria *devolver* ao subagente uma tool negada ao principal, que é
+  o objetivo.
+
+Detalhe de desenho: entre camadas, `deny`/`ask` continuam somando (mais restritivo é o lado
+seguro de errar), mas `readAllow` **substitui** — somar uma *allowlist* a afrouxaria, e uma
+camada herdada poderia reabrir por acidente um caminho que a camada específica quis fechar.
+
+**Verificado com o binário `release`** (mock da Messages API pedindo os dois arquivos): o
+agente principal **lê `README.md`** e é **bloqueado em `clientes.csv`** (`tool 'fs_read'
+bloqueada por política (deny)`), e a delegação ao Ollama roda em seguida. A invariante
+central (`subagente_le_o_que_o_agente_principal_nao_pode`) é testada sobre os *gates*, não
+ponta a ponta: um modelo local que simplesmente não chama a tool produz o mesmo "nada
+aconteceu" de um bloqueio e não distinguiria os dois casos.
+
+**Limitação declarada na ADR e na documentação:** `readAllow` só alcança tools com argumento
+`path`. `shell_exec`/`glob`/`fs_search` leem por outras vias e **precisam** entrar em `deny`.
+E o mecanismo garante que nenhuma leitura confidencial ocorre **sem passar por um modelo
+local** — não que a resposta dele venha sanitizada (isso depende dos achados 1-3, ainda
+abertos).
 
 ## Rodada 7 (2026-07-25) — bug crítico do Ollama + provider Anthropic (ADR-0040)
 
