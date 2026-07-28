@@ -100,15 +100,51 @@ Direções possíveis (nenhuma escolhida):
   padrões sensíveis detectados), sem gravar o conteúdo — permitiria detectar vazamento depois
   do fato sem transformar o log num novo repositório de dados sensíveis.
 
+### Rodada 8b — `llama3.1:8b` e a arquitetura invertida (2026-07-28)
+
+**Teste repetido com `llama3.1:8b`** (mesmos prompts da Fase D): modo de falha **diferente**
+do `qwen2.5:7b`, mesma conclusão. Com instrução de sanitizar, chamou o `subagent` mas passou
+como prompt um fragmento da instrução do usuário — delegação inútil, sem vazamento. **Sem** a
+instrução, entrou em laço: 25 chamadas ao subagente com o prompt "Analisar retenção", parou no
+teto do ADR-0033, **72k tokens**. Não vazou porque nunca conseguiu passar dado nenhum.
+
+Conclusão reforçada: a sanitização é **loteria de modelo**. `qwen2.5:7b` compõe prompts
+razoáveis mas vaza tudo quando não é instruído; `llama3.1:8b` não vaza, mas também não delega.
+Nenhum dos dois é confiável, e nada no `agentry` está no caminho.
+
+**Efeito colateral achado:** o teto de turnos protege o laço, não a fatura — as 25 iterações
+foram 25 chamadas reais à nuvem. Não há teto de *chamadas de subagente* por turno.
+
+**Arquitetura invertida (Claude como sessão principal) — VERIFICADA, funciona hoje.** Com
+`providers.anthropic` (chave de API) na task-class `chat` e o Ollama numa task-class `local`,
+o rastro de auditoria mostra exatamente o padrão desejado: `cloud-ok` (Claude recebe a tarefa)
+→ `destino local-only` (subagente lê o arquivo confidencial) → `cloud-ok` (Claude recebe só o
+resumo). Nenhuma PII chegou ao Claude. Verificado com mock da Messages API devolvendo um
+`tool_use` de `subagent`.
+
+**Lacuna de isolamento (verificada em código e em execução):** `register_subagent_tool`
+(`main.rs`) passa as **mesmas** `Permissions` da sessão-mãe ao registry do subagente. Logo,
+negar `fs_read` para impedir o Claude de ler também **cega o subagente** — confirmado: com
+`permissions.deny=["fs_read"]` o subagente passou a inventar o conteúdo do CSV. Hoje só é
+possível *pedir* ao Claude que não leia, não *impedir*.
+
 ## Em andamento
 
-Nada em execução. Árvore limpa.
+Nada em execução. Árvore limpa. Aguardando escolha do mantenedor entre as estratégias de
+isolamento (ver *Próximo passo*).
 
 ## Próximo passo sugerido
 
 Decisões do mantenedor, em ordem de impacto:
 
-0. **Achados 1-3 da rodada 8** (confidencialidade na fronteira local→nuvem) — as três
+0. **Estratégia de isolamento para "Claude planeja, modelo local lê"** (rodada 8b) — três
+   caminhos, do mais barato ao mais completo: **(a)** usar `providers.anthropic` hoje,
+   aceitando que o Claude é *instruído* e não *impedido* de ler; **(b)** dar ao subagente um
+   conjunto **próprio** de permissões, para negar `fs_read` ao principal sem cegar o subagente
+   — mudança pequena e localizada em `register_subagent_tool`; **(c)** servidor MCP mínimo
+   expondo **só** o `subagent`, para o `claude -p` (assinatura Pro/Max) poder delegar — único
+   caminho que usa a assinatura em vez de chave de API.
+0b. **Achados 1-3 da rodada 8** (confidencialidade na fronteira local→nuvem) — as três
    direções possíveis estão listadas acima; nenhuma é segura de escolher sem ADR.
 1. **Teste de integração ponta a ponta em CI** — causa estrutural dos três bugs de produção
    já encontrados (todos na fronteira `main()` → provider real, que os 765 testes unitários
