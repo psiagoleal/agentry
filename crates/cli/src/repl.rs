@@ -428,8 +428,10 @@ pub async fn run_repl<R: BufRead, W: Write>(
                 }
             };
             match resultado {
-                Ok(outcome) => crate::escrever_resultado_init(&outcome, &mut output)
-                    .map_err(|e| e.to_string())?,
+                Ok(outcome) => {
+                    crate::escrever_resultado_init(&outcome, !perfil.is_empty(), &mut output)
+                        .map_err(|e| e.to_string())?;
+                }
                 Err(erro) => writeln!(output, "erro: {erro}").map_err(|e| e.to_string())?,
             }
             continue;

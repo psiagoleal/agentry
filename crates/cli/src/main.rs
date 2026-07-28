@@ -408,10 +408,18 @@ fn run_init_local(workspace_root: &std::path::Path) -> io::Result<InitOutcome> {
     write_settings_if_absent(workspace_root, GENERIC_SETTINGS_EXAMPLE)
 }
 
-/// Escreve o resultado de [`run_init_local`] em `output`, sempre seguido do
-/// comando manual equivalente (ADR-0019 §5) — usado tanto por `--init`
-/// quanto por `/init`, para não duplicar a mensagem entre CLI e REPL.
-fn escrever_resultado_init(outcome: &InitOutcome, output: &mut impl io::Write) -> io::Result<()> {
+/// Escreve o resultado de [`run_init_local`] em `output` — usado tanto por
+/// `--init` quanto por `/init`, para não duplicar a mensagem entre CLI e REPL.
+///
+/// A dica de configuração manual (ADR-0019 §5) só sai quando o arquivo veio do
+/// exemplo genérico (`veio_de_perfil == false`). Com `--profile`, os valores
+/// diferenciados **já foram entregues** — mandar o usuário rodar um script para
+/// obtê-los seria contradizer o que acabou de acontecer.
+fn escrever_resultado_init(
+    outcome: &InitOutcome,
+    veio_de_perfil: bool,
+    output: &mut impl io::Write,
+) -> io::Result<()> {
     match outcome {
         InitOutcome::Created(caminho) => {
             writeln!(output, "criado: {}", caminho.display())?;
@@ -419,6 +427,9 @@ fn escrever_resultado_init(outcome: &InitOutcome, output: &mut impl io::Write) -
         InitOutcome::AlreadyExists(caminho) => {
             writeln!(output, "já existe, não sobrescrito: {}", caminho.display())?;
         }
+    }
+    if veio_de_perfil {
+        return Ok(());
     }
     writeln!(output, "{MANUAL_SETUP_HINT}")
 }
@@ -1095,10 +1106,11 @@ async fn main() {
         };
         match resultado {
             Ok(outcome) => {
-                escrever_resultado_init(&outcome, &mut io::stdout()).unwrap_or_else(|erro| {
-                    eprintln!("erro: {erro}");
-                    std::process::exit(1)
-                });
+                escrever_resultado_init(&outcome, args.profile.is_some(), &mut io::stdout())
+                    .unwrap_or_else(|erro| {
+                        eprintln!("erro: {erro}");
+                        std::process::exit(1)
+                    });
             }
             Err(erro) => {
                 eprintln!("erro ao inicializar configuração: {erro}");
@@ -1736,14 +1748,14 @@ mod tests {
 
         let criado = run_init_local(dir.path()).expect("deve criar");
         let mut saida_criado = Vec::new();
-        escrever_resultado_init(&criado, &mut saida_criado).expect("deve escrever");
+        escrever_resultado_init(&criado, false, &mut saida_criado).expect("deve escrever");
         let texto_criado = String::from_utf8(saida_criado).unwrap();
         assert!(texto_criado.contains("criado:"));
         assert!(texto_criado.contains(MANUAL_SETUP_HINT));
 
         let ja_existente = run_init_local(dir.path()).expect("segunda chamada");
         let mut saida_existente = Vec::new();
-        escrever_resultado_init(&ja_existente, &mut saida_existente).expect("deve escrever");
+        escrever_resultado_init(&ja_existente, false, &mut saida_existente).expect("deve escrever");
         let texto_existente = String::from_utf8(saida_existente).unwrap();
         assert!(texto_existente.contains("já existe"));
         assert!(texto_existente.contains(MANUAL_SETUP_HINT));

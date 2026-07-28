@@ -123,7 +123,13 @@ quando o binário `claude` está ausente, com aviso. Verificado nos três casos.
   modelo envelhece em silêncio), com observações de campo num bloco datado e perecível.
   Declara explicitamente o que a ferramenta **não** garante.
 - **Nenhuma mudança de schema** — a divisão da ADR-0006 (perfis distribuem valores, `agentry`
-  é dono do schema) segue intacta; nenhuma ação de código deste lado.
+  é dono do schema) segue intacta.
+- **Publicado e fiado:** `profiles` no commit `828c978`; `PROFILES_REPO_REF`
+  (`crates/cli/src/init.rs`) atualizado para ele. `--init --profile` verificado buscando da
+  rede de verdade — o arquivo entregue é byte-a-byte o publicado.
+- **Achado de UX no caminho:** `--init --profile` imprimia a dica "rode o `setup-profile.sh`
+  para valores diferenciados" **depois** de já ter entregado exatamente esses valores. A dica
+  passou a sair só no caminho do exemplo genérico.
 
 Verificado com o binário `release` consumindo os três arquivos: `empresa` e
 `externo-confidencial` → `⌂ ollama:llama3.1:8b`; `pessoal` → `↗ claude-cli:opus`, e nele o
@@ -137,11 +143,7 @@ Nada em execução. Árvore limpa.
 
 Decisões do mantenedor, em ordem de impacto:
 
-0. **Publicar o `ai-coding-agent-profiles` e atualizar `PROFILES_REPO_REF`**
-   (`crates/cli/src/init.rs`) — enquanto o *ref* pinado apontar para a referência antiga,
-   `--init --profile` não entrega os valores novos. Exige um commit já publicado do outro
-   repositório, por isso não foi feito junto.
-0b. **Achados 1-3 da rodada 8** (confidencialidade na fronteira local→nuvem) — as três
+0. **Achados 1-3 da rodada 8** (confidencialidade na fronteira local→nuvem) — as três
    direções possíveis estão listadas acima; nenhuma é segura de escolher sem ADR.
 1. **Teste de integração ponta a ponta em CI** — causa estrutural dos três bugs de produção
    já encontrados (todos na fronteira `main()` → provider real, que os 765 testes unitários

@@ -30,7 +30,7 @@ const RAW_GITHUB_HOST: &str = "raw.githubusercontent.com";
 /// Referência (commit) fixa do `ai-coding-agent-profiles` usada pelo
 /// bootstrap via `--profile` — atualizada manualmente a cada *bump*
 /// deliberado (ADR-0019 §4), nunca resolvida contra "latest".
-const PROFILES_REPO_REF: &str = "d3ed413fbfcbb83da268bef540b924c26e2c3a2f";
+const PROFILES_REPO_REF: &str = "828c97821c67ab3f9b32f145eda4a0de6830717f";
 /// Perfis reconhecidos pelo `ai-coding-agent-profiles` — mesma lista usada
 /// pela taxonomia de privacidade (`config::privacy::Profile`, ADR-0002).
 const PERFIS_CONHECIDOS: [&str; 3] = ["empresa", "externo-confidencial", "pessoal"];
