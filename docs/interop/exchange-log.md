@@ -276,3 +276,44 @@ reescrever entradas; decisões vinculantes viram ADR (referenciar o ADR aqui).
 - **Status:** ✅ ADR-0007 emendada no `agentry`. Roadmap de micro-tickets (Fase 9) a criar em
   seguida. Nenhuma ação do lado `profiles` (schema é definido pelo lado executor, mesma
   divisão já estabelecida pela ADR-0018/ADR-0006 daquele repo).
+
+---
+
+## 2026-07-28 — Arquitetura de delegação distribuída por perfil
+
+- **Origem:** `agentry` (pedido do mantenedor), implementação do lado `profiles`.
+- **Contexto:** três capacidades novas do `agentry` mudaram o que um perfil consegue
+  expressar — `permissions.readAllow` e `subagentPermissions` (ADR-0041), provider
+  `claude-cli` com ponte MCP (ADR-0042) e a inversão do *default* de
+  `providers.ollama.structuredOutput` (emenda à ADR-0012). Objetivo do pedido: a **escolha
+  de perfil, sozinha**, decidir a postura de delegação, sem editar configuração por projeto.
+- **Decisão (repo `profiles`, ADR-0007 daquele repo):** os três
+  `profiles/<perfil>/.agentry/agentry.settings.json` passam a distribuir a arquitetura
+  completa. Pontos que atravessam a fronteira:
+  - **`profile` passa a ser declarado no próprio arquivo.** Era uma lacuna real: o `agentry`
+    deriva a classe de egresso desse campo, então `--init --profile pessoal` produzia um
+    arquivo que **não** liberava nuvem.
+  - **`chat` declara os mesmos dois candidatos nos três perfis** (`claude-cli` cloud-ok,
+    `ollama` local-only). A diferenciação vem da **classe de egresso**, não de listas
+    divergentes — `empresa`/`externo-confidencial` descartam o candidato de nuvem sozinhos.
+  - `readAllow`/`subagentPermissions` em todos os perfis (defesa em profundidade), com
+    `shell_exec`/`shell_background`/`glob`/`fs_search` em `deny` — obrigatório pela diretriz
+    de conformidade da ADR-0041, senão `readAllow` vira falsa proteção.
+  - `structuredOutput` corrigido para `false` nos três (distribuía `true`, que quebra
+    tool-calling em qualquer modelo com suporte nativo).
+- **Nenhuma mudança de schema.** Todo campo usado já existe no `settings-schema:1` do
+  `agentry`; a divisão da ADR-0006 (`profiles` distribui **valores**, `agentry` é dono do
+  **schema**) permanece intacta. Nenhuma ação necessária do lado executor.
+- **Skill nova (`profiles`):** `delegacao-a-subagentes` — como escrever o pedido de
+  delegação, o que delegar, e o que a ferramenta **não** garante (sanitização depende do
+  modelo local obedecer; filtro literal não protege PII). Fixa critérios de escolha de modelo
+  em vez de nomes, com observações de campo num bloco datado e marcado como perecível.
+- **Verificado** com o binário `release` consumindo os três arquivos: `empresa` e
+  `externo-confidencial` resolvem `⌂ ollama:llama3.1:8b`; `pessoal` resolve
+  `↗ claude-cli:opus` e, nele, o agente de nuvem lê `README.md` e é bloqueado em
+  `clientes.csv`.
+- **Pendência:** `PROFILES_REPO_REF` (`crates/cli/src/init.rs`) continua apontando para a
+  referência antiga — `--init --profile` só entregará estes valores depois que o `profiles`
+  publicar e o *ref* pinado for atualizado. Bump deliberadamente **não** feito aqui: exige um
+  commit já publicado do outro repositório.
+- **Status:** ✅ implementado no `profiles`. Nenhuma ação de código no `agentry`.
