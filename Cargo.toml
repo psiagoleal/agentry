@@ -79,7 +79,7 @@ ratatui = { version = "0.30", default-features = false, features = ["crossterm"]
 # 8,1M em 90 dias, repositório oficial modelcontextprotocol/rust-sdk
 # (organização do próprio protocolo, não pessoal), autorizado pelo
 # mantenedor em 2026-07-15.
-rmcp = { version = "2", default-features = false, features = ["client", "transport-child-process"] }
+rmcp = { version = "2", default-features = false, features = ["client", "server", "transport-child-process", "transport-io"] }
 
 # Lints compartilhados do workspace (qualidade desde o bootstrap).
 [workspace.lints.clippy]

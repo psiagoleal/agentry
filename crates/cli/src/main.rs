@@ -27,6 +27,7 @@
 
 mod audit_sink;
 mod init;
+mod mcp_server;
 mod repl;
 mod sessao;
 mod streaming;
@@ -339,6 +340,17 @@ struct Args {
     /// só substitui a entrada de `<provider>`.
     #[arg(long, value_name = "provider", conflicts_with_all = ["init", "tarefa", "tui", "undo", "remember", "resume"])]
     set_credential: Option<String>,
+
+    /// Roda como **servidor MCP** sobre *stdio* (ADR-0042) em vez de iniciar
+    /// uma sessão: expõe as tools deste projeto — sob as mesmas
+    /// `permissions`/`readAllow` (ADR-0041) — para um cliente MCP externo,
+    /// tipicamente o `claude -p` lançado pelo provider `claude-cli`.
+    ///
+    /// Não é feito para ser chamado à mão: o *stdout* é o canal do protocolo
+    /// JSON-RPC, então qualquer coisa impressa ali quebraria o handshake (todo
+    /// diagnóstico vai para *stderr*).
+    #[arg(long, conflicts_with_all = ["init", "tarefa", "tui", "undo", "remember", "resume", "set_credential"])]
+    mcp_server: bool,
 }
 
 /// Resultado de [`run_init_local`] — usado tanto por `--init` quanto por
@@ -1364,6 +1376,23 @@ async fn main() {
             Arc::clone(&guardrail_audit_sink),
         )),
     );
+
+    // Modo servidor MCP (ADR-0042): o registry está completo aqui — mesmas
+    // tools, mesmo `PermissionGate` (com `readAllow`/`subagentPermissions`) e
+    // mesmo audit sink do modo normal. Servir daqui é o que garante que o
+    // servidor não vira uma porta lateral em volta da política; montar um
+    // registry próprio seria a forma óbvia de essa garantia se perder.
+    //
+    // Nada de `Session`/`Router` daqui pra frente: quem roda o laço de agente
+    // é o cliente MCP (o `claude -p`), não o `agentry`.
+    if args.mcp_server {
+        if let Err(erro) = mcp_server::servir(Arc::new(registry)).await {
+            // `stderr`: o `stdout` é o canal do protocolo.
+            eprintln!("{erro}");
+            std::process::exit(1);
+        }
+        return;
+    }
 
     // Capturado antes do `registry` ser consumido por `RegistryToolExecutor`
     // logo abaixo — sem isto, `Session::with_tools` nunca era chamado e o

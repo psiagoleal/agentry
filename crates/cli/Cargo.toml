@@ -24,6 +24,11 @@ ratatui = { workspace = true }
 # já é dependência direta de `agentry-core` (que `agentry` já depende de
 # qualquer forma), só uma promoção de escopo dentro do próprio workspace.
 serde_json = { workspace = true }
+# Modo servidor MCP (`--mcp-server`, ADR-0042): expõe o ToolRegistry ao
+# `claude -p`. Mesma biblioteca já adotada para o lado cliente (ADR-0028) --
+# escrever um servidor JSON-RPC à mão dependendo de uma lib de MCP seria
+# incoerente; a feature `server` puxa `schemars`, que já está na árvore.
+rmcp = { workspace = true }
 
 [lints]
 workspace = true

@@ -157,6 +157,25 @@ impl ToolRegistry {
             .collect()
     }
 
+    /// `true` se `tool_name` **não** está negada por nome.
+    ///
+    /// Consulta o gate com uma chamada sem argumentos, então só a lista `deny`
+    /// pesa aqui — escopo de caminho (`readAllow`, ADR-0041) depende do
+    /// argumento `path` e não pode ser decidido sem uma chamada real.
+    ///
+    /// Existe para quem **anuncia** as tools a um cliente externo (servidor
+    /// MCP, ADR-0042) poder omitir o que nunca rodaria. É conveniência, não
+    /// controle de acesso: a decisão que vale continua sendo a de
+    /// [`Self::execute`], que reconsulta o gate a cada chamada.
+    #[must_use]
+    pub fn permite_pelo_nome(&self, tool_name: &str) -> bool {
+        self.gate.decide(&ToolCall {
+            id: String::new(),
+            name: tool_name.to_string(),
+            arguments: serde_json::Value::Object(serde_json::Map::new()),
+        }) != Permission::Deny
+    }
+
     /// Decide a permissão de `call` e, se `allow`, executa.
     ///
     /// `deny` (explícito ou por ausência de registro) devolve um
