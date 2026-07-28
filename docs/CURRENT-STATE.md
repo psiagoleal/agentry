@@ -95,6 +95,40 @@ audit log); o que é por turno da `Session` **não se aplica** — guardrails de
 (ADR-0007), teto de turnos (ADR-0033) e compactação (ADR-0016). Quem precisa dessas garantias
 usa o provider `anthropic`.
 
+### Rodada 8e — default de delegação, correção de doc e ponte com o `profiles`
+
+**(1) Correção de documentação, não de código.** A primeira versão da ADR-0042 afirmou, sem
+verificar, que guardrails e compactação "não se aplicam" com `mcpTools`. **Aplicam-se** —
+testado. O `claude -p` é invocado de dentro de `Session::run_streaming`, então continuam
+valendo histórico/`/save`/`--resume`, guardrails de entrada **e** saída, guardrails herdados
+pelo **subagente**, permissões/`readAllow`/*checkpoints*/audit log e `/compact`. A fronteira
+real é entre **o que a `Session` observa** e **o que roda dentro do subprocesso**: os
+tool-calls que o Claude Code executa via MCP não aparecem no histórico salvo (com o provider
+`anthropic`, aparecem) nem são inspecionados. ADR, doc do módulo e doc de usuário corrigidas.
+
+**(2) Novo default do `--init`:** `chat` com dois candidatos — `claude-cli` (cloud-ok) e
+`ollama` (local-only) — mais a task-class `local` para delegação. Duas salvaguardas, porque um
+default que quebra é pior que nenhum: sob perfil sem nuvem o candidato remoto é filtrado pela
+classe de egresso e o Ollama assume; e `build_claude_cli_provider` **não registra** o provider
+quando o binário `claude` está ausente, com aviso. Verificado nos três casos.
+
+**(3)/(4) — encaminhados no `ai-coding-agent-profiles`** (commit `828c978` lá):
+- **ADR-0007 daquele repo:** os três `profiles/<perfil>/.agentry/agentry.settings.json`
+  distribuem a arquitetura completa. `profile` passa a ser declarado (lacuna real: sem ele
+  `--init --profile pessoal` não liberava nuvem); `chat` declara os **mesmos** dois candidatos
+  nos três perfis, e a diferenciação vem da classe de egresso — sem lógica condicional para
+  manter; `structuredOutput` corrigido para `false` (distribuíam `true`, que quebra
+  tool-calling).
+- **Skill `delegacao-a-subagentes`:** critérios de escolha de modelo em vez de nomes (lista de
+  modelo envelhece em silêncio), com observações de campo num bloco datado e perecível.
+  Declara explicitamente o que a ferramenta **não** garante.
+- **Nenhuma mudança de schema** — a divisão da ADR-0006 (perfis distribuem valores, `agentry`
+  é dono do schema) segue intacta; nenhuma ação de código deste lado.
+
+Verificado com o binário `release` consumindo os três arquivos: `empresa` e
+`externo-confidencial` → `⌂ ollama:llama3.1:8b`; `pessoal` → `↗ claude-cli:opus`, e nele o
+agente de nuvem lê `README.md` e é bloqueado em `clientes.csv`.
+
 ## Em andamento
 
 Nada em execução. Árvore limpa.
@@ -103,7 +137,11 @@ Nada em execução. Árvore limpa.
 
 Decisões do mantenedor, em ordem de impacto:
 
-0. **Achados 1-3 da rodada 8** (confidencialidade na fronteira local→nuvem) — as três
+0. **Publicar o `ai-coding-agent-profiles` e atualizar `PROFILES_REPO_REF`**
+   (`crates/cli/src/init.rs`) — enquanto o *ref* pinado apontar para a referência antiga,
+   `--init --profile` não entrega os valores novos. Exige um commit já publicado do outro
+   repositório, por isso não foi feito junto.
+0b. **Achados 1-3 da rodada 8** (confidencialidade na fronteira local→nuvem) — as três
    direções possíveis estão listadas acima; nenhuma é segura de escolher sem ADR.
 1. **Teste de integração ponta a ponta em CI** — causa estrutural dos três bugs de produção
    já encontrados (todos na fronteira `main()` → provider real, que os 765 testes unitários
