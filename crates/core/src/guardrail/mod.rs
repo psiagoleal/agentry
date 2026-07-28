@@ -20,6 +20,8 @@
 //! as máscaras, não só a primeira. Fiação com `Config`/`Session` fica para os
 //! próximos tickets (MT-44/45) — este módulo não depende de nenhum dos dois.
 
+pub mod detector;
+
 use serde::{Deserialize, Serialize};
 
 use crate::egress::redact::REDACTED_PLACEHOLDER;
@@ -97,8 +99,17 @@ pub struct GuardrailRule {
     /// Substring a procurar, comparada sem diferenciar maiúsculas/minúsculas.
     /// Padrão vazio nunca casa (evita bloquear/redigir tudo por engano de
     /// configuração).
-    #[serde(rename = "match")]
+    ///
+    /// Exclusivo com [`Self::detect`] — uma regra declara um ou outro.
+    #[serde(rename = "match", default)]
     pub match_text: String,
+    /// Detector nomeado de dado pessoal (ADR-0043) — reconhece PII por
+    /// **formato**, o que `match_text` não consegue: bloquear o literal `cpf`
+    /// só faz o modelo reformatar os dados sem aquele rótulo (achado real).
+    ///
+    /// Exclusivo com [`Self::match_text`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detect: Option<detector::Detector>,
     pub action: GuardrailAction,
 }
 
@@ -112,7 +123,38 @@ impl GuardrailRule {
         Self {
             id: id.into(),
             match_text: match_text.into(),
+            detect: None,
             action,
+        }
+    }
+
+    /// Cria uma regra baseada em detector de PII (ADR-0043).
+    #[must_use]
+    pub fn detector(
+        id: impl Into<String>,
+        detect: detector::Detector,
+        action: GuardrailAction,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            match_text: String::new(),
+            detect: Some(detect),
+            action,
+        }
+    }
+
+    /// `true` se o texto casa esta regra.
+    ///
+    /// Regra sem `match` nem `detect` **nunca** casa: é erro de configuração,
+    /// e o lado seguro de errar é não agir sobre um texto que ninguém pediu
+    /// para inspecionar.
+    #[must_use]
+    fn casa(&self, texto: &str) -> bool {
+        match self.detect {
+            Some(d) => !d.achados(texto).is_empty(),
+            None => {
+                !self.match_text.is_empty() && contains_case_insensitive(texto, &self.match_text)
+            }
         }
     }
 }
@@ -139,6 +181,14 @@ pub struct GuardrailAuditEntry {
     pub rule_id: String,
     pub action: GuardrailAction,
     pub task: String,
+    /// Detector que agiu e **quantos** achados houve (ADR-0043) — `None` para
+    /// regra literal, que não tem contagem significativa.
+    ///
+    /// Registra o *nome* do detector e a *quantidade*, **nunca o valor
+    /// encontrado**: é o que torna o vazamento detectável depois do fato sem
+    /// transformar o audit log num novo repositório de dado sensível.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deteccao: Option<(String, usize)>,
 }
 
 impl std::fmt::Display for GuardrailAuditEntry {
@@ -193,14 +243,17 @@ impl GuardrailGate {
         let regras = self.regras(direction);
 
         for regra in regras {
-            if regra.action == GuardrailAction::Block
-                && contains_case_insensitive(texto, &regra.match_text)
-            {
+            if regra.action == GuardrailAction::Block && regra.casa(texto) {
                 sink.record(GuardrailAuditEntry {
                     direction,
                     rule_id: regra.id.clone(),
                     action: GuardrailAction::Block,
                     task: task.to_string(),
+                    // Contagem registrada também no bloqueio: "4 CPFs foram
+                    // barrados" é informação de conformidade (ADR-0043).
+                    deteccao: regra
+                        .detect
+                        .map(|d| (d.nome().to_string(), d.achados(texto).len())),
                 });
                 return GuardrailCheckResult::Blocked(regra.id.clone());
             }
@@ -212,14 +265,26 @@ impl GuardrailGate {
             if regra.action != GuardrailAction::Redact {
                 continue;
             }
-            if let Some(mascarado) = mask_all_case_insensitive(&atual, &regra.match_text) {
-                atual = mascarado;
+            let (mascarado, deteccao) = match regra.detect {
+                Some(d) => {
+                    let (texto_novo, n) = detector::redigir(&atual, d);
+                    if n == 0 {
+                        (None, None)
+                    } else {
+                        (Some(texto_novo), Some((d.nome().to_string(), n)))
+                    }
+                }
+                None => (mask_all_case_insensitive(&atual, &regra.match_text), None),
+            };
+            if let Some(texto_novo) = mascarado {
+                atual = texto_novo;
                 alguma_redacao = true;
                 sink.record(GuardrailAuditEntry {
                     direction,
                     rule_id: regra.id.clone(),
                     action: GuardrailAction::Redact,
                     task: task.to_string(),
+                    deteccao,
                 });
             }
         }
@@ -463,6 +528,127 @@ mod tests {
         assert!(GuardrailAction::Block.rank() > GuardrailAction::Redact.rank());
     }
 
+    // ---- detectores de PII no gate (ADR-0043) ----
+
+    /// O caso que motivou a ADR-0043: os dados da rodada 8 vazaram **sem** a
+    /// palavra `cpf` em lugar nenhum, então a regra literal não os pegava.
+    #[test]
+    fn detector_pega_o_que_a_regra_literal_deixava_passar() {
+        let linha = "1,Ana Ribeiro,529.982.247-25,ana@exemplo.test,enterprise";
+        let sink = SinkColetor(Mutex::new(Vec::new()));
+
+        let literal = GuardrailGate {
+            input: vec![GuardrailRule::new("lit", "cpf", GuardrailAction::Block)],
+            output: vec![],
+        };
+        assert_eq!(
+            literal.check(GuardrailDirection::Input, linha, "t", &sink),
+            GuardrailCheckResult::Allowed,
+            "sem o rótulo 'cpf' no texto, a regra literal não age — era a evasão observada"
+        );
+
+        let por_formato = GuardrailGate {
+            input: vec![GuardrailRule::detector(
+                "pii",
+                detector::Detector::Cpf,
+                GuardrailAction::Block,
+            )],
+            output: vec![],
+        };
+        assert!(matches!(
+            por_formato.check(GuardrailDirection::Input, linha, "t", &sink),
+            GuardrailCheckResult::Blocked(_)
+        ));
+    }
+
+    #[test]
+    fn redact_por_detector_mascara_e_conta_na_auditoria() {
+        let sink = SinkColetor(Mutex::new(Vec::new()));
+        let gate = GuardrailGate {
+            input: vec![],
+            output: vec![GuardrailRule::detector(
+                "mascara-cpf",
+                detector::Detector::Cpf,
+                GuardrailAction::Redact,
+            )],
+        };
+
+        let texto = "clientes: 529.982.247-25 e 52998224725";
+        let resultado = gate.check(GuardrailDirection::Output, texto, "t", &sink);
+
+        match resultado {
+            GuardrailCheckResult::Redacted(saida) => {
+                assert!(
+                    !saida.contains("529"),
+                    "nenhum dígito pode sobreviver: {saida}"
+                );
+            }
+            outro => panic!("esperado Redacted, veio {outro:?}"),
+        }
+
+        let entradas = sink.entradas();
+        assert_eq!(entradas.len(), 1);
+        assert_eq!(
+            entradas[0].deteccao,
+            Some(("cpf".to_string(), 2)),
+            "a auditoria registra o nome do detector e a contagem"
+        );
+    }
+
+    /// Diretriz de conformidade da ADR-0043: o valor encontrado nunca vai
+    /// para a auditoria — só o nome do detector e quantos houve.
+    #[test]
+    fn auditoria_de_deteccao_nunca_carrega_o_valor_encontrado() {
+        let sink = SinkColetor(Mutex::new(Vec::new()));
+        let gate = GuardrailGate {
+            input: vec![GuardrailRule::detector(
+                "pii",
+                detector::Detector::Email,
+                GuardrailAction::Block,
+            )],
+            output: vec![],
+        };
+
+        gate.check(
+            GuardrailDirection::Input,
+            "fale com ana@exemplo.test",
+            "t",
+            &sink,
+        );
+
+        let entradas = sink.entradas();
+        let serializado = serde_json::to_string(&entradas[0]).expect("serializa");
+        assert!(
+            !serializado.contains("ana@exemplo.test") && !serializado.contains("ana"),
+            "o audit log não pode virar repositório de dado sensível: {serializado}"
+        );
+        assert!(serializado.contains("email"));
+    }
+
+    /// Regra sem `match` nem `detect` é erro de configuração — o lado seguro
+    /// de errar é não agir sobre um texto que ninguém pediu para inspecionar.
+    #[test]
+    fn regra_sem_match_e_sem_detect_nunca_casa() {
+        let sink = SinkColetor(Mutex::new(Vec::new()));
+        let gate = GuardrailGate {
+            input: vec![GuardrailRule::new("vazia", "", GuardrailAction::Block)],
+            output: vec![],
+        };
+        assert_eq!(
+            gate.check(GuardrailDirection::Input, "qualquer coisa", "t", &sink),
+            GuardrailCheckResult::Allowed
+        );
+    }
+
+    #[test]
+    fn regra_com_detector_carrega_de_json() {
+        let regra: GuardrailRule =
+            serde_json::from_str(r#"{"id":"pii","detect":"cpf","action":"block"}"#)
+                .expect("JSON válido");
+        assert_eq!(regra.detect, Some(detector::Detector::Cpf));
+        assert!(regra.match_text.is_empty());
+    }
+
     #[test]
     fn display_da_entrada_de_auditoria_nao_expoe_texto_casado() {
         let entrada = GuardrailAuditEntry {
@@ -470,6 +656,7 @@ mod tests {
             rule_id: "mascara-segredo".to_string(),
             action: GuardrailAction::Redact,
             task: "tarefa-x".to_string(),
+            deteccao: None,
         };
         let texto = entrada.to_string();
         assert!(texto.contains("mascara-segredo"));

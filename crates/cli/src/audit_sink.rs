@@ -167,6 +167,7 @@ mod tests {
             rule_id: "regra-1".to_string(),
             action: agentry_core::guardrail::GuardrailAction::Redact,
             task: "tarefa de teste".to_string(),
+            deteccao: None,
         }
     }
 

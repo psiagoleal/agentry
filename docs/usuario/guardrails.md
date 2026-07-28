@@ -35,8 +35,45 @@ Cada regra tem:
 
 - `id` — identificador único; aparece em avisos e no log de auditoria (**nunca** o texto que
   casou).
-- `match` — substring a procurar.
+- `match` — substring a procurar — **ou** `detect`, um detector de dado pessoal (abaixo).
+  Declare um dos dois, nunca os dois.
 - `action` — `"block"` ou `"redact"`.
+
+## Detectores de dado pessoal (`detect`)
+
+`match` procura uma **palavra**. Dado pessoal tem **formato**, não palavra — e essa diferença
+já foi explorada num teste real: com uma regra bloqueando o literal `cpf`, o modelo
+simplesmente reescreveu os dados sem aquele rótulo e mandou o resto assim mesmo.
+
+```json
+{
+  "guardrails": {
+    "output": [
+      { "id": "nao-vaza-cpf",   "detect": "cpf",   "action": "redact" },
+      { "id": "nao-vaza-email", "detect": "email", "action": "redact" }
+    ]
+  }
+}
+```
+
+Detectores disponíveis: `cpf`, `cnpj`, `email`, `telefone-br`, `cartao-credito`.
+
+`cpf`, `cnpj` e `cartao-credito` **conferem os dígitos verificadores** — um número de pedido
+com 11 dígitos não vira "CPF". Isso importa: um falso positivo sob `redact` corromperia dado
+legítimo sem avisar. Todos funcionam com ou sem pontuação (`529.982.247-25` e `52998224725`).
+
+!!! info "O que vai para o log de auditoria"
+    Quando um detector age, o log registra o **nome** dele e **quantos** achados houve —
+    `"deteccao": ["cpf", 4]` — e nunca o valor encontrado. Isso permite descobrir depois que
+    quatro CPFs cruzaram a fronteira, sem transformar o log num novo repositório de dado
+    sensível. A contagem é registrada tanto em `block` quanto em `redact`.
+
+!!! warning "Detector não substitui contenção"
+    Um detector reconhece o que tem formato reconhecível. **Nome de pessoa não tem** — "Ana
+    Ribeiro" continua passando, e não há detector que resolva isso de forma confiável.
+
+    A proteção primária continua sendo impedir o acesso: [`readAllow`](configuracao.md#readallow--limitar-a-leitura-a-caminhos-específicos)
+    e a delegação ao modelo local. Detectores são a **segunda** linha, para o que escapa dela.
 
 ## As duas ações
 

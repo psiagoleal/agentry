@@ -128,6 +128,7 @@ nav:
           - "0040 — Provider Anthropic (API key e assinatura Pro/Max)": adr/0040-provider-anthropic-api-e-assinatura.md
           - "0041 — Permissões por caminho e do subagente": adr/0041-permissoes-por-caminho-e-do-subagente.md
           - "0042 — Servidor MCP (assinatura Pro/Max)": adr/0042-servidor-mcp-para-assinatura-pro-max.md
+          - "0043 — Detectores de dado pessoal": adr/0043-detectores-de-dado-pessoal.md
       - Roadmap:
           - Mapa de longo prazo: roadmap-longo-prazo.md
           - v0.1: roadmap-v0.1.md

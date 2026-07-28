@@ -49,3 +49,4 @@ Registros de decisões estruturais (ver skill `adr-writer`). Use
 | [0040](0040-provider-anthropic-api-e-assinatura.md) | Provider Anthropic — API key e assinatura Pro/Max via CLI | Accepted |
 | [0041](0041-permissoes-por-caminho-e-do-subagente.md) | Permissões escopadas por caminho e conjunto próprio para o subagente | Accepted |
 | [0042](0042-servidor-mcp-para-assinatura-pro-max.md) | Servidor MCP — tools do `agentry` para a assinatura Pro/Max | Accepted |
+| [0043](0043-detectores-de-dado-pessoal.md) | Detectores nomeados de dado pessoal, e o que sai registrado na auditoria | Accepted |
