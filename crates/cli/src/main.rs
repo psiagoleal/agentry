@@ -182,10 +182,10 @@ const GENERIC_SETTINGS_EXAMPLE: &str = r#"{
     },
     "claudeCli": {
       "_comentario": "Usa sua assinatura Claude Pro/Max via o binário `claude` já instalado e autenticado (nenhuma chave de API; o agentry nunca lê seu token). Preencha model (ex.: opus, haiku, claude-opus-5) para ativar. Sem mcpTools é SÓ TEXTO: as ferramentas embutidas do Claude Code ficam desligadas para que nenhuma edição escape do controle de permissão/checkpoints do agentry — serve para conversa, /compact e revisão. Cada invocação é registrada em .agentry/audit.log como subprocess:claude-cli.",
-      "model": null,
+      "model": "opus",
       "egressClass": null,
       "_comentario_mcpTools": "mcpTools (ADR-0042): devolve ao Claude as ferramentas do PRÓPRIO agentry, sob a mesma política (permissions/readAllow) — é o que permite usar a assinatura Pro/Max como agente principal COM tool-calling. As ferramentas embutidas do Claude Code continuam desligadas nos dois modos. Combine com readAllow para o padrão 'o Claude planeja, o modelo local lê o que é sensível'. ATENÇÃO: com mcpTools o laço de agente passa a ser do Claude Code, então guardrails de conteúdo, teto de turnos e compactação (que são por turno da sessão do agentry) NÃO se aplicam — permissões, readAllow, checkpoints e audit log continuam valendo. Precisa dessas garantias? use o provider anthropic.",
-      "mcpTools": false
+      "mcpTools": true
     }
   },
   "guardrails": {
@@ -196,6 +196,13 @@ const GENERIC_SETTINGS_EXAMPLE: &str = r#"{
   "taskClasses": {
     "chat": {
       "_comentario": "Roteamento por task-class (ADR-0021): cada nome mapeia para uma lista ordenada de candidatos (provider/model/egressClass) + um preset de parâmetros — o Router usa o primeiro candidato cuja egressClass é permitida e cujo provider está registrado. Esta ('chat') é a task-class default, usada quando nenhuma outra é escolhida via --task-class/`/task-class` — mesmos provider/modelo/egressClass do comportamento zero-config (sem este bloco); sobrescreva livremente, outras camadas de configuração nunca afrouxam a egressClass declarada aqui. 'compact' (/compact) e 'guardrail-compliance' (Reviewer) são sintetizadas automaticamente com Ollama/local-only quando ausentes deste bloco. Nomes extras (como os dois exemplos abaixo) ficam inertes até serem escolhidos explicitamente via --task-class/`/task-class`. Guia: docs/usuario/configuracao.md.",
+      "candidates": [
+        { "provider": "claude-cli", "model": "opus", "egressClass": "cloud-ok" },
+        { "provider": "ollama", "model": "llama3.1:8b", "egressClass": "local-only" }
+      ]
+    },
+    "local": {
+      "_comentario": "Task-class para delegar ao modelo LOCAL via a tool `subagent` (subagent com task_class='local'). É a metade do padrão 'o Claude planeja, o modelo local lê o que é sensível': combinada com permissions.readAllow + subagentPermissions, o agente de nuvem fica estruturalmente impedido de abrir os arquivos confidenciais e precisa delegar essas leituras aqui. Nunca sai da máquina (local-only).",
       "candidates": [
         { "provider": "ollama", "model": "llama3.1:8b", "egressClass": "local-only" }
       ]
@@ -808,6 +815,20 @@ fn build_claude_cli_provider(
 ) -> Option<RegistroDeProvider> {
     let claude_cli = cfg.claude_cli.as_ref()?;
 
+    // Binário ausente ⇒ provider **não registrado**, em vez de registrado e
+    // falhando no primeiro uso. Isso é o que permite a configuração padrão
+    // declarar `claude-cli` e `ollama` como candidatos da mesma task-class:
+    // quem não tem o Claude Code instalado cai no Ollama sozinho, sem editar
+    // nada. O aviso existe para a queda nunca ser silenciosa.
+    if !binario_no_path(agentry_core::provider::claude_cli::CLAUDE_BINARY) {
+        eprintln!(
+            "[claude-cli] aviso: providers.claudeCli está configurado mas o binário 'claude' \
+             não está no PATH — provider não registrado (instale o Claude Code e rode \
+             `claude login` para usá-lo). Os demais candidatos da rota seguem valendo."
+        );
+        return None;
+    }
+
     let mut provider = ClaudeCliProvider::new(
         audit_sink,
         cfg.egress_class,
@@ -845,6 +866,24 @@ fn build_claude_cli_provider(
         claude_cli.egress_class,
     );
     Some((provider, candidato))
+}
+
+/// `true` se `nome` é encontrado em algum diretório do `PATH`.
+///
+/// Só consulta o sistema de arquivos — não executa nada (executar para
+/// descobrir se existe teria efeito colateral e custo de processo).
+fn binario_no_path(nome: &str) -> bool {
+    let Some(path) = std::env::var_os("PATH") else {
+        return false;
+    };
+    std::env::split_paths(&path).any(|dir| {
+        let candidato = dir.join(nome);
+        // No Windows o executável tem extensão; `PATHEXT` completo é exagero
+        // aqui, `.exe`/`.cmd` cobrem o instalador do Claude Code.
+        candidato.is_file()
+            || candidato.with_extension("exe").is_file()
+            || candidato.with_extension("cmd").is_file()
+    })
 }
 
 /// Monta a tool `web_fetch` (MT-65, ADR-0025) só quando as **duas**
@@ -1613,26 +1652,43 @@ mod tests {
         // default opt-in (ADR-0020 §3) — não liga nada sozinho.
         assert!(!cfg.respect_gitignore);
 
-        // MT-57: `taskClasses` do exemplo — `chat` resolve para exatamente o
-        // mesmo par (Ollama, DEFAULT_MODEL, local-only) do comportamento
-        // zero-config (sem `taskClasses` no arquivo, sintetizado pela CLI em
-        // `register_declared_task_classes`), então declará-lo aqui não muda
-        // nada observável. Os dois exemplos extras (`revisao-em-nuvem`,
-        // `dados-sensiveis`) ficam presentes no mapa resolvido, mas isso não
-        // "ativa" nada indevido — nenhum candidato é escolhido a menos que
-        // alguém peça `--task-class`/`/task-class` explicitamente.
-        assert_eq!(cfg.task_classes.len(), 3);
+        // `taskClasses` do exemplo: `chat` traz **dois** candidatos, nesta
+        // ordem — `claude-cli` (nuvem) e Ollama (local). É o que faz a mesma
+        // configuração servir aos dois cenários sem edição: sob um perfil que
+        // permite nuvem, o Claude atende; sob `empresa`/`externo-confidencial`
+        // (local-only), o candidato de nuvem é filtrado pela classe de egresso
+        // e o Ollama assume sozinho. Se o binário `claude` não estiver
+        // instalado, o provider nem é registrado e a queda para o Ollama
+        // também acontece (ver `build_claude_cli_provider`).
+        //
+        // As task-classes extras (`local`, `revisao-em-nuvem`,
+        // `dados-sensiveis`) ficam no mapa resolvido sem "ativar" nada —
+        // nenhum candidato é escolhido a menos que alguém peça
+        // `--task-class`/`/task-class` ou a tool `subagent`.
+        assert_eq!(cfg.task_classes.len(), 4);
         let chat = cfg
             .task_classes
             .get("chat")
             .expect("'chat' deve estar declarada no exemplo");
-        assert_eq!(chat.candidates.len(), 1);
-        assert_eq!(chat.candidates[0].provider, "ollama");
-        assert_eq!(chat.candidates[0].model, DEFAULT_MODEL);
+        assert_eq!(chat.candidates.len(), 2);
+        assert_eq!(chat.candidates[0].provider, "claude-cli");
         assert_eq!(
-            chat.candidates[0].egress_class,
-            agentry_core::config::privacy::EgressClass::LocalOnly
+            chat.candidates[1].provider, "ollama",
+            "o local precisa ser o segundo candidato, para a queda funcionar"
         );
+        assert_eq!(chat.candidates[1].model, DEFAULT_MODEL);
+        use agentry_core::config::privacy::EgressClass;
+        assert_eq!(chat.candidates[0].egress_class, EgressClass::CloudOk);
+        assert_eq!(
+            chat.candidates[1].egress_class,
+            EgressClass::LocalOnly,
+            "é a classe do segundo candidato que garante a queda sob perfil restritivo"
+        );
+        let local = cfg
+            .task_classes
+            .get("local")
+            .expect("'local' é o alvo de delegação do subagente");
+        assert_eq!(local.candidates[0].egress_class, EgressClass::LocalOnly);
         assert!(cfg.task_classes.contains_key("revisao-em-nuvem"));
         assert!(cfg.task_classes.contains_key("dados-sensiveis"));
         // 'compact'/'guardrail-compliance' não aparecem no exemplo — quem as

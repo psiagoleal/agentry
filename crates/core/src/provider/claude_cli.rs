@@ -43,11 +43,20 @@
 //! real: `--tools ""` desliga as embutidas mas preserva as de MCP, então a
 //! sessão de nuvem enxerga exatamente o que o `agentry` expõe, e nada mais.
 //!
-//! Neste modo o **laço de agente pertence ao Claude Code**: o que é por tool
-//! continua valendo (permissões, `readAllow`, *checkpoints*, audit log), e o
-//! que é por turno da [`crate::session::Session`] **não se aplica** —
-//! guardrails de conteúdo (ADR-0007), teto de turnos (ADR-0033) e compactação
-//! (ADR-0016). Quem precisa dessas garantias usa o provider `anthropic`.
+//! Neste modo o **laço interno de tool-calling pertence ao Claude Code**, mas a
+//! [`crate::session::Session`] continua em volta: o `claude -p` é invocado de
+//! dentro de `run_streaming`, como qualquer outro provider. Continuam valendo
+//! (verificado em execução) histórico/`/save`/`--resume`, guardrails de
+//! conteúdo na entrada e na saída, guardrails herdados pelo subagente,
+//! permissões/`readAllow`/*checkpoints*/audit log e `/compact`.
+//!
+//! A fronteira real não é "por tool vs. por turno" — é **o que a `Session`
+//! observa vs. o que roda dentro do subprocesso**. O que ela não vê: os
+//! tool-calls que o Claude Code executa via MCP. Por isso o histórico salvo
+//! não os registra (com o provider `anthropic`, registra) e os guardrails não
+//! inspecionam esse tráfego intermediário. O teto de turnos (ADR-0033) também
+//! não entra em ação — não por estar desligado, mas porque a `Session` observa
+//! zero turnos com tool-call.
 
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};

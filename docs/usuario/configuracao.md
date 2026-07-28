@@ -417,14 +417,22 @@ pela ferramenta `subagent`.
 As ferramentas embutidas do Claude Code continuam desligadas nos dois modos — as únicas que
 ele enxerga são as que o `agentry` expõe.
 
-!!! warning "O laço de agente passa a ser do Claude Code"
-    Com `mcpTools`, quem conduz o laço é o `claude -p`, não o `agentry`. Continua valendo tudo
-    o que é **por ferramenta**: permissões, `readAllow`, *checkpoints*, audit log de egresso.
+!!! info "O que continua valendo com `mcpTools`"
+    A sessão do `agentry` continua existindo em volta do `claude -p` — ele é invocado como
+    qualquer outro provider. Continuam funcionando normalmente:
 
-    **Deixa de valer** o que é por turno da sessão do `agentry`: [guardrails de
-    conteúdo](guardrails.md), teto de turnos e compactação automática. Se você precisa dessas
-    garantias, use o provider [`anthropic`](#providersanthropic) (chave de API), onde o laço é
-    do `agentry`.
+    - **histórico de sessão**, `/save` e `--resume` (o arquivo em `.agentry/session/` registra
+      `provider`/`model`/`task_class`, então você pode retomar a mesma conversa depois em
+      outro provider, como `anthropic`);
+    - **[guardrails de conteúdo](guardrails.md)** na entrada e na saída, inclusive **dentro do
+      subagente**, que herda as regras da sessão;
+    - permissões, `readAllow`, *checkpoints*, audit log e `/compact`.
+
+    **A exceção:** o `agentry` não enxerga o que trafega *dentro* do `claude -p`. Os
+    tool-calls que ele executa via MCP rodam em outro processo, então **não aparecem no
+    histórico salvo** (com o provider [`anthropic`](#providersanthropic) aparecem) e não são
+    inspecionados pelos guardrails — só a sua mensagem e a resposta final são. O teto de
+    turnos também não entra em ação, porque a sessão observa zero turnos com tool-call.
 
 !!! note "Auditoria"
     Por não usar HTTP, este provider fica fora da *allowlist* de egresso. Em compensação ele

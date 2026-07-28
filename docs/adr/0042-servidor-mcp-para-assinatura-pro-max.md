@@ -69,12 +69,35 @@ agentry            (sessão do usuário; ClaudeCliProvider)
      └─ agentry --mcp-server   (tools sob PermissionGate/readAllow/auditoria)
 ```
 
-Consequência que precisa ficar explícita: **o laço de agente pertence ao Claude Code**, não à
-`Session` do `agentry`. Logo, o que é *por tool* continua valendo (permissões, `readAllow`,
-*checkpoints*, audit log de egresso), e o que é *por turno da `Session`* **não se aplica**:
-guardrails de conteúdo (ADR-0007), teto de turnos (ADR-0033) e compactação (ADR-0016). Quem
-precisa dessas garantias deve usar o provider `anthropic` (chave de API), onde o laço é do
-`agentry`.
+Consequência que precisa ficar explícita: **o laço interno de tool-calling pertence ao Claude
+Code**, mas a `Session` do `agentry` continua existindo em volta dele — o `claude -p` é
+invocado *de dentro* de `Session::run_streaming`, como qualquer outro provider.
+
+O que **continua valendo** (verificado em execução, não deduzido):
+
+| Mecanismo | Vale? | Por quê |
+|---|---|---|
+| Histórico de sessão, `/save`, `--resume` | ✅ | A `Session` registra as mensagens normalmente; o arquivo em `.agentry/session/` sai com `provider`/`model`/`task_class` e uso de tokens. |
+| Guardrails de conteúdo (ADR-0007) | ✅ | `Session::run_streaming` aplica entrada **e** saída também neste caminho. |
+| Guardrails no **subagente** | ✅ | `SubagentTool` herda o par gate/*sink* da sessão-mãe (`with_guardrails`). |
+| Permissões, `readAllow`, *checkpoints*, audit log | ✅ | São por tool, e toda tool passa pelo servidor MCP → `PermissionGate`. |
+| `/compact` (ADR-0016) | ✅ | Opera sobre `Session.messages`, que existe. |
+
+O que **não** vale:
+
+- **Nenhuma inspeção do que trafega *dentro* do `claude -p`.** Os tool-calls que ele executa
+  via MCP acontecem em outro processo; a `Session` só vê o texto final. Consequência prática:
+  o histórico salvo **não** registra esses tool-calls (com o provider `anthropic`, registra),
+  e os guardrails não inspecionam esse tráfego intermediário — só a mensagem do usuário e a
+  resposta final.
+- **Teto de turnos (ADR-0033) não entra em ação** — não por estar desligado, mas porque a
+  `Session` observa zero turnos com tool-call: eles são internos ao subprocesso. Quem limita
+  ali é o próprio Claude Code.
+
+Isto foi corrigido depois de a primeira versão desta ADR afirmar, sem verificar, que
+guardrails/compactação "não se aplicam". Aplicam-se — a fronteira real é entre **o que a
+`Session` observa** e **o que roda dentro do subprocesso**, não entre "por tool" e "por
+turno".
 
 ## Consequências
 
