@@ -164,7 +164,7 @@ impl ToolRegistry {
     /// [`ToolCall`] pendente sem executar — a confirmação é responsabilidade
     /// de quem chama.
     pub async fn execute(&self, call: &ToolCall) -> ExecutionOutcome {
-        match self.gate.decide(&call.name) {
+        match self.gate.decide(call) {
             Permission::Deny => ExecutionOutcome::Denied(ToolResult {
                 call_id: call.id.clone(),
                 content: format!("tool '{}' bloqueada por política (deny)", call.name),
@@ -249,6 +249,7 @@ mod tests {
         PermissionGate::new(Permissions {
             deny: deny.iter().map(|s| (*s).to_string()).collect(),
             ask: ask.iter().map(|s| (*s).to_string()).collect(),
+            read_allow: vec![],
         })
     }
 

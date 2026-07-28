@@ -526,6 +526,7 @@ mod tests {
         let gate = PermissionGate::new(Permissions {
             deny: vec!["shell_exec".into()],
             ask: vec![],
+            read_allow: vec![],
         });
         let mut registry = ToolRegistry::new(gate);
         registry.register(Arc::new(ShellTool::with_runner(policy, runner.clone())));

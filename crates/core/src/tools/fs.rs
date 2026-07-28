@@ -27,7 +27,7 @@ use crate::tools::{resolve_ignore_file_name, Tool, ToolOutput};
 /// `path` do argumento antes de ler o conteúdo "antes" de um checkpoint —
 /// mesma checagem de segurança usada pela escrita de verdade, nunca uma
 /// segunda implementação divergente.
-pub(crate) fn resolve_within_root(root: &Path, relative: &str) -> Result<PathBuf, String> {
+pub fn resolve_within_root(root: &Path, relative: &str) -> Result<PathBuf, String> {
     let rel_path = Path::new(relative);
     if rel_path.is_absolute() {
         return Err(format!("caminho absoluto não permitido: '{relative}'"));
@@ -670,6 +670,7 @@ mod tests {
         let gate = PermissionGate::new(Permissions {
             deny: vec!["fs_write".into()],
             ask: vec![],
+            read_allow: vec![],
         });
         let mut registry = ToolRegistry::new(gate);
         registry.register(Arc::new(FsWriteTool::new(dir.path(), false)));

@@ -343,6 +343,7 @@ mod tests {
         let gate = PermissionGate::new(Permissions {
             deny: vec!["repo_map".into()],
             ask: vec![],
+            read_allow: vec![],
         });
         let mut registry = ToolRegistry::new(gate);
         registry.register(Arc::new(RepoMapTool::new(dir.path(), false)));

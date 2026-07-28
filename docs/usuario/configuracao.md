@@ -130,8 +130,69 @@ Controla quais **ferramentas** (não conteúdo) o agente pode executar:
 - Qualquer tool fora das duas listas roda sem confirmação — **exceto** a tool de shell, que
   vem bloqueada por padrão nesta versão da CLI (nenhum padrão de comando pré-liberado).
 
-Entre camadas (arquivo → ambiente), as listas só **crescem**: uma permissão herdada nunca é
-removida por uma camada mais específica.
+Entre camadas (arquivo → ambiente), as listas `deny`/`ask` só **crescem**: uma permissão
+herdada nunca é removida por uma camada mais específica.
+
+#### `readAllow` — limitar a leitura a caminhos específicos
+
+Restringe **quais arquivos** o agente pode ler, não apenas quais ferramentas ele pode usar.
+Aceita a mesma sintaxe do `.gitignore`:
+
+```json
+{
+  "permissions": {
+    "readAllow": ["README.md", "AGENTS.md", "docs/**", "skills/**"],
+    "deny": ["shell_exec", "glob", "fs_search"]
+  }
+}
+```
+
+- **Ausente ⇒ nenhuma restrição de caminho** (comportamento padrão).
+- **Presente ⇒ lista fechada:** qualquer caminho que não case um dos padrões é bloqueado.
+  Um arquivo confidencial novo nasce protegido, em vez de exposto até alguém lembrar de
+  bloqueá-lo.
+- Caminho com `..` ou absoluto é sempre bloqueado, mesmo partindo de um diretório liberado.
+- Entre camadas, `readAllow` **substitui** (diferente de `deny`/`ask`, que somam): quem
+  declara por último fica no controle, e uma lista herdada não pode reabrir um caminho que
+  você quis fechar. Não declarar herda a camada anterior.
+
+!!! danger "`readAllow` sozinho não fecha o cerco"
+    Ele só alcança ferramentas que recebem um caminho: `fs_read`, `fs_write`, `fs_edit`.
+
+    **`shell_exec` (`cat arquivo`), `glob` e `fs_search` leem ou revelam conteúdo por outras
+    vias e não são cobertos.** Um `readAllow` com essas ferramentas liberadas é uma falsa
+    sensação de proteção — coloque-as em `deny`, como no exemplo acima.
+
+#### `subagentPermissions` — permissões próprias do subagente
+
+Mesmo formato de `permissions`, aplicado **apenas** ao subagente (tool `subagent`). Ausente,
+o subagente herda as permissões do agente principal.
+
+Existe para o caso "o agente da nuvem planeja, o modelo local lê": você nega ao principal o
+acesso aos dados sensíveis e devolve esse acesso ao subagente, que roda num modelo local.
+
+```json
+{
+  "permissions": {
+    "readAllow": ["README.md", "docs/**"],
+    "deny": ["shell_exec", "glob", "fs_search"]
+  },
+  "subagentPermissions": { "deny": [] }
+}
+```
+
+Com essa configuração, um agente de nuvem lê a documentação do projeto, **não consegue** abrir
+`clientes.csv`, e precisa delegar essa leitura ao modelo local — que devolve só o resultado.
+
+!!! warning "O que isto garante — e o que não garante"
+    Garante que **nenhuma leitura confidencial acontece sem passar por um modelo local**: o
+    agente da nuvem fica estruturalmente incapaz de abrir esses arquivos, não apenas instruído
+    a evitá-los.
+
+    **Não garante** que o resultado devolvido esteja sanitizado: o agente principal pode pedir
+    ao subagente que leia e devolva tudo, e cabe ao modelo local recusar. O que a delegação
+    coloca no caminho é um ponto onde a sanitização *pode* ser instruída — não uma garantia de
+    que ocorreu. Ver [Guardrails de conteúdo](guardrails.md) para a camada complementar.
 
 ### `context`
 

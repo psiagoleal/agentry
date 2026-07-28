@@ -149,8 +149,11 @@ const GENERIC_SETTINGS_EXAMPLE: &str = r#"{
   "permissions": {
     "_comentario": "deny: nomes de tool sempre bloqueados. ask: nomes de tool que pedem confirmação antes de rodar. Fora das duas listas, a tool roda sem perguntar (exceto a tool de shell, bloqueada por padrão nesta CLI). Vazio por padrão — nenhum nome extra bloqueado/perguntado. Exemplo (não aplicado, só ilustrativo): \"deny\": [\"shell\"] bloquearia a tool de shell mesmo numa build futura sem o default-deny atual; \"ask\": [\"fs_write\"] pediria confirmação antes de qualquer escrita.",
     "deny": [],
-    "ask": []
+    "ask": [],
+    "_comentario_readAllow": "readAllow (ADR-0041): lista fechada de caminhos que o agente pode LER, sintaxe do .gitignore. Ausente/vazio = sem restrição de caminho (padrão). Presente = tudo que não casar é bloqueado. ATENÇÃO: só alcança tools com argumento de caminho (fs_read/fs_write/fs_edit) — shell_exec, glob e fs_search leem por outras vias e precisam entrar em deny, senão readAllow é falsa sensação de proteção. Exemplo para o caso 'agente de nuvem planeja, modelo local lê': \"readAllow\": [\"README.md\", \"AGENTS.md\", \"docs/**\"] junto de \"deny\": [\"shell_exec\", \"glob\", \"fs_search\"].",
+    "readAllow": []
   },
+  "_comentario_subagentPermissions": "subagentPermissions (ADR-0041): mesmo formato de permissions, aplicado só ao subagente. Ausente = herda as do agente principal. Serve para negar dados sensíveis ao agente principal (tipicamente de nuvem) e devolver esse acesso ao subagente, que roda num modelo local. Exemplo: com o readAllow acima em permissions, use \"subagentPermissions\": { \"deny\": [] } para o modelo local continuar lendo tudo. Garante que nenhuma leitura confidencial ocorre sem passar por um modelo local — não garante que a resposta dele venha sanitizada.",
   "context": {
     "_comentario": "repoMap/semanticRag/lspGrounding: as três capacidades de contexto do agente, ligadas por padrão. gitignore.enabled: opcional (default false, diferente das outras três) — quando ligado, o agente também respeita o .gitignore do projeto (em união com .agentryignore, nunca em substituição) para reduzir ruído de contexto; não tem efeito de confidencialidade, quem precisa esconder algo do agente usa .agentryignore.",
     "repoMap": { "enabled": true },
@@ -962,11 +965,17 @@ fn montar_router(
 fn register_subagent_tool(
     registry: &mut ToolRegistry,
     permissions: agentry_core::config::Permissions,
+    workspace_root: &std::path::Path,
     confirmer: Arc<dyn Confirmer>,
     router_subagente: Arc<Router>,
     guardrails: Option<(Arc<GuardrailGate>, Arc<dyn GuardrailAuditSink>)>,
 ) {
-    let mut registry_subagente = ToolRegistry::new(PermissionGate::new(permissions));
+    // `permissions` aqui é `cfg.subagent_permissions` (ADR-0041) — já
+    // resolvida por `Config::resolve` para uma cópia de `cfg.permissions`
+    // quando nenhuma camada declarou `subagentPermissions`. É o que permite
+    // negar `fs_read` ao agente principal sem cegar o subagente.
+    let mut registry_subagente =
+        ToolRegistry::new(PermissionGate::new(permissions).with_workspace_root(workspace_root));
     for tool in registry.tools() {
         registry_subagente.register(Arc::clone(tool));
     }
@@ -1272,7 +1281,9 @@ async fn main() {
         )
     };
 
-    let mut registry = ToolRegistry::new(PermissionGate::new(cfg.permissions.clone()));
+    let mut registry = ToolRegistry::new(
+        PermissionGate::new(cfg.permissions.clone()).with_workspace_root(&workspace_root),
+    );
     registry.register(Arc::new(FsReadTool::new(
         workspace_root.clone(),
         cfg.respect_gitignore,
@@ -1344,7 +1355,8 @@ async fn main() {
 
     register_subagent_tool(
         &mut registry,
-        cfg.permissions.clone(),
+        cfg.subagent_permissions.clone(),
+        &workspace_root,
         Arc::clone(&confirmer),
         router_subagente,
         Some((
@@ -1634,6 +1646,7 @@ mod tests {
             model: None,
             max_tokens: None,
             permissions: Permissions::default(),
+            subagent_permissions: Permissions::default(),
             repo_map_enabled: repo_map,
             semantic_rag_enabled: semantic_rag,
             lsp_grounding_enabled: lsp_grounding,
@@ -1741,6 +1754,7 @@ mod tests {
         register_subagent_tool(
             &mut registry,
             Permissions::default(),
+            std::path::Path::new("."),
             Arc::new(InteractiveConfirmer),
             router_subagente,
             None,
@@ -1767,6 +1781,7 @@ mod tests {
         register_subagent_tool(
             &mut registry,
             Permissions::default(),
+            std::path::Path::new("."),
             Arc::new(InteractiveConfirmer),
             router_subagente,
             None,
@@ -2418,6 +2433,70 @@ mod tests {
 
         assert_eq!(rota.provider.name(), ANTHROPIC_PROVIDER_NAME);
         assert_eq!(rota.model, "claude-opus-5");
+    }
+
+    // ---- ADR-0041: escopo de caminho + permissões próprias do subagente ----
+
+    /// A invariante que a ADR-0041 existe para garantir, no ponto exato em que
+    /// `main()` monta os dois registries: com a mesma `Config`, o gate do
+    /// agente **principal** nega o arquivo confidencial e libera a
+    /// documentação, enquanto o gate do **subagente** lê os dois.
+    ///
+    /// Testado sobre os gates (e não ponta a ponta com um modelo real) de
+    /// propósito: um modelo local que simplesmente *não chama* a tool produz o
+    /// mesmo "nada aconteceu" de um bloqueio, e não distinguiria os dois casos.
+    #[test]
+    fn subagente_le_o_que_o_agente_principal_nao_pode() {
+        use agentry_core::model::ToolCall;
+        use agentry_core::tools::permission::{Permission, PermissionGate};
+
+        let camada = agentry_core::config::Settings::from_json_str(
+            r#"{
+                "permissions": {
+                    "readAllow": ["README.md", "docs/**"],
+                    "deny": ["shell_exec", "glob", "fs_search"]
+                },
+                "subagentPermissions": { "deny": [] }
+            }"#,
+        )
+        .expect("JSON válido");
+        let cfg = Config::resolve(vec![camada]);
+
+        let raiz = std::path::Path::new("/workspace");
+        let gate_principal = PermissionGate::new(cfg.permissions.clone()).with_workspace_root(raiz);
+        let gate_subagente =
+            PermissionGate::new(cfg.subagent_permissions.clone()).with_workspace_root(raiz);
+
+        let ler = |path: &str| ToolCall {
+            id: "c1".into(),
+            name: "fs_read".into(),
+            arguments: serde_json::json!({ "path": path }),
+        };
+
+        assert_eq!(
+            gate_principal.decide(&ler("README.md")),
+            Permission::Allow,
+            "o principal precisa ler a documentação para ser útil"
+        );
+        assert_eq!(
+            gate_principal.decide(&ler("clientes.csv")),
+            Permission::Deny,
+            "o principal (nuvem) não pode alcançar o confidencial"
+        );
+        assert_eq!(
+            gate_subagente.decide(&ler("clientes.csv")),
+            Permission::Allow,
+            "sem isto a ADR-0041 não serve para nada: negar ao principal cegaria o subagente"
+        );
+        assert_eq!(
+            gate_principal.decide(&ToolCall {
+                id: "c2".into(),
+                name: "shell_exec".into(),
+                arguments: serde_json::json!({ "command": "cat clientes.csv" }),
+            }),
+            Permission::Deny,
+            "shell_exec não é coberta por readAllow — o deny explícito é obrigatório"
+        );
     }
 
     // ---- build_claude_cli_provider (ADR-0040, assinatura Pro/Max) ----

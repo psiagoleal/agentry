@@ -11,10 +11,10 @@
 
 ## Último turno
 
-- **Data:** 2026-07-27
+- **Data:** 2026-07-28
 - **Branch:** `main`
-- **Commit:** `f394f23`
-- **Estado da árvore:** limpa · **DoD:** `fmt`/`clippy` limpos, **772 testes** verdes, build
+- **Commit:** (esta rodada)
+- **Estado da árvore:** limpa · **DoD:** `fmt`/`clippy` limpos, **786 testes** verdes, build
   `release` OK.
 
 ## Metas cumpridas neste turno
@@ -32,6 +32,8 @@
 - [x] **`275b682`** — `fix(auditoria,ask_user)`: audit distingue destino local de nuvem; EOF
       não vira laço.
 - [x] **`f394f23`** — `feat(ux)`: prompt do REPL e título da TUI mostram a rota ativa.
+- [x] **`8781abc`** — `docs(handoff)`: rodada 8b (llama3.1 + arquitetura invertida).
+- [x] **ADR-0041** — `readAllow` (escopo de leitura por caminho) + `subagentPermissions`.
 
 ## Rodada 8 (2026-07-27) — roteamento entre modelos e confidencialidade
 
@@ -128,22 +130,54 @@ negar `fs_read` para impedir o Claude de ler também **cega o subagente** — co
 `permissions.deny=["fs_read"]` o subagente passou a inventar o conteúdo do CSV. Hoje só é
 possível *pedir* ao Claude que não leia, não *impedir*.
 
+### Rodada 8c — ADR-0041 implementada (2026-07-28)
+
+Mantenedor escolheu a estratégia **(b)** (permissões próprias para o subagente) e acrescentou
+o requisito de o agente principal continuar lendo parte do repositório (`README.md`,
+`AGENTS.md`, `docs/`, `skills/`) — o que transformou "negar `fs_read`" em **escopo por
+caminho**, granularidade certa do problema.
+
+**ADR-0041 (Accepted)** — dois mecanismos independentes e combináveis:
+
+- **`readAllow`** em `permissions`: lista fechada de caminhos legíveis, sintaxe `.gitignore`
+  (crate `ignore` já presente, nenhuma dependência nova). **Allowlist, não denylist** —
+  arquivo confidencial novo nasce protegido. Ausente ⇒ sem restrição (nada muda para quem já
+  usa). A decisão vive no `PermissionGate`, único ponto de estrangulamento, e normaliza o
+  argumento `path` pela **mesma** função da tool (`resolve_within_root`) — `../` e caminho
+  absoluto recusados antes da comparação.
+- **`subagentPermissions`**: conjunto próprio do subagente; ausente ⇒ herda. **Substitui, não
+  soma** — somar não conseguiria *devolver* ao subagente uma tool negada ao principal, que é
+  o objetivo.
+
+Detalhe de desenho: entre camadas, `deny`/`ask` continuam somando (mais restritivo é o lado
+seguro de errar), mas `readAllow` **substitui** — somar uma *allowlist* a afrouxaria, e uma
+camada herdada poderia reabrir por acidente um caminho que a camada específica quis fechar.
+
+**Verificado com o binário `release`** (mock da Messages API pedindo os dois arquivos): o
+agente principal **lê `README.md`** e é **bloqueado em `clientes.csv`** (`tool 'fs_read'
+bloqueada por política (deny)`), e a delegação ao Ollama roda em seguida. A invariante
+central (`subagente_le_o_que_o_agente_principal_nao_pode`) é testada sobre os *gates*, não
+ponta a ponta: um modelo local que simplesmente não chama a tool produz o mesmo "nada
+aconteceu" de um bloqueio e não distinguiria os dois casos.
+
+**Limitação declarada na ADR e na documentação:** `readAllow` só alcança tools com argumento
+`path`. `shell_exec`/`glob`/`fs_search` leem por outras vias e **precisam** entrar em `deny`.
+E o mecanismo garante que nenhuma leitura confidencial ocorre **sem passar por um modelo
+local** — não que a resposta dele venha sanitizada (isso depende dos achados 1-3, ainda
+abertos).
+
 ## Em andamento
 
-Nada em execução. Árvore limpa. Aguardando escolha do mantenedor entre as estratégias de
-isolamento (ver *Próximo passo*).
+Nada em execução. Árvore limpa.
 
 ## Próximo passo sugerido
 
 Decisões do mantenedor, em ordem de impacto:
 
-0. **Estratégia de isolamento para "Claude planeja, modelo local lê"** (rodada 8b) — três
-   caminhos, do mais barato ao mais completo: **(a)** usar `providers.anthropic` hoje,
-   aceitando que o Claude é *instruído* e não *impedido* de ler; **(b)** dar ao subagente um
-   conjunto **próprio** de permissões, para negar `fs_read` ao principal sem cegar o subagente
-   — mudança pequena e localizada em `register_subagent_tool`; **(c)** servidor MCP mínimo
-   expondo **só** o `subagent`, para o `claude -p` (assinatura Pro/Max) poder delegar — único
-   caminho que usa a assinatura em vez de chave de API.
+0. **Servidor MCP mínimo expondo só o `subagent`** — caminho (c) da rodada 8b, agora o único
+   pendente: é o que permite usar a **assinatura Pro/Max** (via `claude -p`) em vez de chave
+   de API no papel de agente principal. O caminho (b) foi implementado (ADR-0041); o (a) já
+   funcionava.
 0b. **Achados 1-3 da rodada 8** (confidencialidade na fronteira local→nuvem) — as três
    direções possíveis estão listadas acima; nenhuma é segura de escolher sem ADR.
 1. **Teste de integração ponta a ponta em CI** — causa estrutural dos três bugs de produção

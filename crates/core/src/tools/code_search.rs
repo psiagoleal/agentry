@@ -391,6 +391,7 @@ mod tests {
         let gate = PermissionGate::new(Permissions {
             deny: vec!["code_search".into()],
             ask: vec![],
+            read_allow: vec![],
         });
         let mut registry = ToolRegistry::new(gate);
         registry.register(Arc::new(CodeSearchTool::new(sessao(

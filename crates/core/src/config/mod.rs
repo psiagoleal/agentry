@@ -97,11 +97,29 @@ pub struct Permissions {
     /// Requer confirmação explícita.
     #[serde(default)]
     pub ask: Vec<String>,
+    /// `readAllow` (ADR-0041) — escopo de leitura por caminho, na sintaxe do
+    /// `.gitignore`. **Ausente/vazio ⇒ sem escopo** (comportamento anterior
+    /// preservado); presente ⇒ *fail-closed*: caminho que não casa nenhum
+    /// padrão vira `Deny`.
+    ///
+    /// Só alcança tools com argumento `path`. `shell_exec`/`glob`/`fs_search`
+    /// leem ou revelam conteúdo por outras vias e **precisam** entrar em
+    /// `deny` — ver a diretriz de conformidade da ADR-0041.
+    #[serde(default, rename = "readAllow")]
+    pub read_allow: Vec<String>,
 }
 
 impl Permissions {
     /// União com outra camada, sem duplicatas e preservando a ordem
     /// (herdadas primeiro). `deny`/`ask` só crescem entre camadas.
+    ///
+    /// **`read_allow` é a exceção deliberada: substitui, não soma** (ADR-0041).
+    /// `deny`/`ask` são exceções sobre um padrão permissivo — somar as torna
+    /// mais restritivas, que é o lado seguro de errar. `read_allow` é uma
+    /// *allowlist*: somar a **afrouxaria**, e uma camada herdada poderia
+    /// reabrir por acidente um caminho que a camada mais específica quis
+    /// fechar. Quem declara por último (mais específico) fica no controle;
+    /// declarar vazio herda, nunca "libera tudo".
     fn union(mut self, overlay: Self) -> Self {
         for d in overlay.deny {
             if !self.deny.contains(&d) {
@@ -112,6 +130,9 @@ impl Permissions {
             if !self.ask.contains(&a) {
                 self.ask.push(a);
             }
+        }
+        if !overlay.read_allow.is_empty() {
+            self.read_allow = overlay.read_allow;
         }
         self
     }
@@ -544,6 +565,12 @@ pub struct Settings {
     /// Permissões `deny`/`ask`.
     #[serde(default)]
     pub permissions: Permissions,
+    /// `subagentPermissions` (ADR-0041) — conjunto próprio do subagente.
+    /// Ausente ⇒ herda `permissions` (comportamento anterior). Presente ⇒
+    /// **substitui**, nunca soma: somar não conseguiria devolver ao subagente
+    /// uma tool negada ao agente principal, que é justamente o objetivo.
+    #[serde(default, rename = "subagentPermissions")]
+    pub subagent_permissions: Option<Permissions>,
     /// Bloco `context.*` (ADR-0018 §5).
     #[serde(default)]
     pub context: ContextSettings,
@@ -688,6 +715,13 @@ impl Settings {
             model: self.model.or(base.model),
             max_tokens: self.max_tokens.or(base.max_tokens),
             permissions: base.permissions.union(self.permissions),
+            // Mesma regra de união quando as duas camadas declaram; a camada
+            // que declara sozinha vence (ADR-0041: ausente ⇒ herda).
+            subagent_permissions: match (self.subagent_permissions, base.subagent_permissions) {
+                (Some(desta), Some(da_base)) => Some(da_base.union(desta)),
+                (Some(unica), None) | (None, Some(unica)) => Some(unica),
+                (None, None) => None,
+            },
             context: self.context.merged_over(base.context),
             providers: self.providers.merged_over(base.providers),
             guardrails: self.guardrails.merged_over(base.guardrails),
@@ -843,6 +877,10 @@ pub struct Config {
     pub max_tokens: Option<u32>,
     /// Permissões unificadas de todas as camadas.
     pub permissions: Permissions,
+    /// Permissões do subagente (ADR-0041) — já resolvidas: quando nenhuma
+    /// camada declarou `subagentPermissions`, é uma cópia de `permissions`,
+    /// de modo que quem consome nunca precisa reimplementar a herança.
+    pub subagent_permissions: Permissions,
     /// `context.repoMap.enabled` (ADR-0010); nenhuma camada define ⇒ `true`.
     pub repo_map_enabled: bool,
     /// `context.semanticRag.enabled` (ADR-0011); nenhuma camada define ⇒ `true`.
@@ -925,6 +963,10 @@ impl Config {
             egress_class,
             model: merged.model,
             max_tokens: merged.max_tokens,
+            subagent_permissions: merged
+                .subagent_permissions
+                .clone()
+                .unwrap_or_else(|| merged.permissions.clone()),
             permissions: merged.permissions,
             repo_map_enabled: merged.context.repo_map.enabled.unwrap_or(true),
             semantic_rag_enabled: merged.context.semantic_rag.enabled.unwrap_or(true),
@@ -1075,6 +1117,7 @@ mod tests {
             permissions: Permissions {
                 deny: vec!["rm -rf".into()],
                 ask: vec!["git push".into()],
+                read_allow: vec![],
             },
             ..Settings::default()
         };
@@ -1083,6 +1126,7 @@ mod tests {
             permissions: Permissions {
                 deny: vec!["curl".into()],
                 ask: vec![],
+                read_allow: vec![],
             },
             ..Settings::default()
         };
@@ -1579,6 +1623,94 @@ mod tests {
     fn ausencia_do_bloco_litellm_resolve_none_comportamento_atual_preservado() {
         let cfg = Config::resolve(vec![Settings::default()]);
         assert!(cfg.litellm.is_none());
+    }
+
+    // ---- subagentPermissions e readAllow (ADR-0041) ----
+
+    #[test]
+    fn sem_subagent_permissions_o_subagente_herda_as_do_principal() {
+        let camada = Settings::from_json_str(r#"{ "permissions": { "deny": ["shell_exec"] } }"#)
+            .expect("JSON válido");
+        let cfg = Config::resolve(vec![camada]);
+
+        assert_eq!(
+            cfg.subagent_permissions, cfg.permissions,
+            "ausente ⇒ herda; nenhuma configuração existente muda de comportamento"
+        );
+    }
+
+    /// O caso da ADR-0041: negar `fs_read` ao principal **sem** cegar o
+    /// subagente.
+    #[test]
+    fn subagent_permissions_substitui_e_pode_devolver_tool_negada_ao_principal() {
+        let camada = Settings::from_json_str(
+            r#"{
+                "permissions": { "deny": ["fs_read"] },
+                "subagentPermissions": { "deny": [] }
+            }"#,
+        )
+        .expect("JSON válido");
+        let cfg = Config::resolve(vec![camada]);
+
+        assert_eq!(cfg.permissions.deny, vec!["fs_read".to_string()]);
+        assert!(
+            cfg.subagent_permissions.deny.is_empty(),
+            "o subagente precisa poder ler o que o principal não pode"
+        );
+    }
+
+    #[test]
+    fn read_allow_e_lido_do_json() {
+        let camada = Settings::from_json_str(
+            r#"{ "permissions": { "readAllow": ["README.md", "docs/**"] } }"#,
+        )
+        .expect("JSON válido");
+        let cfg = Config::resolve(vec![camada]);
+
+        assert_eq!(cfg.permissions.read_allow, vec!["README.md", "docs/**"]);
+    }
+
+    /// `deny`/`ask` somam entre camadas (mais restritivo); `readAllow` é
+    /// *allowlist* e **substitui** — somar reabriria por herança um caminho
+    /// que a camada mais específica quis fechar.
+    #[test]
+    fn read_allow_da_camada_mais_especifica_substitui_em_vez_de_somar() {
+        let global = Settings::from_json_str(
+            r#"{ "permissions": { "readAllow": ["**"], "deny": ["shell_exec"] } }"#,
+        )
+        .expect("JSON válido");
+        let projeto =
+            Settings::from_json_str(r#"{ "permissions": { "readAllow": ["README.md"] } }"#)
+                .expect("JSON válido");
+
+        let cfg = Config::resolve(vec![global, projeto]);
+
+        assert_eq!(
+            cfg.permissions.read_allow,
+            vec!["README.md".to_string()],
+            "o `**` herdado não pode sobreviver e reabrir tudo"
+        );
+        assert_eq!(
+            cfg.permissions.deny,
+            vec!["shell_exec".to_string()],
+            "deny continua somando normalmente"
+        );
+    }
+
+    #[test]
+    fn read_allow_ausente_na_camada_especifica_herda_a_anterior() {
+        let global = Settings::from_json_str(r#"{ "permissions": { "readAllow": ["docs/**"] } }"#)
+            .expect("JSON válido");
+        let projeto =
+            Settings::from_json_str(r#"{ "permissions": { "deny": ["glob"] } }"#).expect("válido");
+
+        let cfg = Config::resolve(vec![global, projeto]);
+
+        assert_eq!(
+            cfg.permissions.read_allow,
+            vec!["docs/**".to_string()],
+            "declarar vazio herda, nunca significa 'liberar tudo'"
+        );
     }
 
     // ---- providers.anthropic (ADR-0040) ----

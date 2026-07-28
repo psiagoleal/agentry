@@ -47,3 +47,4 @@ Registros de decisões estruturais (ver skill `adr-writer`). Use
 | [0038](0038-configuracao-global-do-usuario.md) | Configuração global do usuário (`~/.agentry/`) | Accepted |
 | [0039](0039-rag-estendido-as-sessoes-salvas.md) | RAG estendido às sessões salvas | Accepted |
 | [0040](0040-provider-anthropic-api-e-assinatura.md) | Provider Anthropic — API key e assinatura Pro/Max via CLI | Accepted |
+| [0041](0041-permissoes-por-caminho-e-do-subagente.md) | Permissões escopadas por caminho e conjunto próprio para o subagente | Accepted |

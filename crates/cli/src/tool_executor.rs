@@ -323,6 +323,7 @@ mod tests {
         let mut registry = ToolRegistry::new(PermissionGate::new(Permissions {
             deny: vec![],
             ask: vec!["dummy".into()],
+            read_allow: vec![],
         }));
         registry.register(Arc::new(DummyTool));
         let executor = RegistryToolExecutor::new(registry, Arc::new(FixedConfirmer(true)));
@@ -338,6 +339,7 @@ mod tests {
         let mut registry = ToolRegistry::new(PermissionGate::new(Permissions {
             deny: vec![],
             ask: vec!["dummy".into()],
+            read_allow: vec![],
         }));
         registry.register(Arc::new(DummyTool));
         let executor = RegistryToolExecutor::new(registry, Arc::new(FixedConfirmer(false)));
@@ -353,6 +355,7 @@ mod tests {
         let mut registry = ToolRegistry::new(PermissionGate::new(Permissions {
             deny: vec!["dummy".into()],
             ask: vec![],
+            read_allow: vec![],
         }));
         registry.register(Arc::new(DummyTool));
         // Confirmer que sempre aprovaria — não deve nem ser consultado.
@@ -497,6 +500,7 @@ mod tests {
         let mut registry = ToolRegistry::new(PermissionGate::new(Permissions {
             deny: vec!["dummy".into()],
             ask: vec![],
+            read_allow: vec![],
         }));
         registry.register(Arc::new(DummyTool));
         let (tx, mut rx) = mpsc::unbounded_channel();

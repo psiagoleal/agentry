@@ -345,6 +345,7 @@ mod tests {
         let gate = PermissionGate::new(Permissions {
             deny: vec!["lsp_hover".into()],
             ask: vec![],
+            read_allow: vec![],
         });
         let mut registry = ToolRegistry::new(gate);
         registry.register(Arc::new(LspHoverTool::new(sessao_dummy())));

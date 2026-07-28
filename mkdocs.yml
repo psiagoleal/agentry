@@ -126,6 +126,7 @@ nav:
           - "0038 — Configuração global do usuário": adr/0038-configuracao-global-do-usuario.md
           - "0039 — RAG estendido às sessões salvas": adr/0039-rag-estendido-as-sessoes-salvas.md
           - "0040 — Provider Anthropic (API key e assinatura Pro/Max)": adr/0040-provider-anthropic-api-e-assinatura.md
+          - "0041 — Permissões por caminho e do subagente": adr/0041-permissoes-por-caminho-e-do-subagente.md
       - Roadmap:
           - Mapa de longo prazo: roadmap-longo-prazo.md
           - v0.1: roadmap-v0.1.md
