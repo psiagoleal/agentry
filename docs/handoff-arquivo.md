@@ -12,6 +12,7 @@
 
 ## Índice
 
+- [Rodada 8d (2026-07-28) — servidor MCP e assinatura Pro/Max como agente principal](#rodada-8d--adr-0042-servidor-mcp-assinatura-promax-como-agente-principal)
 - [Rodadas 8, 8b e 8c (2026-07-27/28) — confidencialidade, roteamento entre modelos, ADR-0041](#rodada-8-2026-07-27--roteamento-entre-modelos-e-confidencialidade)
 - [Rodada 7 (2026-07-25) — bug do Ollama e provider Anthropic](#rodada-7-2026-07-25--bug-crítico-do-ollama--provider-anthropic-adr-0040)
 - [Rodadas de teste manual e fases (2026-07-17 a 2026-07-24)](#nota-fora-do-loop-2026-07-17)
@@ -19,6 +20,83 @@
 - [Tabela de commits (mais recente no topo)](#histórico-mais-recente-no-topo)
 
 ---
+
+## Rodada 8d — ADR-0042: servidor MCP, assinatura Pro/Max como agente principal
+
+Fecha o caminho **(c)** da rodada 8b, o último pendente. Três incógnitas foram resolvidas
+**experimentalmente antes de decidir**, com um servidor MCP descartável e o `claude` real:
+
+1. `--tools ""` desliga as ferramentas embutidas mas **preserva as de MCP** — com
+   `--strict-mcp-config`, a única coisa visível é `mcp__agentry__*`. É a propriedade central.
+2. Em *headless* a aprovação não é interativa: sem `--allowedTools` o modelo só responde
+   pedindo permissão. `mcp__agentry` (nível de servidor) libera tudo daquele servidor.
+3. O ciclo completo funciona: tool chamada com os argumentos certos, resultado de volta.
+
+**Entregue:** `agentry --mcp-server` serve o `ToolRegistry` já montado pela configuração —
+mesmas tools, mesmo `PermissionGate`. Servir a partir do ponto em que `main()` já construiu o
+registry (em vez de montar um próprio) é o que impede o servidor de virar porta lateral em
+volta da ADR-0041. `providers.claudeCli.mcpTools` liga a ponte no provider.
+
+Decisão registrada: **expor o registry inteiro**, não só o `subagent`. Com `readAllow` o
+agente principal já é contido por caminho, e obrigá-lo a delegar até a leitura do `README.md`
+o deixaria inútil para planejar — que é o papel dele nesta arquitetura.
+
+**Verificado ponta a ponta com a assinatura Pro/Max real**, num único comando `agentry`: a
+sessão do Claude lista só `mcp__agentry__*`, lê `README.md`, é **bloqueada** em
+`clientes.csv` (`tool 'fs_read' bloqueada por política (deny)`) e reconhece sozinha que deve
+delegar via `subagent` (as `instructions` do handshake ensinam o padrão).
+
+**Bug achado e corrigido no processo:** o próprio processo `--mcp-server` construía o provider
+`claude-cli` e montava uma **segunda** ponte, cujo arquivo temporário nunca era removido — o
+servidor é encerrado pelo cliente, sem rodar destrutores. Sobrava um
+`/tmp/agentry-mcp-<pid>.json` por execução. Um servidor MCP não tem motivo para lançar o
+`claude`; corrigido com teste de regressão.
+
+**Limitação declarada na ADR e na documentação:** com `mcpTools` o **laço de agente pertence
+ao Claude Code**. O que é por tool continua valendo (permissões, `readAllow`, *checkpoints*,
+audit log); o que é por turno da `Session` **não se aplica** — guardrails de conteúdo
+(ADR-0007), teto de turnos (ADR-0033) e compactação (ADR-0016). Quem precisa dessas garantias
+usa o provider `anthropic`.
+
+### Rodada 8e — default de delegação, correção de doc e ponte com o `profiles`
+
+**(1) Correção de documentação, não de código.** A primeira versão da ADR-0042 afirmou, sem
+verificar, que guardrails e compactação "não se aplicam" com `mcpTools`. **Aplicam-se** —
+testado. O `claude -p` é invocado de dentro de `Session::run_streaming`, então continuam
+valendo histórico/`/save`/`--resume`, guardrails de entrada **e** saída, guardrails herdados
+pelo **subagente**, permissões/`readAllow`/*checkpoints*/audit log e `/compact`. A fronteira
+real é entre **o que a `Session` observa** e **o que roda dentro do subprocesso**: os
+tool-calls que o Claude Code executa via MCP não aparecem no histórico salvo (com o provider
+`anthropic`, aparecem) nem são inspecionados. ADR, doc do módulo e doc de usuário corrigidas.
+
+**(2) Novo default do `--init`:** `chat` com dois candidatos — `claude-cli` (cloud-ok) e
+`ollama` (local-only) — mais a task-class `local` para delegação. Duas salvaguardas, porque um
+default que quebra é pior que nenhum: sob perfil sem nuvem o candidato remoto é filtrado pela
+classe de egresso e o Ollama assume; e `build_claude_cli_provider` **não registra** o provider
+quando o binário `claude` está ausente, com aviso. Verificado nos três casos.
+
+**(3)/(4) — encaminhados no `ai-coding-agent-profiles`** (commit `828c978` lá):
+- **ADR-0007 daquele repo:** os três `profiles/<perfil>/.agentry/agentry.settings.json`
+  distribuem a arquitetura completa. `profile` passa a ser declarado (lacuna real: sem ele
+  `--init --profile pessoal` não liberava nuvem); `chat` declara os **mesmos** dois candidatos
+  nos três perfis, e a diferenciação vem da classe de egresso — sem lógica condicional para
+  manter; `structuredOutput` corrigido para `false` (distribuíam `true`, que quebra
+  tool-calling).
+- **Skill `delegacao-a-subagentes`:** critérios de escolha de modelo em vez de nomes (lista de
+  modelo envelhece em silêncio), com observações de campo num bloco datado e perecível.
+  Declara explicitamente o que a ferramenta **não** garante.
+- **Nenhuma mudança de schema** — a divisão da ADR-0006 (perfis distribuem valores, `agentry`
+  é dono do schema) segue intacta.
+- **Publicado e fiado:** `profiles` no commit `828c978`; `PROFILES_REPO_REF`
+  (`crates/cli/src/init.rs`) atualizado para ele. `--init --profile` verificado buscando da
+  rede de verdade — o arquivo entregue é byte-a-byte o publicado.
+- **Achado de UX no caminho:** `--init --profile` imprimia a dica "rode o `setup-profile.sh`
+  para valores diferenciados" **depois** de já ter entregado exatamente esses valores. A dica
+  passou a sair só no caminho do exemplo genérico.
+
+Verificado com o binário `release` consumindo os três arquivos: `empresa` e
+`externo-confidencial` → `⌂ ollama:llama3.1:8b`; `pessoal` → `↗ claude-cli:opus`, e nele o
+agente de nuvem lê `README.md` e é bloqueado em `clientes.csv`.
 
 ## Rodada 8 (2026-07-27) — roteamento entre modelos e confidencialidade
 
