@@ -13,8 +13,8 @@
 
 - **Data:** 2026-07-28
 - **Branch:** `main`
-- **Commit:** (esta rodada)
-- **Estado da árvore:** limpa · **DoD:** `fmt`/`clippy` limpos, **786 testes** verdes, build
+- **Commit:** `faa407f`
+- **Estado da árvore:** limpa · **DoD:** `fmt`/`clippy` limpos, **795 testes** verdes, build
   `release` OK.
 
 ## Metas cumpridas neste turno
@@ -33,7 +33,11 @@
       não vira laço.
 - [x] **`f394f23`** — `feat(ux)`: prompt do REPL e título da TUI mostram a rota ativa.
 - [x] **`8781abc`** — `docs(handoff)`: rodada 8b (llama3.1 + arquitetura invertida).
-- [x] **ADR-0041** — `readAllow` (escopo de leitura por caminho) + `subagentPermissions`.
+- [x] **`bf7867f`** — ADR-0041: `readAllow` (escopo de leitura por caminho) +
+      `subagentPermissions`.
+- [x] **`f9fa40f`** — ADR-0042: modo `--mcp-server` expondo as tools sob a política.
+- [x] **`faa407f`** — ADR-0042: ponte MCP no `claude-cli` — assinatura Pro/Max com
+      tool-calling.
 
 ## Rodada 8 (2026-07-27) — roteamento entre modelos e confidencialidade
 
