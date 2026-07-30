@@ -67,6 +67,19 @@ Verificado com o binário `release`: bloqueio por CPF num texto **sem** a palavr
 `redact` entregando ao modelo o texto já mascarado; `audit.log` com `"deteccao":["cpf",1]` e
 nenhum dos valores presente no arquivo.
 
+## Release `v0.1.0-usertest` atualizada (2026-07-30)
+
+Tag movida de `12fe3e9` (2026-07-24) para `c038475` — **24 commits**. Cobre as rodadas 7 a 8f:
+providers `anthropic`/`claude-cli` (ADR-0040), servidor MCP (ADR-0042), `readAllow`/
+`subagentPermissions` (ADR-0041), detectores de PII (ADR-0043), o novo *default* de delegação
+e as quatro correções (a mais grave: nenhuma tool executava no Ollama).
+
+Binário Linux e Windows (cross-compilado, `make windows`) reconstruídos e **testados a partir
+do pacote extraído** — `--version` e presença das flags novas; o Windows via `wine`. Assets
+substituídos preservando os nomes já em uso (`agentry-linux-x86_64.tar.gz`,
+`agentry-windows-x86_64.zip`), notas reescritas com destaque para a correção do Ollama, as
+limitações conhecidas e as instruções de instalação.
+
 ## Em andamento
 
 Nada em execução. Árvore limpa.
