@@ -50,3 +50,4 @@ Registros de decisões estruturais (ver skill `adr-writer`). Use
 | [0041](0041-permissoes-por-caminho-e-do-subagente.md) | Permissões escopadas por caminho e conjunto próprio para o subagente | Accepted |
 | [0042](0042-servidor-mcp-para-assinatura-pro-max.md) | Servidor MCP — tools do `agentry` para a assinatura Pro/Max | Accepted |
 | [0043](0043-detectores-de-dado-pessoal.md) | Detectores nomeados de dado pessoal, e o que sai registrado na auditoria | Accepted |
+| [0044](0044-provedores-de-assinatura-via-cli-oficial.md) | Assinatura de serviços de chat por CLI oficial — navegador embutido rejeitado | Accepted |
