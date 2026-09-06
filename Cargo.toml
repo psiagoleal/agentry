@@ -84,3 +84,17 @@ rmcp = { version = "2", default-features = false, features = ["client", "server"
 # Lints compartilhados do workspace (qualidade desde o bootstrap).
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
+
+# Perfil de release.
+#
+# strip = "debuginfo" é NO-OP hoje: medido em 2026-09-06, o binário sai
+# byte-idêntico com e sem ele (281.755.880 bytes, zero seções .debug), porque
+# o perfil release do Cargo já usa debug = false. Fica como guarda: se alguém
+# ligar debug info no futuro, ela não vaza para o binário distribuído.
+#
+# O corte real disponível é strip = "symbols": 281,8 MB -> 204,3 MB (-27%).
+# NÃO adotado de propósito — apaga a tabela de símbolos e o backtrace de panic
+# passa a mostrar só endereços, justo enquanto a v0.1.0-usertest existe para
+# colher relato de bug de testador. Reavaliar numa release estável.
+[profile.release]
+strip = "debuginfo"
