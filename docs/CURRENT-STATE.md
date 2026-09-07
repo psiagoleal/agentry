@@ -11,78 +11,62 @@
 
 ## Último turno
 
-- **Data:** 2026-07-28
-- **Branch:** `main`
-- **Commit:** `faa407f`
-- **Estado da árvore:** limpa · **DoD:** `fmt`/`clippy` limpos, **814 testes** verdes, build
-  `release` OK.
+- **Data:** 2026-09-07
+- **Branch:** `chore/build-linux-e-higiene-de-disco` (não mesclada em `main`)
+- **Commits:** `2f359f2`, `95e0966`
+- **Estado da árvore:** `AGENTS.md`, `skills/README.md` e os diretórios de skills não
+  rastreados seguem modificados de **outra frente**, anteriores a esta rodada e intocados.
+- **DoD:** build `release` OK e pacote Linux verificado a partir do arquivo extraído
+  (`agentry --version` → `0.1.0`). **Suíte não re-executada** nesta rodada — as mudanças não
+  tocam código Rust (`Makefile`, `[profile.release]` sem efeito prático, e documentação).
 
 ## Metas cumpridas neste turno
 
-- [x] **`2955651`** — `fix(ollama)`: `structuredOutput` *default* `false`. Bug crítico:
-      nenhuma tool executava na configuração *default*. Emenda à ADR-0012.
-- [x] **`815bb35`** — `feat(anthropic)`: provider `anthropic` (Messages API por chave)
-      registrado na CLI. ADR-0040 parte A.
-- [x] **`08816a8`** — `feat(claude-cli)`: provider `claude-cli` (assinatura Pro/Max via
-      subprocesso, com auditoria equivalente). ADR-0040 parte B.
-- [x] **`34376f0`** — `docs(handoff)`: relato da rodada 7.
-- [x] **`0e7cdba`** — `docs(handoff)`: separa estado corrente de histórico; skill exige a
-      divisão (replicada no `ai-coding-agent-profiles`).
-- [x] **`d0153f6`** — `docs(handoff)`: achados de confidencialidade da rodada 8.
-- [x] **`275b682`** — `fix(auditoria,ask_user)`: audit distingue destino local de nuvem; EOF
-      não vira laço.
-- [x] **`f394f23`** — `feat(ux)`: prompt do REPL e título da TUI mostram a rota ativa.
-- [x] **`8781abc`** — `docs(handoff)`: rodada 8b (llama3.1 + arquitetura invertida).
-- [x] **`bf7867f`** — ADR-0041: `readAllow` (escopo de leitura por caminho) +
-      `subagentPermissions`.
-- [x] **`f9fa40f`** — ADR-0042: modo `--mcp-server` expondo as tools sob a política.
-- [x] **`faa407f`** — ADR-0042: ponte MCP no `claude-cli` — assinatura Pro/Max com
-      tool-calling.
+- [x] **`2f359f2`** — `build`: alvos `build`/`linux-build`/`linux` (pacote `tar.gz`) e
+      `disk`/`clean-incremental`/`clean-debug`/`clean-all` no `Makefile`; `[profile.release]`
+      explícito no `Cargo.toml`.
+- [x] **`95e0966`** — `docs(adr)`: **ADR-0044**, assinatura por CLI oficial; navegador
+      embutido rejeitado.
 
-## Rodada 8f — achados 1-3 resolvidos (ADR-0043)
+## Rodada 9 (2026-09-07) — build Linux, higiene de disco e ADR-0044
 
-Os três achados de confidencialidade da rodada 8 tinham uma raiz comum: o `agentry` sabia
-**que** dado cruzava a fronteira, e não **o quê**. Fechados com um mecanismo só.
+**`target/` com 125 GB.** Causa raiz: o perfil `dev` gera binários de teste de ~1,5 GB **cada**
+e o Cargo **não remove** os de hash antigo quando o código muda — `target/debug/deps` sozinho
+tinha 97 GB em 9.205 arquivos, acumulados em três semanas (nada com mais de 30 dias).
+`cargo clean --profile dev` liberou 113 GB preservando `release` e o cross-compile Windows.
+Os alvos de limpeza no `Makefile` existem para isso não voltar: **é higiene recorrente**, não
+correção pontual.
 
-- **Achado 2** (guardrail literal é contornado) — `GuardrailRule` ganha `detect`, alternativo
-  a `match`: `cpf`, `cnpj`, `email`, `telefone-br`, `cartao-credito`. Reconhecem por
-  **formato**, então reformatar os dados (a evasão observada) deixa de funcionar. Detectores
-  **nomeados**, não regex do usuário — a ADR-0043 registra os três motivos (regex de PII é
-  difícil de escrever e erra em silêncio; padrão vindo de configuração é superfície de ReDoS;
-  nome é auditável, padrão não). A ADR-0007 §"sem regex" continua valendo.
-- **Achado 3** (log não diz o que saiu) — `GuardrailAuditEntry` passa a registrar o **nome** do
-  detector e a **contagem**, nunca o valor. Vazamento vira detectável depois do fato sem o log
-  virar um novo repositório de dado sensível.
-- **Achado 1** (nada impõe sanitização) — com os dois acima, a fronteira passa a ter inspeção
-  por formato nos dois sentidos, inclusive no subagente (que já herdava os guardrails).
+**O `Makefile` só tinha Windows.** O pacote Linux vinha sendo montado à mão com `tar` a cada
+release (ver `handoff-arquivo.md`, rodada 5). Fechado com `make linux`, verificado ponta a
+ponta. O build Linux é **nativo, sem `--target`**: passar `x86_64-unknown-linux-gnu`
+explicitamente cria uma segunda árvore de artefatos para o mesmo triplo (é o que explica os
+654 MB soltos em `target/x86_64-unknown-linux-gnu/`), forçando recompilação sem ganho.
 
-Dígito verificador é obrigatório onde existe (módulo 11, Luhn): sem isso qualquer
-identificador numérico do mesmo tamanho viraria achado e um `redact` corromperia dado legítimo
-em silêncio.
+**Binário de 281,8 MB.** `strip = "debuginfo"` foi adotado e é **no-op** — binário
+byte-idêntico, zero seções `.debug`, porque o perfil `release` já usa `debug = false`; fica
+como guarda. O corte real seria `strip = "symbols"` (281,8 → 204,3 MB, **−27%**), **decidido
+pelo mantenedor para releases estáveis apenas**: apaga a tabela de símbolos e o backtrace de
+panic perde os nomes de função, justo enquanto a `v0.1.0-usertest` existe para colher relato
+de bug. O piso de 204 MB é a árvore de dependências (`datafusion`, `lancedb`, `tantivy`,
+`arrow`); a alavanca real seria feature-gate no stack de RAG.
 
-**Limitação declarada:** nome de pessoa **não tem formato** — "Ana Ribeiro" continua passando.
-`readAllow` (ADR-0041) segue sendo a proteção primária; detectores são a segunda linha.
-
-Verificado com o binário `release`: bloqueio por CPF num texto **sem** a palavra `cpf`;
-`redact` entregando ao modelo o texto já mascarado; `audit.log` com `"deteccao":["cpf",1]` e
-nenhum dos valores presente no arquivo.
-
-## Release `v0.1.0-usertest` atualizada (2026-07-30)
-
-Tag movida de `12fe3e9` (2026-07-24) para `c038475` — **24 commits**. Cobre as rodadas 7 a 8f:
-providers `anthropic`/`claude-cli` (ADR-0040), servidor MCP (ADR-0042), `readAllow`/
-`subagentPermissions` (ADR-0041), detectores de PII (ADR-0043), o novo *default* de delegação
-e as quatro correções (a mais grave: nenhuma tool executava no Ollama).
-
-Binário Linux e Windows (cross-compilado, `make windows`) reconstruídos e **testados a partir
-do pacote extraído** — `--version` e presença das flags novas; o Windows via `wine`. Assets
-substituídos preservando os nomes já em uso (`agentry-linux-x86_64.tar.gz`,
-`agentry-windows-x86_64.zip`), notas reescritas com destaque para a correção do Ollama, as
-limitações conhecidas e as instruções de instalação.
+**ADR-0044** — rejeita navegador embutido como autenticação/transporte de provider e adota
+providers por assinatura via *spawn* do CLI oficial (Codex, Gemini), no molde do `claude-cli`
+da ADR-0040, mais providers por API no molde do `anthropic`. O impedimento decisivo **não** é
+contratual e sim estrutural: navegador embutido é superfície de egresso **não enumerável**,
+então nenhuma `AuditEntry` descreveria com honestidade o que saiu, e o *fail-closed* da
+ADR-0002 não teria como ser imposto. Navegador *headless* segue admissível como **tool** de
+leitura de página (extensão da ADR-0025), atrás do `Transport` — sob ADR próprio.
 
 ## Em andamento
 
-Nada em execução. Árvore limpa.
+Nada em execução. A branch `chore/build-linux-e-higiene-de-disco` tem dois commits **não
+mesclados em `main`**.
+
+**Cota:** janela de 7 dias em 90% em 2026-09-07, com reset previsto para ~1h28m depois dessa
+medição. Frente longa nova deve começar **depois** do reset; o que couber antes precisa ser
+incremento commitável.
 
 ## Próximo passo sugerido
 
@@ -93,14 +77,30 @@ Decisões do mantenedor, em ordem de impacto:
    cobrem). **Maior retorno disponível hoje**, acima de qualquer feature nova: nesta rodada
    sozinha, três defeitos apareceram só ao rodar o binário de verdade (`shell_background`
    exposto, config MCP temporária órfã, pontuação consecutiva no detector).
-2. **Detector de nome de pessoa** — a lacuna que a ADR-0043 declara e não resolve: nome não
+2. **Implementar a ADR-0044** — providers por assinatura via CLI oficial (Codex para conta
+   ChatGPT, Gemini CLI para conta Google) e por API (OpenAI, Google). **Pré-requisito duro,
+   ainda não verificado:** confirmar que cada CLI autoriza consumo programático sob a
+   assinatura e qual o modo *headless* suportado — a ADR-0044 torna essa verificação
+   bloqueante para a adoção de cada provider. Quebrar com `micro-ticket-planner`: são pelo
+   menos quatro providers, e o molde da ADR-0040 exige `AuditEntry` por invocação e
+   `EgressClass` verificada antes do *spawn* em cada um.
+3. **Detector de nome de pessoa** — a lacuna que a ADR-0043 declara e não resolve: nome não
    tem formato reconhecível. Exigiria abordagem diferente (dicionário, modelo local de NER) e
    tem custo de falso positivo alto; decisão do mantenedor se vale a pena.
-3. **Guardrail de imagem** (bloqueia a frente multimodal) — ver *Impedimentos abertos*.
+4. **Guardrail de imagem** (bloqueia a frente multimodal) — ver *Impedimentos abertos*.
 
 ## Impedimentos de ambiente (não são bugs do código)
 
 - **`protoc` não vem pré-instalado por padrão** (nem, presumivelmente, nos runners padrão do GitHub Actions) — exigido pelo build script de `lance-encoding` (transitiva do `lancedb`, MT-27). CI já corrigido; ambientes de desenvolvimento locais precisam instalar `protobuf-compiler` (Debian/Ubuntu), `protobuf` (Homebrew) ou equivalente antes de rodar `cargo build`/`cargo test` neste crate — ver `docs/testing.md`. **Nesta máquina de desenvolvimento, já resolvido**: `protobuf-compiler` instalado via `apt` pelo usuário (precisa de `sudo` — funciona só com terminal interativo; o agente não deve tentar rodar `sudo` sozinho, sempre pedir para o usuário rodar). Um binário `protoc` *standalone* baixado manualmente mais cedo na sessão (`~/.local/bin/protoc`, contornando a falta de `sudo` interativo) foi removido para não sombrear o `/usr/bin/protoc` do pacote no `PATH` — `cargo build`/`test`/`clippy` voltaram a funcionar sem nenhuma variável de ambiente extra (`PROTOC`/`PROTOC_INCLUDE`).
+
+- **Lacuna de ~140 GB no `df` sem arquivo correspondente (não é bug do projeto).** Em
+  2026-09-07 o disco caiu 121 GB durante uma janela de ~10 min em que `target/` cresceu só
+  3 GB; a soma do que é visível (`/home` 439 GB + `/var` 21 GB + swap 17 GB + `/usr` 13 GB +
+  resto ≈ 495 GB) não fecha com os 638 GB que o `df` reporta. Varredura por arquivos >500 MB
+  modificados em 4h não achou nada, e `lsof +L1` sem privilégio não vê descritor retido —
+  assinatura de arquivo deletado preso em processo de **root**. Consumidores reais mapeados
+  (não são a causa do pico): Steam 162 GB, containers 49 GB, gnome-boxes 23 GB, Trash 5,5 GB.
+  **Pendente:** `sudo lsof -nP +L1` pelo usuário, ou um reboot. `make disk` mostra o estado.
 
 ## Impedimentos abertos
 

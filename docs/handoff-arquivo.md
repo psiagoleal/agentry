@@ -12,12 +12,56 @@
 
 ## Índice
 
+- [Rodada 8f (2026-07-28/30) — detectores de PII (ADR-0043) e release v0.1.0-usertest](#rodada-8f--achados-1-3-resolvidos-adr-0043)
 - [Rodada 8d (2026-07-28) — servidor MCP e assinatura Pro/Max como agente principal](#rodada-8d--adr-0042-servidor-mcp-assinatura-promax-como-agente-principal)
 - [Rodadas 8, 8b e 8c (2026-07-27/28) — confidencialidade, roteamento entre modelos, ADR-0041](#rodada-8-2026-07-27--roteamento-entre-modelos-e-confidencialidade)
 - [Rodada 7 (2026-07-25) — bug do Ollama e provider Anthropic](#rodada-7-2026-07-25--bug-crítico-do-ollama--provider-anthropic-adr-0040)
 - [Rodadas de teste manual e fases (2026-07-17 a 2026-07-24)](#nota-fora-do-loop-2026-07-17)
 - [Turno de 2026-07-16 — roadmap v0.1..v0.4 e Fases 10-20](#último-turno)
 - [Tabela de commits (mais recente no topo)](#histórico-mais-recente-no-topo)
+
+---
+
+## Rodada 8f — achados 1-3 resolvidos (ADR-0043)
+
+Os três achados de confidencialidade da rodada 8 tinham uma raiz comum: o `agentry` sabia
+**que** dado cruzava a fronteira, e não **o quê**. Fechados com um mecanismo só.
+
+- **Achado 2** (guardrail literal é contornado) — `GuardrailRule` ganha `detect`, alternativo
+  a `match`: `cpf`, `cnpj`, `email`, `telefone-br`, `cartao-credito`. Reconhecem por
+  **formato**, então reformatar os dados (a evasão observada) deixa de funcionar. Detectores
+  **nomeados**, não regex do usuário — a ADR-0043 registra os três motivos (regex de PII é
+  difícil de escrever e erra em silêncio; padrão vindo de configuração é superfície de ReDoS;
+  nome é auditável, padrão não). A ADR-0007 §"sem regex" continua valendo.
+- **Achado 3** (log não diz o que saiu) — `GuardrailAuditEntry` passa a registrar o **nome** do
+  detector e a **contagem**, nunca o valor. Vazamento vira detectável depois do fato sem o log
+  virar um novo repositório de dado sensível.
+- **Achado 1** (nada impõe sanitização) — com os dois acima, a fronteira passa a ter inspeção
+  por formato nos dois sentidos, inclusive no subagente (que já herdava os guardrails).
+
+Dígito verificador é obrigatório onde existe (módulo 11, Luhn): sem isso qualquer
+identificador numérico do mesmo tamanho viraria achado e um `redact` corromperia dado legítimo
+em silêncio.
+
+**Limitação declarada:** nome de pessoa **não tem formato** — "Ana Ribeiro" continua passando.
+`readAllow` (ADR-0041) segue sendo a proteção primária; detectores são a segunda linha.
+
+Verificado com o binário `release`: bloqueio por CPF num texto **sem** a palavra `cpf`;
+`redact` entregando ao modelo o texto já mascarado; `audit.log` com `"deteccao":["cpf",1]` e
+nenhum dos valores presente no arquivo.
+
+## Release `v0.1.0-usertest` atualizada (2026-07-30)
+
+Tag movida de `12fe3e9` (2026-07-24) para `c038475` — **24 commits**. Cobre as rodadas 7 a 8f:
+providers `anthropic`/`claude-cli` (ADR-0040), servidor MCP (ADR-0042), `readAllow`/
+`subagentPermissions` (ADR-0041), detectores de PII (ADR-0043), o novo *default* de delegação
+e as quatro correções (a mais grave: nenhuma tool executava no Ollama).
+
+Binário Linux e Windows (cross-compilado, `make windows`) reconstruídos e **testados a partir
+do pacote extraído** — `--version` e presença das flags novas; o Windows via `wine`. Assets
+substituídos preservando os nomes já em uso (`agentry-linux-x86_64.tar.gz`,
+`agentry-windows-x86_64.zip`), notas reescritas com destaque para a correção do Ollama, as
+limitações conhecidas e as instruções de instalação.
 
 ---
 
