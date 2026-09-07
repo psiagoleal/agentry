@@ -148,6 +148,7 @@ nav:
           - v0.15: roadmap-v0.15.md
           - v0.16: roadmap-v0.16.md
           - v0.17: roadmap-v0.17.md
+          - v0.18: roadmap-v0.18.md
       - Interoperabilidade com ai-coding-agent-profiles:
           - Visão geral: interop/README.md
           - Exchange log: interop/exchange-log.md

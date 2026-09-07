@@ -13,7 +13,7 @@
 
 - **Data:** 2026-09-07
 - **Branch:** `chore/build-linux-e-higiene-de-disco` (não mesclada em `main`)
-- **Commits:** `2f359f2`, `95e0966`
+- **Commits:** `2f359f2`, `95e0966`, `d80d78c`, `e0dacc5`
 - **Estado da árvore:** `AGENTS.md`, `skills/README.md` e os diretórios de skills não
   rastreados seguem modificados de **outra frente**, anteriores a esta rodada e intocados.
 - **DoD:** build `release` OK e pacote Linux verificado a partir do arquivo extraído
@@ -27,6 +27,9 @@
       explícito no `Cargo.toml`.
 - [x] **`95e0966`** — `docs(adr)`: **ADR-0044**, assinatura por CLI oficial; navegador
       embutido rejeitado.
+- [x] **`d80d78c`** — `docs(handoff)`: rodada 9; rodada 8f arquivada.
+- [x] **`e0dacc5`** — `docs(roadmap)`: **v0.18**, Fase K quebrada em MT-140 a MT-146
+      (teste de integração ponta a ponta).
 
 ## Rodada 9 (2026-09-07) — build Linux, higiene de disco e ADR-0044
 
@@ -72,11 +75,14 @@ incremento commitável.
 
 Decisões do mantenedor, em ordem de impacto:
 
-1. **Teste de integração ponta a ponta em CI** — causa estrutural dos bugs de produção já
-   encontrados (todos na fronteira `main()` → provider real, que os 814 testes unitários não
-   cobrem). **Maior retorno disponível hoje**, acima de qualquer feature nova: nesta rodada
-   sozinha, três defeitos apareceram só ao rodar o binário de verdade (`shell_background`
-   exposto, config MCP temporária órfã, pontuação consecutiva no detector).
+1. **Teste de integração ponta a ponta em CI** — frente escolhida pelo mantenedor e **já
+   planejada**: ver `docs/roadmap-v0.18.md`, Fase K, MT-140 a MT-146. Começar pelo
+   **MT-140** (ADR-0045), que fixa as três escolhas estruturais — provider falso local em vez
+   de rede/credencial em CI, subir o **binário real** como subprocesso, e escopo na fiação e
+   não nas unidades. O roadmap lista três pontos **não confirmados no código** que mudam o
+   escopo dos tickets seguintes; verificá-los é a primeira tarefa do MT-140.
+   Causa da frente: todos os bugs de produção do projeto vivem na fronteira `main()` →
+   provider real, que os 814 testes unitários não cobrem.
 2. **Implementar a ADR-0044** — providers por assinatura via CLI oficial (Codex para conta
    ChatGPT, Gemini CLI para conta Google) e por API (OpenAI, Google). **Pré-requisito duro,
    ainda não verificado:** confirmar que cada CLI autoriza consumo programático sob a
