@@ -49,57 +49,35 @@ panic perde os nomes de função enquanto a `v0.1.0-usertest` colhe relato de bu
 
 ### Fase K — MT-140 a MT-144 concluídos
 
-**ADR-0045** fixa: provider falso local (não gravação/replay, não provider real em CI), o
-**binário real** subido como subprocesso (a fronteira que os bugs atravessaram não é
-alcançável por função interna), escopo na fiação, e a saída declarada de restringir a Linux
-caso a matriz de 3 SOs se mostre instável — teste intermitente destrói a confiança em todos os
-outros. Estabilidade exige **duas** execuções verdes seguidas.
+Detalhe por ticket em [`docs/roadmap-v0.18.md`](./roadmap-v0.18.md). A fronteira `main()` →
+provider está **fechada**: os casos sobem o binário de verdade contra o `fake_provider` e
+afirmam nos dois sentidos — resposta chega ao `stdout`, e o que o binário **enviou** é lido do
+registro de requisições. Cobertos: conversa simples, laço completo de tool-calling (executa sob
+`PermissionGate`, resultado volta ao modelo) e o **conjunto inteiro** de tools anunciado.
 
-**A verificação derrubou trabalho previsto.** O MT-141 era "tornar a raiz de configuração
-redirecionável", com risco declarado de emenda à ADR-0038. `global_dir.rs:21` já resolve o
-home por `env::var_os("HOME")`/`USERPROFILE` e é o **único** leitor dessas variáveis no
-workspace: definir `HOME` no processo filho basta. Nenhuma variável nova, nenhuma flag,
-nenhuma mudança de produção. O MT-141 virou **teste-guarda** contra alguém introduzir outro
-resolvedor de home — que quebraria o isolamento em silêncio, com os testes ainda verdes
-escrevendo no `~/.agentry/` real.
+Quatro coisas não óbvias para quem retoma:
 
-Confirmado também que não há `--config`: `state_dir::agentry_settings_path(start)` sobe a
-árvore, então o `cwd` do filho seleciona a configuração. Ressalva registrada no ADR: o
-diretório temporário não pode estar aninhado sob um que contenha `.agentry/`.
+1. **Hermetismo é `HOME` + `cwd`**, sem mecanismo novo — `global_dir.rs` é o único resolvedor de
+   *home* do workspace, propriedade protegida pela guarda estática do MT-141 (verificada por
+   mutação).
+2. **`CARGO_BIN_EXE_fake_provider` não existe nos testes de `agentry`** (o bin é de
+   `agentry-core`): o caminho é derivado do diretório do `CARGO_BIN_EXE_agentry`. Mover a
+   fixture para `crates/cli` faria `cargo install` levá-la ao usuário.
+3. **As fixtures desligam todas as funcionalidades de contexto**, não só as caras: senão
+   `session_search` entra no conjunto anunciado (default `true`) e a asserção quebra por
+   mudança de *default*, não por regressão.
+4. **O caminho one-shot é `chat_stream`** — roteiro precisa ser SSE.
 
-**MT-141** entregou a guarda estática (`crates/core/tests/hermetismo.rs`), verificada **por
-mutação** — com uma violação introduzida de propósito ela falha nomeando arquivo e linha. A
-asserção-contraparte (contra varredura vacuante) já se pagou: pegou que a primeira versão
-afirmava a string `var_os("HOME")` em `global_dir.rs`, que usa indireção e nunca conteve essa
-string.
+**Dois achados aguardando decisão do mantenedor** (nenhum virou asserção, para não congelar
+comportamento antes da decisão):
 
-**MT-143** fechou a fronteira `main()` → provider: o caso sobe o binário de verdade com `HOME`
-e `cwd` temporários e afirma **nos dois sentidos** — a resposta chega ao `stdout` e a tarefa da
-linha de comando chega ao provider (lida do registro de requisições). Tudo `local-only`
-(endpoint em `127.0.0.1`, perfil ausente resolve *fail-closed*), então nenhum caso alcança a
-nuvem por acidente.
-
-**MT-144** cobriu o laço de tool-calling inteiro (modelo pede `fs_read` → `agentry` executa sob
-`PermissionGate` → conteúdo volta ao modelo → resposta final no `stdout`) e a afirmação do
-**conjunto inteiro** de tools anunciado — presença individual não pegaria uma tool a **mais**,
-que foi o defeito real.
-
-**Fica declarado o que o MT-144 não cobriu:** a regressão específica do
-`providers.ollama.structuredOutput` — o *flag* é do `OllamaProvider` e o caminho exercitado é o
-OpenAI-compatible; o `fake_provider` não fala o protocolo nativo do Ollama. Coberta a **classe**
-da falha, não aquele defeito. Registrado como **MT-148** no roadmap.
-
-**Achado, ainda sem decisão:** com corpo **não-SSE** respondido a uma requisição de *stream*, o
-binário imprime nada e sai com **código 0** — silêncio indistinguível de "o modelo não teve o
-que responder", e é o que acontece com endpoint mal configurado ou proxy que intercepta. Não
-virou asserção de propósito: congelaria o comportamento antes de o mantenedor decidir qual é o
-correto. Candidato a **MT-147** (ver `docs/roadmap-v0.18.md`).
-
-**MT-142** entregou o `fake_provider` (`crates/core/src/bin/`) — protocolo OpenAI-compatible,
-roteiro determinístico, registro das requisições recebidas, porta atribuída pelo SO. Roteiro
-esgotado devolve **500 explícito** em vez de repetir a última resposta, que faria um caso
-passar por acidente. Não substitui o mock in-process do MT-07: aquele serve teste de unidade
-do provider, este serve o binário rodando como outro processo.
+- **MT-147** — corpo **não-SSE** respondido a uma requisição de *stream* produz `stdout` vazio,
+  `0 tokens` e **código de saída 0**. Indistinguível de "o modelo não teve o que responder", e é
+  o que acontece com endpoint mal configurado ou proxy que intercepta.
+- **MT-148** — a regressão do `providers.ollama.structuredOutput` (o defeito mais grave já
+  encontrado, nenhuma tool executando no *default*) **segue sem rede de proteção**: o *flag* é do
+  `OllamaProvider` e o `fake_provider` só fala OpenAI-compatible. O MT-144 cobriu a *classe* da
+  falha, não aquele defeito.
 
 ## Em andamento
 
