@@ -124,8 +124,11 @@ Decisões do mantenedor, em ordem de impacto:
 
 ## Impedimentos de ambiente (não são bugs do código)
 
-- **`protoc` não vem pré-instalado por padrão** (nem, presumivelmente, nos runners padrão do GitHub Actions) — exigido pelo build script de `lance-encoding` (transitiva do `lancedb`, MT-27). CI já corrigido; ambientes de desenvolvimento locais precisam instalar `protobuf-compiler` (Debian/Ubuntu), `protobuf` (Homebrew) ou equivalente antes de rodar `cargo build`/`cargo test` neste crate — ver `docs/testing.md`. **Nesta máquina de desenvolvimento, já resolvido**: `protobuf-compiler` instalado via `apt` pelo usuário (precisa de `sudo` — funciona só com terminal interativo; o agente não deve tentar rodar `sudo` sozinho, sempre pedir para o usuário rodar). Um binário `protoc` *standalone* baixado manualmente mais cedo na sessão (`~/.local/bin/protoc`, contornando a falta de `sudo` interativo) foi removido para não sombrear o `/usr/bin/protoc` do pacote no `PATH` — `cargo build`/`test`/`clippy` voltaram a funcionar sem nenhuma variável de ambiente extra (`PROTOC`/`PROTOC_INCLUDE`).
-
+- **`protoc` é pré-requisito de build** (build script de `lance-encoding`, transitiva do
+  `lancedb`) — sem ele nem o `clippy` compila. **Já resolvido** nesta máquina
+  (`protobuf-compiler` via `apt`) e no CI (passo por SO em `ci.yml`); ambiente novo precisa
+  instalar antes de `cargo build`/`test`. Detalhes em `docs/testing.md`. Instalar exige
+  `sudo`, que não é interativo aqui — pedir ao usuário, nunca tentar sozinho.
 - **Lacuna de ~140 GB no `df` sem arquivo correspondente (não é bug do projeto).** Em
   2026-09-07 o disco caiu 121 GB durante uma janela de ~10 min em que `target/` cresceu só
   3 GB; a soma do que é visível (`/home` 439 GB + `/var` 21 GB + swap 17 GB + `/usr` 13 GB +
