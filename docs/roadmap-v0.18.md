@@ -154,7 +154,7 @@ tratado e código de saída diferente de zero, não silêncio.
   for revertido por engano.
 - **Depende de:** MT-144.
 
-### MT-145: casos de egresso, auditoria e guardrail
+### MT-145: casos de egresso, auditoria e guardrail ✅ concluído
 - **Objetivo:** três afirmações que hoje só existem em teste unitário e nunca ponta a ponta —
   (a) `.agentry/audit.log` registra destino e classe de egresso a cada chamada (ADR-0037);
   (b) classe `local-only` **bloqueia** egresso para nuvem, *fail-closed* (ADR-0002); (c) um
@@ -165,6 +165,33 @@ tratado e código de saída diferente de zero, não silêncio.
 - **Critério de aceite:** os três casos passam; o teste **grep**a o `audit.log` para garantir
   ausência do valor sensível, não só presença do nome do detector.
 - **Depende de:** MT-143.
+- **Execução:** virou **quatro** casos, porque o *fail-closed* tem **duas camadas** com
+  comportamentos diferentes, e cobrir só uma daria falsa segurança:
+  1. `audit.log` registra destino e classe (ADR-0037);
+  2. **recusa de rota** — candidato mais permissivo que a sessão: o `Router` recusa *antes* de
+     qualquer chamada, com código 1 e mensagem explícita;
+  3. **bloqueio no `Transport`** — candidato permitido com endpoint mais permissivo: a barreira
+     cai na camada que audita, e a entrada `blocked` aparece no log;
+  4. CPF bloqueado, com o log nomeando o detector e **sem** o valor, em duas grafias.
+- **Achado do processo:** as duas primeiras versões dos casos de bloqueio passaram **por
+  vacuidade** — afirmavam só "nenhuma requisição chegou ao provider", o que também seria
+  verdade se o binário tivesse falhado por motivo alheio (foi o que aconteceu: o `audit.log`
+  estava vazio). Cada caso de bloqueio precisa afirmar **o mecanismo**, não só o efeito.
+
+### MT-149 (proposto): recusa de rota por egresso não deixa trilha persistente
+- **Objetivo:** decidir se a recusa **na camada de rota** deve ser auditada. Hoje ela sai só em
+  `stderr` com código 1; nada é gravado em `.agentry/audit.log`. O bloqueio no `Transport`, sim,
+  grava `blocked`. Descoberto pelo MT-145 ao exigir que o caso provasse o mecanismo.
+- **A tensão:** a ADR-0002 manda auditar *cada egresso*, e aqui **não houve egresso** — a rota
+  nem foi selecionada, então formalmente não há o que registrar. Do lado de quem audita, porém,
+  "o sistema recusou trabalho por política de egresso" é exatamente o evento que se quer ver, e
+  hoje ele não sobrevive ao fim do processo.
+- **Decisão do mantenedor**, não do implementador: pode ser lacuna de conformidade ou
+  comportamento correto. Se for para auditar, o formato precisa distinguir *recusa de rota* de
+  *bloqueio de egresso* — colapsar os dois tornaria o log ambíguo.
+- **Arquivos prováveis:** `crates/cli/src/main.rs` (resolução de rota),
+  `crates/core/src/egress/audit.rs`, `docs/adr/0002-*.md` (emenda).
+- **Depende de:** MT-145.
 
 ### MT-146: fiar no CI (e o que fica de fora)
 - **Objetivo:** rodar os testes ponta a ponta na matriz de 3 SOs, ou decidir e **registrar**

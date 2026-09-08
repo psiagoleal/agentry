@@ -135,6 +135,24 @@ impl Provider {
 /// *fail-closed* para `local-only` (ADR-0002). Nenhum caso desta suíte pode
 /// alcançar a nuvem nem por acidente.
 fn preparar_projeto(dir: &TempDir, base_url: &str) -> PathBuf {
+    preparar_projeto_com(dir, base_url, "local-only", "local-only", "[]")
+}
+
+/// Variante com as classes de egresso do **endpoint** e do **candidato de
+/// rota** separadas, mais as regras de guardrail de entrada (MT-145).
+///
+/// As duas classes existem separadas de propósito: o *fail-closed* tem duas
+/// camadas, e elas se comportam de forma diferente. Candidato mais permissivo
+/// que a sessão faz o `Router` recusar a rota **antes** de qualquer chamada;
+/// candidato permitido com endpoint mais permissivo faz o `Transport` barrar,
+/// e é só nesse caso que existe entrada de auditoria.
+fn preparar_projeto_com(
+    dir: &TempDir,
+    base_url: &str,
+    egress_class: &str,
+    classe_candidato: &str,
+    guardrails_input: &str,
+) -> PathBuf {
     let projeto = dir.path().join("projeto");
     std::fs::create_dir_all(projeto.join(".git")).expect("cria .git");
     std::fs::create_dir_all(projeto.join(".agentry")).expect("cria .agentry");
@@ -158,13 +176,14 @@ fn preparar_projeto(dir: &TempDir, base_url: &str) -> PathBuf {
     "litellm": {{
       "baseUrl": "{base_url}",
       "model": "modelo-de-teste",
-      "egressClass": "local-only"
+      "egressClass": "{egress_class}"
     }}
   }},
+  "guardrails": {{ "input": {guardrails_input}, "output": [] }},
   "taskClasses": {{
     "chat": {{
       "candidates": [
-        {{ "provider": "litellm", "model": "modelo-de-teste", "egressClass": "local-only" }}
+        {{ "provider": "litellm", "model": "modelo-de-teste", "egressClass": "{classe_candidato}" }}
       ]
     }}
   }}
@@ -400,5 +419,176 @@ fn conjunto_de_tools_anunciado_ao_modelo_e_exatamente_o_esperado() {
         esperado,
         "o conjunto de tools mudou; se foi de propósito, atualize esta lista — ela existe \
          justamente para uma tool nova não entrar no pedido sem ninguém notar"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// MT-145 — egresso, auditoria e guardrail de PII
+// ---------------------------------------------------------------------------
+
+/// Requisições que chegaram ao provider. Arquivo ausente ⇒ nenhuma chegou,
+/// que é a afirmação central dos casos de bloqueio.
+fn requisicoes(registro: &Path) -> Vec<serde_json::Value> {
+    std::fs::read_to_string(registro)
+        .unwrap_or_default()
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| serde_json::from_str(l).expect("linha do registro deve ser JSON"))
+        .collect()
+}
+
+fn audit_log(projeto: &Path) -> String {
+    std::fs::read_to_string(projeto.join(".agentry").join("audit.log")).unwrap_or_default()
+}
+
+#[test]
+fn audit_log_registra_destino_e_classe_de_egresso() {
+    let dir = TempDir::new("audit");
+    let provider = Provider::subir(
+        &dir,
+        r#"{"respostas":[{"sse":["{\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}"]}]}"#,
+        None,
+    );
+    let projeto = preparar_projeto(&dir, &provider.base_url());
+
+    let saida = rodar_agentry(&dir, &projeto, &["oi"]);
+    assert!(
+        saida.status.success(),
+        "stdout: {}\nstderr: {}",
+        texto(&saida.stdout),
+        texto(&saida.stderr)
+    );
+
+    // ADR-0037: a trilha é persistente, não só uma linha no terminal — quem
+    // audita lê o arquivo depois do fato.
+    let log = audit_log(&projeto);
+    assert!(
+        log.contains(&provider.base_url()),
+        "audit.log deveria registrar o destino; veio: {log}"
+    );
+    assert!(
+        log.contains("local-only"),
+        "audit.log deveria registrar a classe de egresso resolvida; veio: {log}"
+    );
+}
+
+#[test]
+fn rota_de_nuvem_e_recusada_sob_perfil_local_only() {
+    let dir = TempDir::new("failclosed-rota");
+    let registro = dir.path().join("registro.jsonl");
+    let provider = Provider::subir(
+        &dir,
+        r#"{"respostas":[{"sse":["{\"choices\":[{\"delta\":{\"content\":\"nao deveria chegar\"}}]}"]}]}"#,
+        Some(&registro),
+    );
+    // Candidato de rota declarado `cloud-ok`; o perfil ausente resolve
+    // *fail-closed* para `local-only` (ADR-0002).
+    let projeto = preparar_projeto_com(&dir, &provider.base_url(), "cloud-ok", "cloud-ok", "[]");
+
+    let saida = rodar_agentry(&dir, &projeto, &["oi"]);
+
+    assert!(
+        requisicoes(&registro).is_empty(),
+        "nenhuma requisição deveria ter alcançado o provider.\nstderr: {}",
+        texto(&saida.stderr)
+    );
+    // Amarra o caso ao mecanismo: sem isto, ele passaria por qualquer motivo
+    // que impedisse a chamada, inclusive um erro de configuração alheio.
+    assert_eq!(
+        saida.status.code(),
+        Some(1),
+        "recusa de rota deve sair com código 1.\nstderr: {}",
+        texto(&saida.stderr)
+    );
+    assert!(
+        texto(&saida.stderr).contains("nenhuma rota disponível"),
+        "a recusa deveria ser explícita ao usuário; veio: {}",
+        texto(&saida.stderr)
+    );
+}
+
+#[test]
+fn transport_barra_endpoint_mais_permissivo_que_a_sessao_e_audita() {
+    let dir = TempDir::new("failclosed-transport");
+    let registro = dir.path().join("registro.jsonl");
+    let provider = Provider::subir(
+        &dir,
+        r#"{"respostas":[{"sse":["{\"choices\":[{\"delta\":{\"content\":\"nao deveria chegar\"}}]}"]}]}"#,
+        Some(&registro),
+    );
+    // Candidato `local-only` (a rota é aceita) mas endpoint declarado
+    // `cloud-ok`: a barreira cai no `Transport`, que é a camada que audita.
+    let projeto = preparar_projeto_com(&dir, &provider.base_url(), "cloud-ok", "local-only", "[]");
+
+    let saida = rodar_agentry(&dir, &projeto, &["oi"]);
+
+    assert!(
+        requisicoes(&registro).is_empty(),
+        "o pacote não deveria ter saído.\nstdout: {}\nstderr: {}",
+        texto(&saida.stdout),
+        texto(&saida.stderr)
+    );
+    let log = audit_log(&projeto);
+    assert!(
+        log.contains("blocked"),
+        "o bloqueio no Transport deve deixar trilha persistente (ADR-0002/0037); veio: {log:?}\nstderr: {}",
+        texto(&saida.stderr)
+    );
+}
+
+#[test]
+fn cpf_no_prompt_e_bloqueado_e_o_log_nao_guarda_o_valor() {
+    const CPF: &str = "529.982.247-25";
+    let dir = TempDir::new("pii");
+    let registro = dir.path().join("registro.jsonl");
+    let provider = Provider::subir(
+        &dir,
+        r#"{"respostas":[{"sse":["{\"choices\":[{\"delta\":{\"content\":\"nao deveria chegar\"}}]}"]}]}"#,
+        Some(&registro),
+    );
+    let projeto = preparar_projeto_com(
+        &dir,
+        &provider.base_url(),
+        "local-only",
+        "local-only",
+        r#"[{ "id": "bloqueia-cpf", "detect": "cpf", "action": "block" }]"#,
+    );
+
+    let saida = rodar_agentry(&dir, &projeto, &[&format!("meu documento é {CPF}")]);
+
+    assert!(
+        requisicoes(&registro).is_empty(),
+        "o CPF não deveria ter saído da máquina.\nstdout: {}\nstderr: {}",
+        texto(&saida.stdout),
+        texto(&saida.stderr)
+    );
+
+    // O ponto da ADR-0043: o log torna o vazamento detectável **sem** virar
+    // ele próprio um repositório de dado sensível. Afirmar a ausência do valor
+    // é tão importante quanto a presença do nome do detector — e é a metade
+    // que uma asserção ingênua esqueceria.
+    let log = audit_log(&projeto);
+    assert!(
+        log.contains("cpf"),
+        "audit.log deveria nomear o detector; veio: {log}"
+    );
+    for forma in [CPF, "52998224725"] {
+        assert!(
+            !log.contains(forma),
+            "audit.log NUNCA pode conter o valor detectado ({forma}); veio: {log}"
+        );
+    }
+    assert!(
+        !texto(&saida.stdout).contains("nao deveria chegar"),
+        "stdout: {}",
+        texto(&saida.stdout)
+    );
+
+    // Mesma disciplina do caso de egresso: amarrar ao mecanismo. O id da regra
+    // é o que aparece no lugar do valor casado (ADR-0043).
+    let relato = format!("{}{}", texto(&saida.stdout), texto(&saida.stderr));
+    assert!(
+        relato.contains("bloqueia-cpf"),
+        "o bloqueio deveria ser reportado pelo id da regra; veio: {relato}"
     );
 }
