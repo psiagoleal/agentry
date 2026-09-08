@@ -111,14 +111,13 @@ vira padrão se o `--tui` for promovido:
 **Decisões do mantenedor (2026-09-08):** rodar o plano de uso **antes** de promover a TUI (feito),
 e **`--repl`** como escape hatch. O **MT-153** registra a promoção, bloqueado pelos três acima.
 
-### Plano de teste de uso (TUI)
+O plano dirige a TUI por **`tmux`** (`send-keys` + `capture-pane`), porque a TUI exige TTY e um
+agente em sessão não-interativa não consegue digitar nela. Duas armadilhas do método já estão
+corrigidas no plano: capturar sem `-e` achata o logo e **parece** defeito, e o `HOME` isolado
+precisa de um `.zshrc` vazio ou o assistente do zsh engole o comando.
 
-`usage-test/PLANO-DE-TESTE.md` + `RELATORIO-MODELO.md`, a pedido do mantenedor. A TUI exige TTY,
-então um agente em sessão não-interativa **não consegue** digitar nela — o plano dirige a TUI por
-**`tmux`** (`send-keys` + `capture-pane`), que dá TTY real e captura a tela como texto. Cobre
-primeiro uso, layout/resize, streaming, seletor de modelo, permissão (incluindo o invariante de
-que `Ctrl+A` não afrouxa `deny`), undo, comandos de barra, caminhos infelizes e higiene. O bloco
-final só se aplica depois do `--tui` virar padrão.
+**Ainda não executado, e é o que mais falta:** bloco **E** (permissão), em especial o **E5** —
+confirmar que `Ctrl+A` não afrouxa uma tool sob `deny` é invariante de segurança.
 
 ## Em andamento
 
