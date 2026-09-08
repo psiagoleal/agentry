@@ -30,7 +30,7 @@ ADR-0004, e um servidor de teste não justifica isso. Precedente direto no repos
 
 ## Fase K — Teste de integração ponta a ponta (MT-140 a MT-146)
 
-### MT-140: ADR-0045 — estratégia de teste ponta a ponta
+### MT-140: ADR-0045 — estratégia de teste ponta a ponta ✅ concluído
 - **Objetivo:** registrar a decisão antes de qualquer código, porque ela fixa três escolhas
   que depois custam caro para reverter: (a) **provider falso local** em vez de gravação/
   *replay* de tráfego ou de bater em provider real em CI — CI não pode depender de rede,
@@ -45,20 +45,23 @@ ADR-0004, e um servidor de teste não justifica isso. Precedente direto no repos
 - **Fora de escopo:** qualquer código de teste.
 - **Depende de:** nenhum.
 
-### MT-141: tornar a raiz de configuração redirecionável em teste
-- **Objetivo:** teste ponta a ponta precisa ser **hermético** — não pode ler nem escrever o
-  `~/.agentry/` real da máquina (ADR-0038), sob pena de o teste depender do estado do
-  desenvolvedor e, pior, de mexer nele. Expor uma variável de ambiente que redirecione a raiz
-  de configuração global para um diretório temporário.
-- **Arquivos no escopo:** o módulo que resolve `~/.agentry/` (`crates/core/src/config/`),
-  mais testes unitários do próprio resolvedor.
-- **Critério de aceite:** com a variável apontando para um diretório temporário, nenhuma
-  leitura ou escrita ocorre em `~/.agentry/`, verificado no teste.
+### MT-141: teste-guarda de hermetismo (`HOME` + `cwd`)
+- **Objetivo:** o escopo original deste ticket — "tornar a raiz de configuração
+  redirecionável" — **deixou de existir**. A verificação do MT-140 mostrou que
+  `crates/core/src/global_dir.rs` já resolve o home por `std::env::var_os("HOME")`
+  (`USERPROFILE` como *fallback*) e é o **único** ponto do workspace que lê essas variáveis:
+  definir `HOME` no processo filho já redireciona `~/.agentry/` por inteiro. Não há variável
+  nova, flag nova, mudança em código de produção nem emenda à ADR-0038.
+  O que resta é o que protege essa propriedade: um **teste-guarda** que falhe se alguém
+  introduzir resolução de home fora do `global_dir` (via `dirs`/`directories`, `env::var`
+  direto ou caminho hardcoded), porque isso quebraria o isolamento **em silêncio** — os testes
+  ponta a ponta continuariam passando enquanto escrevessem no `~/.agentry/` real.
+- **Arquivos no escopo:** `crates/core/tests/hermetismo.rs` (novo).
+- **Critério de aceite:** com `HOME` apontando para um diretório temporário, nenhuma leitura
+  ou escrita ocorre em `~/.agentry/`; o teste falha se surgir outro resolvedor de home no
+  workspace.
 - **Fora de escopo:** mudar precedência de configuração, formato ou schema.
 - **Depende de:** MT-140.
-- **Atenção:** é mudança em código de produção para viabilizar teste. Se a variável ficar
-  legível fora de teste, vira superfície de configuração nova e **exige emenda à ADR-0038** —
-  decidir no MT-140 se ela é pública e documentada, ou restrita a build de teste.
 
 ### MT-142: `fake_provider` — provider HTTP falso, roteirizado
 - **Objetivo:** binário de teste que responde ao protocolo OpenAI-compatible (o que cobre
@@ -123,15 +126,21 @@ ADR-0004, e um servidor de teste não justifica isso. Precedente direto no repos
 
 ---
 
-## Pontos a verificar antes de começar
+## Pontos verificados no MT-140 (2026-09-07)
 
-Levantados no planejamento e **não confirmados no código** — confirmar no MT-140, porque
-mudam o escopo dos tickets seguintes:
+Os três pontos levantados no planejamento foram confirmados **no código** antes de escrever o
+ADR-0045. Resultado:
 
-1. **Nomes reais das chaves de configuração** (`providers.*.baseUrl`, `structuredOutput`,
-   classe de egresso) — o plano usa os nomes como aparecem no handoff e nos ADRs.
-2. **Se já existe alguma forma de redirecionar `~/.agentry/`** — se existir, MT-141 encolhe
-   para "documentar e usar"; se não existir, é mudança em código de produção (ver a Atenção
-   do ticket).
-3. **Se o binário aceita um caminho de configuração por argumento** — mudaria o MT-143, que
-   hoje presume `cwd` temporário com `agentry.settings.json` local.
+1. **Nomes das chaves de configuração — confirmados**, o plano já usava os corretos:
+   `structuredOutput` (`config/mod.rs:216`), `baseUrl` (`:237`, `:281`), `egressClass`
+   (`:246`, `:286`), `readAllow` (`:108`).
+2. **Redirecionar `~/.agentry/` — já é possível, sem mudar produção.** `global_dir.rs:21`
+   resolve o home por `env::var_os("HOME")`/`USERPROFILE` e é o único leitor dessas variáveis
+   no workspace. **Consequência:** o MT-141 encolheu de "mudança em código de produção" para
+   "teste-guarda", e o risco de emenda à ADR-0038 desapareceu.
+3. **Caminho de configuração por argumento — não existe**, e não passa a existir.
+   `state_dir::agentry_settings_path(start)` sobe a árvore a partir de um caminho dado, então
+   o `cwd` do processo filho seleciona a configuração de projeto. A presunção do MT-143 se
+   confirma, com uma ressalva registrada no ADR-0045: o diretório temporário **não pode**
+   estar aninhado sob um diretório que contenha `.agentry/`, ou a busca acharia a configuração
+   do próprio repositório.

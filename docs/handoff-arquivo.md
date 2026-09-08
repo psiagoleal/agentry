@@ -12,6 +12,7 @@
 
 ## Índice
 
+- [Rodada 9 (2026-09-07) — build Linux, higiene de disco e ADR-0044](#rodada-9-2026-09-07--build-linux-higiene-de-disco-e-adr-0044)
 - [Rodada 8f (2026-07-28/30) — detectores de PII (ADR-0043) e release v0.1.0-usertest](#rodada-8f--achados-1-3-resolvidos-adr-0043)
 - [Rodada 8d (2026-07-28) — servidor MCP e assinatura Pro/Max como agente principal](#rodada-8d--adr-0042-servidor-mcp-assinatura-promax-como-agente-principal)
 - [Rodadas 8, 8b e 8c (2026-07-27/28) — confidencialidade, roteamento entre modelos, ADR-0041](#rodada-8-2026-07-27--roteamento-entre-modelos-e-confidencialidade)
@@ -19,6 +20,39 @@
 - [Rodadas de teste manual e fases (2026-07-17 a 2026-07-24)](#nota-fora-do-loop-2026-07-17)
 - [Turno de 2026-07-16 — roadmap v0.1..v0.4 e Fases 10-20](#último-turno)
 - [Tabela de commits (mais recente no topo)](#histórico-mais-recente-no-topo)
+
+---
+
+## Rodada 9 (2026-09-07) — build Linux, higiene de disco e ADR-0044
+
+**`target/` com 125 GB.** Causa raiz: o perfil `dev` gera binários de teste de ~1,5 GB **cada**
+e o Cargo **não remove** os de hash antigo quando o código muda — `target/debug/deps` sozinho
+tinha 97 GB em 9.205 arquivos, acumulados em três semanas (nada com mais de 30 dias).
+`cargo clean --profile dev` liberou 113 GB preservando `release` e o cross-compile Windows.
+Os alvos de limpeza no `Makefile` existem para isso não voltar: **é higiene recorrente**, não
+correção pontual.
+
+**O `Makefile` só tinha Windows.** O pacote Linux vinha sendo montado à mão com `tar` a cada
+release (ver `handoff-arquivo.md`, rodada 5). Fechado com `make linux`, verificado ponta a
+ponta. O build Linux é **nativo, sem `--target`**: passar `x86_64-unknown-linux-gnu`
+explicitamente cria uma segunda árvore de artefatos para o mesmo triplo (é o que explica os
+654 MB soltos em `target/x86_64-unknown-linux-gnu/`), forçando recompilação sem ganho.
+
+**Binário de 281,8 MB.** `strip = "debuginfo"` foi adotado e é **no-op** — binário
+byte-idêntico, zero seções `.debug`, porque o perfil `release` já usa `debug = false`; fica
+como guarda. O corte real seria `strip = "symbols"` (281,8 → 204,3 MB, **−27%**), **decidido
+pelo mantenedor para releases estáveis apenas**: apaga a tabela de símbolos e o backtrace de
+panic perde os nomes de função, justo enquanto a `v0.1.0-usertest` existe para colher relato
+de bug. O piso de 204 MB é a árvore de dependências (`datafusion`, `lancedb`, `tantivy`,
+`arrow`); a alavanca real seria feature-gate no stack de RAG.
+
+**ADR-0044** — rejeita navegador embutido como autenticação/transporte de provider e adota
+providers por assinatura via *spawn* do CLI oficial (Codex, Gemini), no molde do `claude-cli`
+da ADR-0040, mais providers por API no molde do `anthropic`. O impedimento decisivo **não** é
+contratual e sim estrutural: navegador embutido é superfície de egresso **não enumerável**,
+então nenhuma `AuditEntry` descreveria com honestidade o que saiu, e o *fail-closed* da
+ADR-0002 não teria como ser imposto. Navegador *headless* segue admissível como **tool** de
+leitura de página (extensão da ADR-0025), atrás do `Transport` — sob ADR próprio.
 
 ---
 

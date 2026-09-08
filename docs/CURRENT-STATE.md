@@ -13,7 +13,7 @@
 
 - **Data:** 2026-09-07
 - **Branch:** `chore/build-linux-e-higiene-de-disco` (não mesclada em `main`)
-- **Commits:** `2f359f2`, `95e0966`, `d80d78c`, `e0b85bb`
+- **Commits:** `2f359f2`, `95e0966`, `d80d78c`, `e0b85bb`, `ad6606a`, `<mt140>`
 - **Estado da árvore:** `AGENTS.md`, `skills/README.md` e os diretórios de skills não
   rastreados seguem modificados de **outra frente**, anteriores a esta rodada e intocados.
 - **DoD:** build `release` OK e pacote Linux verificado a partir do arquivo extraído
@@ -30,37 +30,37 @@
 - [x] **`d80d78c`** — `docs(handoff)`: rodada 9; rodada 8f arquivada.
 - [x] **`e0b85bb`** — `docs(roadmap)`: **v0.18**, Fase K quebrada em MT-140 a MT-146
       (teste de integração ponta a ponta).
+- [x] **`<mt140>`** — **MT-140**: ADR-0045 (estratégia de teste ponta a ponta) + os três
+      pontos do roadmap verificados no código.
 
 ## Rodada 9 (2026-09-07) — build Linux, higiene de disco e ADR-0044
 
-**`target/` com 125 GB.** Causa raiz: o perfil `dev` gera binários de teste de ~1,5 GB **cada**
-e o Cargo **não remove** os de hash antigo quando o código muda — `target/debug/deps` sozinho
-tinha 97 GB em 9.205 arquivos, acumulados em três semanas (nada com mais de 30 dias).
-`cargo clean --profile dev` liberou 113 GB preservando `release` e o cross-compile Windows.
-Os alvos de limpeza no `Makefile` existem para isso não voltar: **é higiene recorrente**, não
-correção pontual.
+Relato completo arquivado em [`handoff-arquivo.md`](./handoff-arquivo.md). O que continua
+valendo no dia a dia: `target/` cresce ~100 GB em poucas semanas porque o Cargo não remove
+binários de teste de hash antigo (~1,5 GB cada) — `make clean-debug` é **higiene recorrente**,
+não correção pontual; `make disk` mostra o estado. `strip = "symbols"` (−27% no binário) fica
+para releases estáveis, por decisão do mantenedor: apaga a tabela de símbolos e o backtrace de
+panic perde os nomes de função enquanto a `v0.1.0-usertest` colhe relato de bug.
 
-**O `Makefile` só tinha Windows.** O pacote Linux vinha sendo montado à mão com `tar` a cada
-release (ver `handoff-arquivo.md`, rodada 5). Fechado com `make linux`, verificado ponta a
-ponta. O build Linux é **nativo, sem `--target`**: passar `x86_64-unknown-linux-gnu`
-explicitamente cria uma segunda árvore de artefatos para o mesmo triplo (é o que explica os
-654 MB soltos em `target/x86_64-unknown-linux-gnu/`), forçando recompilação sem ganho.
+### Fase K iniciada — MT-140 concluído
 
-**Binário de 281,8 MB.** `strip = "debuginfo"` foi adotado e é **no-op** — binário
-byte-idêntico, zero seções `.debug`, porque o perfil `release` já usa `debug = false`; fica
-como guarda. O corte real seria `strip = "symbols"` (281,8 → 204,3 MB, **−27%**), **decidido
-pelo mantenedor para releases estáveis apenas**: apaga a tabela de símbolos e o backtrace de
-panic perde os nomes de função, justo enquanto a `v0.1.0-usertest` existe para colher relato
-de bug. O piso de 204 MB é a árvore de dependências (`datafusion`, `lancedb`, `tantivy`,
-`arrow`); a alavanca real seria feature-gate no stack de RAG.
+**ADR-0045** fixa: provider falso local (não gravação/replay, não provider real em CI), o
+**binário real** subido como subprocesso (a fronteira que os bugs atravessaram não é
+alcançável por função interna), escopo na fiação, e a saída declarada de restringir a Linux
+caso a matriz de 3 SOs se mostre instável — teste intermitente destrói a confiança em todos os
+outros. Estabilidade exige **duas** execuções verdes seguidas.
 
-**ADR-0044** — rejeita navegador embutido como autenticação/transporte de provider e adota
-providers por assinatura via *spawn* do CLI oficial (Codex, Gemini), no molde do `claude-cli`
-da ADR-0040, mais providers por API no molde do `anthropic`. O impedimento decisivo **não** é
-contratual e sim estrutural: navegador embutido é superfície de egresso **não enumerável**,
-então nenhuma `AuditEntry` descreveria com honestidade o que saiu, e o *fail-closed* da
-ADR-0002 não teria como ser imposto. Navegador *headless* segue admissível como **tool** de
-leitura de página (extensão da ADR-0025), atrás do `Transport` — sob ADR próprio.
+**A verificação derrubou trabalho previsto.** O MT-141 era "tornar a raiz de configuração
+redirecionável", com risco declarado de emenda à ADR-0038. `global_dir.rs:21` já resolve o
+home por `env::var_os("HOME")`/`USERPROFILE` e é o **único** leitor dessas variáveis no
+workspace: definir `HOME` no processo filho basta. Nenhuma variável nova, nenhuma flag,
+nenhuma mudança de produção. O MT-141 virou **teste-guarda** contra alguém introduzir outro
+resolvedor de home — que quebraria o isolamento em silêncio, com os testes ainda verdes
+escrevendo no `~/.agentry/` real.
+
+Confirmado também que não há `--config`: `state_dir::agentry_settings_path(start)` sobe a
+árvore, então o `cwd` do filho seleciona a configuração. Ressalva registrada no ADR: o
+diretório temporário não pode estar aninhado sob um que contenha `.agentry/`.
 
 ## Em andamento
 
@@ -77,10 +77,9 @@ Decisões do mantenedor, em ordem de impacto:
 
 1. **Teste de integração ponta a ponta em CI** — frente escolhida pelo mantenedor e **já
    planejada**: ver `docs/roadmap-v0.18.md`, Fase K, MT-140 a MT-146. Começar pelo
-   **MT-140** (ADR-0045), que fixa as três escolhas estruturais — provider falso local em vez
-   de rede/credencial em CI, subir o **binário real** como subprocesso, e escopo na fiação e
-   não nas unidades. O roadmap lista três pontos **não confirmados no código** que mudam o
-   escopo dos tickets seguintes; verificá-los é a primeira tarefa do MT-140.
+   **MT-141** (teste-guarda de hermetismo) e **MT-142** (`fake_provider`), que não dependem um
+   do outro e podem ir em qualquer ordem — o MT-140 (ADR-0045) está concluído e os três pontos
+   em aberto do plano foram verificados no código.
    Causa da frente: todos os bugs de produção do projeto vivem na fronteira `main()` →
    provider real, que os 814 testes unitários não cobrem.
 2. **Implementar a ADR-0044** — providers por assinatura via CLI oficial (Codex para conta

@@ -129,6 +129,8 @@ nav:
           - "0041 — Permissões por caminho e do subagente": adr/0041-permissoes-por-caminho-e-do-subagente.md
           - "0042 — Servidor MCP (assinatura Pro/Max)": adr/0042-servidor-mcp-para-assinatura-pro-max.md
           - "0043 — Detectores de dado pessoal": adr/0043-detectores-de-dado-pessoal.md
+          - "0044 — Assinatura por CLI oficial (navegador embutido rejeitado)": adr/0044-provedores-de-assinatura-via-cli-oficial.md
+          - "0045 — Teste de integração ponta a ponta": adr/0045-teste-de-integracao-ponta-a-ponta.md
       - Roadmap:
           - Mapa de longo prazo: roadmap-longo-prazo.md
           - v0.1: roadmap-v0.1.md
