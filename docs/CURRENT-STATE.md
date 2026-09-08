@@ -13,11 +13,11 @@
 
 - **Data:** 2026-09-07
 - **Branch:** `chore/build-linux-e-higiene-de-disco` (não mesclada em `main`)
-- **Commits:** `2f359f2`, `95e0966`, `d80d78c`, `e0b85bb`, `ad6606a`, `89b7e94`, `6f41eb2`, `d5832d7`
+- **Commits:** `2f359f2`, `95e0966`, `d80d78c`, `e0b85bb`, `ad6606a`, `89b7e94`, `6f41eb2`, `d5832d7`, `579184f`
 - **Estado da árvore:** `AGENTS.md`, `skills/README.md` e os diretórios de skills não
   rastreados seguem modificados de **outra frente**, anteriores a esta rodada e intocados.
 - **DoD:** `cargo fmt --check` e `cargo clippy --all-targets -- -D warnings` com saída **0**;
-  suíte completa **821 testes verdes** (814 + 7 novos). Pacote Linux verificado a partir do
+  suíte completa **823 testes verdes** (814 + 9 novos). Pacote Linux verificado a partir do
   arquivo extraído (`agentry --version` → `0.1.0`).
 
 ## Metas cumpridas neste turno
@@ -35,6 +35,8 @@
 - [x] **`6f41eb2`** — **MT-141** (guarda de hermetismo) e **MT-142** (`fake_provider`).
 - [x] **`d5832d7`** — **MT-143**: harness ponta a ponta; fronteira `main()` → provider
       fechada pela primeira vez.
+- [x] **`579184f`** — **MT-144** (parcial): laço de tool-calling ponta a ponta e conjunto de
+      tools anunciado.
 
 ## Rodada 9 (2026-09-07) — build Linux, higiene de disco e ADR-0044
 
@@ -45,7 +47,7 @@ não correção pontual; `make disk` mostra o estado. `strip = "symbols"` (−27
 para releases estáveis, por decisão do mantenedor: apaga a tabela de símbolos e o backtrace de
 panic perde os nomes de função enquanto a `v0.1.0-usertest` colhe relato de bug.
 
-### Fase K — MT-140 a MT-143 concluídos
+### Fase K — MT-140 a MT-144 concluídos
 
 **ADR-0045** fixa: provider falso local (não gravação/replay, não provider real em CI), o
 **binário real** subido como subprocesso (a fronteira que os bugs atravessaram não é
@@ -77,6 +79,16 @@ linha de comando chega ao provider (lida do registro de requisições). Tudo `lo
 (endpoint em `127.0.0.1`, perfil ausente resolve *fail-closed*), então nenhum caso alcança a
 nuvem por acidente.
 
+**MT-144** cobriu o laço de tool-calling inteiro (modelo pede `fs_read` → `agentry` executa sob
+`PermissionGate` → conteúdo volta ao modelo → resposta final no `stdout`) e a afirmação do
+**conjunto inteiro** de tools anunciado — presença individual não pegaria uma tool a **mais**,
+que foi o defeito real.
+
+**Fica declarado o que o MT-144 não cobriu:** a regressão específica do
+`providers.ollama.structuredOutput` — o *flag* é do `OllamaProvider` e o caminho exercitado é o
+OpenAI-compatible; o `fake_provider` não fala o protocolo nativo do Ollama. Coberta a **classe**
+da falha, não aquele defeito. Registrado como **MT-148** no roadmap.
+
 **Achado, ainda sem decisão:** com corpo **não-SSE** respondido a uma requisição de *stream*, o
 binário imprime nada e sai com **código 0** — silêncio indistinguível de "o modelo não teve o
 que responder", e é o que acontece com endpoint mal configurado ou proxy que intercepta. Não
@@ -104,10 +116,10 @@ Decisões do mantenedor, em ordem de impacto:
 
 1. **Teste de integração ponta a ponta em CI** — frente escolhida pelo mantenedor e **já
    planejada**: ver `docs/roadmap-v0.18.md`, Fase K, MT-140 a MT-146. Começar pelo
-   **MT-144** (tool-calling; regressão do bug do Ollama e do `shell_background` exposto) e
-   **MT-145** (egresso, auditoria e guardrail), independentes entre si — o harness do MT-143 já
-   está de pé. O **MT-146** (fiar no CI) fecha a fase. Decisão pendente à parte: o achado de
-   *stream* vazio acima (candidato a MT-147).
+   **MT-145** (egresso, auditoria e guardrail de PII), que o harness já suporta. Depois, o
+   **MT-146** (fiar no CI) fecha a fase. Dois itens rastreados fora da fila principal, ambos
+   dependendo de decisão do mantenedor: **MT-147** (o achado de *stream* vazio com código 0) e
+   **MT-148** (protocolo nativo do Ollama, para fechar a regressão do `structuredOutput`).
    Causa da frente: todos os bugs de produção do projeto vivem na fronteira `main()` →
    provider real, que os 814 testes unitários não cobrem.
 2. **Implementar a ADR-0044** — providers por assinatura via CLI oficial (Codex para conta
