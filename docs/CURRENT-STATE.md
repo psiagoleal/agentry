@@ -13,11 +13,11 @@
 
 - **Data:** 2026-09-07
 - **Branch:** `chore/build-linux-e-higiene-de-disco` (não mesclada em `main`)
-- **Commits:** `2f359f2`, `95e0966`, `d80d78c`, `e0b85bb`, `ad6606a`, `89b7e94`, `6f41eb2`, `d5832d7`, `579184f`
+- **Commits:** `2f359f2`, `95e0966`, `d80d78c`, `e0b85bb`, `ad6606a`, `89b7e94`, `6f41eb2`, `d5832d7`, `579184f`, `44330e1`
 - **Estado da árvore:** `AGENTS.md`, `skills/README.md` e os diretórios de skills não
   rastreados seguem modificados de **outra frente**, anteriores a esta rodada e intocados.
 - **DoD:** `cargo fmt --check` e `cargo clippy --all-targets -- -D warnings` com saída **0**;
-  suíte completa **823 testes verdes** (814 + 9 novos). Pacote Linux verificado a partir do
+  suíte completa **827 testes verdes** (814 + 13 novos). Pacote Linux verificado a partir do
   arquivo extraído (`agentry --version` → `0.1.0`).
 
 ## Metas cumpridas neste turno
@@ -37,6 +37,7 @@
       fechada pela primeira vez.
 - [x] **`579184f`** — **MT-144** (parcial): laço de tool-calling ponta a ponta e conjunto de
       tools anunciado.
+- [x] **`44330e1`** — **MT-145**: egresso (duas camadas), auditoria e guardrail de PII.
 
 ## Rodada 9 (2026-09-07) — build Linux, higiene de disco e ADR-0044
 
@@ -47,7 +48,7 @@ não correção pontual; `make disk` mostra o estado. `strip = "symbols"` (−27
 para releases estáveis, por decisão do mantenedor: apaga a tabela de símbolos e o backtrace de
 panic perde os nomes de função enquanto a `v0.1.0-usertest` colhe relato de bug.
 
-### Fase K — MT-140 a MT-144 concluídos
+### Fase K — MT-140 a MT-145 concluídos
 
 Detalhe por ticket em [`docs/roadmap-v0.18.md`](./roadmap-v0.18.md). A fronteira `main()` →
 provider está **fechada**: os casos sobem o binário de verdade contra o `fake_provider` e
@@ -68,16 +69,35 @@ Quatro coisas não óbvias para quem retoma:
    mudança de *default*, não por regressão.
 4. **O caminho one-shot é `chat_stream`** — roteiro precisa ser SSE.
 
-**Dois achados aguardando decisão do mantenedor** (nenhum virou asserção, para não congelar
+O **MT-145** revelou que o *fail-closed* tem **duas camadas** com comportamento diferente:
+candidato de rota mais permissivo que a sessão faz o `Router` recusar (código 1, `stderr`, **nada
+auditado**); candidato permitido com endpoint mais permissivo faz o `Transport` barrar (entrada
+`blocked` no log). Cobrir só uma daria falsa segurança. Suas duas primeiras versões passavam
+**por vacuidade** — afirmavam só "nada chegou ao provider", o que também valeria se o binário
+tivesse falhado por motivo alheio. Regra que ficou: caso de bloqueio afirma o **mecanismo**.
+
+**Três achados aguardando decisão do mantenedor** (nenhum virou asserção, para não congelar
 comportamento antes da decisão):
 
 - **MT-147** — corpo **não-SSE** respondido a uma requisição de *stream* produz `stdout` vazio,
   `0 tokens` e **código de saída 0**. Indistinguível de "o modelo não teve o que responder", e é
   o que acontece com endpoint mal configurado ou proxy que intercepta.
+- **MT-149** — a recusa **na camada de rota** não deixa trilha persistente, enquanto o bloqueio
+  no `Transport` deixa. A ADR-0002 manda auditar *cada egresso* e aqui não houve egresso — pode
+  ser lacuna de conformidade ou comportamento correto.
 - **MT-148** — a regressão do `providers.ollama.structuredOutput` (o defeito mais grave já
   encontrado, nenhuma tool executando no *default*) **segue sem rede de proteção**: o *flag* é do
   `OllamaProvider` e o `fake_provider` só fala OpenAI-compatible. O MT-144 cobriu a *classe* da
   falha, não aquele defeito.
+
+### Plano de teste de uso (TUI)
+
+`usage-test/PLANO-DE-TESTE.md` + `RELATORIO-MODELO.md`, a pedido do mantenedor. A TUI exige TTY,
+então um agente em sessão não-interativa **não consegue** digitar nela — o plano dirige a TUI por
+**`tmux`** (`send-keys` + `capture-pane`), que dá TTY real e captura a tela como texto. Cobre
+primeiro uso, layout/resize, streaming, seletor de modelo, permissão (incluindo o invariante de
+que `Ctrl+A` não afrouxa `deny`), undo, comandos de barra, caminhos infelizes e higiene. O bloco
+final só se aplica depois do `--tui` virar padrão.
 
 ## Em andamento
 
