@@ -90,6 +90,27 @@ comportamento antes da decisão):
   `OllamaProvider` e o `fake_provider` só fala OpenAI-compatible. O MT-144 cobriu a *classe* da
   falha, não aquele defeito.
 
+### Teste de uso da TUI — executado, com 3 achados
+
+`usage-test/PLANO-DE-TESTE.md` + `RELATORIO-2026-09-08.md`. **13 cenários rodados via `tmux`
+contra Ollama local: 12 passaram, 1 falhou.** A TUI se mostrou **estável** no que foi
+exercitado — abre sem configuração, reflui em 120×40, 80×24 e 40×10, modal claro, seletor de
+modelo funcional, terminal restaurado após `Ctrl+C`, `~/.agentry` real intocado.
+
+Os três achados **não são de estabilidade** — são de primeira impressão, que é exatamente o que
+vira padrão se o `--tui` for promovido:
+
+- **MT-150** — `/help` mostra os atalhos **sem** `Ctrl` (`keybind.rs:154` ignora
+  `def.modifiers`). Descreve atalhos de letra que o MT-72 removeu de propósito.
+- **MT-151** — `--init` gera `mcpServers.exemplo` com `command: "echo"`: **toda** execução
+  termina com erro citando `rmcp::transport`/"Broken pipe". O comentário do template diz que a
+  falha seria tratada — foi escrito quando nada conectava ainda.
+- **MT-152** — sob TUI o `stderr` é descartado, então erro real só aparece **depois** de sair. O
+  caso grave é a recusa de egresso: sob `local-only` o usuário não recebe explicação nenhuma.
+
+**Decisões do mantenedor (2026-09-08):** rodar o plano de uso **antes** de promover a TUI (feito),
+e **`--repl`** como escape hatch. O **MT-153** registra a promoção, bloqueado pelos três acima.
+
 ### Plano de teste de uso (TUI)
 
 `usage-test/PLANO-DE-TESTE.md` + `RELATORIO-MODELO.md`, a pedido do mantenedor. A TUI exige TTY,

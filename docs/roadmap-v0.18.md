@@ -193,6 +193,51 @@ tratado e código de saída diferente de zero, não silêncio.
   `crates/core/src/egress/audit.rs`, `docs/adr/0002-*.md` (emenda).
 - **Depende de:** MT-145.
 
+### MT-150 (proposto): `/help` mostra os atalhos sem o modificador `Ctrl`
+- **Objetivo:** `keybind.rs:154` monta cada linha com `rotulo_tecla(def.code)` e **ignora**
+  `def.modifiers`, então `Ctrl+C`/`Ctrl+P`/`Ctrl+A`/`Ctrl+Z` aparecem como `c`/`p`/`a`/`z`. A
+  ajuda descreve atalhos de letra que o **MT-72 removeu de propósito** — apertar `c` só digita a
+  letra. Achado da primeira execução do plano de uso.
+- **Arquivos no escopo:** `crates/cli/src/tui/keybind.rs`, testes do módulo.
+- **Critério de aceite:** `/help` exibe o modificador; um teste afirma o rótulo **completo** de
+  uma tecla com `Ctrl` — o teste atual só verifica se os comandos aparecem, não se a tecla está
+  certa, e foi por isso que a divergência passou.
+- **Depende de:** nenhum.
+
+### MT-151 (proposto): `--init` gera configuração que sempre erra na conexão MCP
+- **Objetivo:** o template (`main.rs:224-231`) declara `mcpServers.exemplo` com
+  `"command": "echo"`, que não fala MCP. Toda execução termina com erro citando
+  `rmcp::transport` e "Broken pipe". O comentário do template afirma que a falha seria "tratada,
+  não silenciosa" — foi escrito no MT-77, quando **nada conectava**; o MT-78 passou a conectar.
+- **Critério de aceite:** instalação nova não produz erro nenhum sem o usuário ter configurado
+  nada. Ou o exemplo sai do arquivo (fica só na documentação), ou ganha forma inerte.
+- **Depende de:** nenhum.
+
+### MT-152 (proposto): sob TUI, erro em `stderr` nunca chega ao usuário
+- **Objetivo:** o `stderr` é descartado sob TUI de propósito (escrever nele corrompe a tela,
+  achado do MT-72), mas **erros reais vão por ali** — só aparecem depois que o usuário sai. O caso
+  grave é a recusa de egresso: sob `local-only`, quem pede algo roteado para nuvem não recebe
+  explicação nenhuma.
+- **Relação:** parente do **MT-149**, e distinto — lá falta trilha persistente, aqui falta
+  informar **quem está usando**.
+- **Critério de aceite:** erro tratado aparece **dentro** da TUI, sem corromper a tela.
+- **Bloqueante para o MT-153:** promover a TUI a padrão sem isto tornaria o silêncio a
+  experiência de todos, não só de quem optou pela TUI.
+- **Depende de:** nenhum.
+
+### MT-153 (proposto): promover a TUI a modo padrão, com `--repl` como saída
+- **Objetivo:** o que a ADR-0027 adiou ("só depois dela provar estabilidade"). Decidido pelo
+  mantenedor em 2026-09-08, com a ordem também decidida: **rodar o plano de uso primeiro**, o que
+  já foi feito (`usage-test/RELATORIO-2026-09-08.md`).
+- **Escape hatch decidido:** **`--repl`** — nomeia o modo pelo que ele é, e é o termo que a
+  própria ADR-0027 usa. `--tui` continua aceito como *no-op* explícito, para não quebrar script
+  nem documentação existente.
+- **Requisitos:** *fallback* automático para texto quando `stdout`/`stdin` não forem TTY
+  (`std::io::IsTerminal`, sem dependência nova); `agentry "tarefa"` segue sem TUI, byte a byte;
+  ADR nova registrando a promoção e citando o relatório como a evidência que a ADR-0027 exigiu.
+- **Depende de:** **MT-150, MT-151 e MT-152** — os três atingem a primeira impressão, que é
+  exatamente o que vira padrão. O relatório recomenda corrigi-los antes de virar a chave.
+
 ### MT-146: fiar no CI (e o que fica de fora)
 - **Objetivo:** rodar os testes ponta a ponta na matriz de 3 SOs, ou decidir e **registrar**
   um recorte menor. Ponto de decisão real: o `fake_provider` sobe processo e abre socket, o
