@@ -13,12 +13,12 @@
 
 - **Data:** 2026-09-07
 - **Branch:** `chore/build-linux-e-higiene-de-disco` (não mesclada em `main`)
-- **Commits:** `2f359f2`, `95e0966`, `d80d78c`, `e0b85bb`, `ad6606a`, `89b7e94`
+- **Commits:** `2f359f2`, `95e0966`, `d80d78c`, `e0b85bb`, `ad6606a`, `89b7e94`, `6f41eb2`
 - **Estado da árvore:** `AGENTS.md`, `skills/README.md` e os diretórios de skills não
   rastreados seguem modificados de **outra frente**, anteriores a esta rodada e intocados.
-- **DoD:** build `release` OK e pacote Linux verificado a partir do arquivo extraído
-  (`agentry --version` → `0.1.0`). **Suíte não re-executada** nesta rodada — as mudanças não
-  tocam código Rust (`Makefile`, `[profile.release]` sem efeito prático, e documentação).
+- **DoD:** `cargo fmt --check` e `cargo clippy --all-targets -- -D warnings` com saída **0**;
+  suíte completa **819 testes verdes** (era 814 + 5 novos). Pacote Linux verificado a partir do
+  arquivo extraído (`agentry --version` → `0.1.0`).
 
 ## Metas cumpridas neste turno
 
@@ -32,6 +32,7 @@
       (teste de integração ponta a ponta).
 - [x] **`89b7e94`** — **MT-140**: ADR-0045 (estratégia de teste ponta a ponta) + os três
       pontos do roadmap verificados no código.
+- [x] **`6f41eb2`** — **MT-141** (guarda de hermetismo) e **MT-142** (`fake_provider`).
 
 ## Rodada 9 (2026-09-07) — build Linux, higiene de disco e ADR-0044
 
@@ -42,7 +43,7 @@ não correção pontual; `make disk` mostra o estado. `strip = "symbols"` (−27
 para releases estáveis, por decisão do mantenedor: apaga a tabela de símbolos e o backtrace de
 panic perde os nomes de função enquanto a `v0.1.0-usertest` colhe relato de bug.
 
-### Fase K iniciada — MT-140 concluído
+### Fase K — MT-140, MT-141 e MT-142 concluídos
 
 **ADR-0045** fixa: provider falso local (não gravação/replay, não provider real em CI), o
 **binário real** subido como subprocesso (a fronteira que os bugs atravessaram não é
@@ -62,6 +63,18 @@ Confirmado também que não há `--config`: `state_dir::agentry_settings_path(st
 árvore, então o `cwd` do filho seleciona a configuração. Ressalva registrada no ADR: o
 diretório temporário não pode estar aninhado sob um que contenha `.agentry/`.
 
+**MT-141** entregou a guarda estática (`crates/core/tests/hermetismo.rs`), verificada **por
+mutação** — com uma violação introduzida de propósito ela falha nomeando arquivo e linha. A
+asserção-contraparte (contra varredura vacuante) já se pagou: pegou que a primeira versão
+afirmava a string `var_os("HOME")` em `global_dir.rs`, que usa indireção e nunca conteve essa
+string.
+
+**MT-142** entregou o `fake_provider` (`crates/core/src/bin/`) — protocolo OpenAI-compatible,
+roteiro determinístico, registro das requisições recebidas, porta atribuída pelo SO. Roteiro
+esgotado devolve **500 explícito** em vez de repetir a última resposta, que faria um caso
+passar por acidente. Não substitui o mock in-process do MT-07: aquele serve teste de unidade
+do provider, este serve o binário rodando como outro processo.
+
 ## Em andamento
 
 Nada em execução. A branch `chore/build-linux-e-higiene-de-disco` tem dois commits **não
@@ -77,9 +90,9 @@ Decisões do mantenedor, em ordem de impacto:
 
 1. **Teste de integração ponta a ponta em CI** — frente escolhida pelo mantenedor e **já
    planejada**: ver `docs/roadmap-v0.18.md`, Fase K, MT-140 a MT-146. Começar pelo
-   **MT-141** (teste-guarda de hermetismo) e **MT-142** (`fake_provider`), que não dependem um
-   do outro e podem ir em qualquer ordem — o MT-140 (ADR-0045) está concluído e os três pontos
-   em aberto do plano foram verificados no código.
+   **MT-143** (harness ponta a ponta + primeiro caso), que agora tem tudo de que depende:
+   MT-140, MT-141 e MT-142 estão concluídos. Depois dele, MT-144 e MT-145 são independentes
+   entre si; o MT-146 (fiar no CI) fecha a fase.
    Causa da frente: todos os bugs de produção do projeto vivem na fronteira `main()` →
    provider real, que os 814 testes unitários não cobrem.
 2. **Implementar a ADR-0044** — providers por assinatura via CLI oficial (Codex para conta
