@@ -83,7 +83,7 @@ ADR-0004, e um servidor de teste não justifica isso. Precedente direto no repos
 - **Fora de escopo:** protocolo Anthropic e protocolo Ollama nativo (MT-146).
 - **Depende de:** MT-140.
 
-### MT-143: harness ponta a ponta + primeiro caso (conversa sem tool)
+### MT-143: harness ponta a ponta + primeiro caso (conversa sem tool) ✅ concluído
 - **Objetivo:** primeiro teste que sobe o **binário real** com `HOME`/raiz de config/cwd
   temporários e um `agentry.settings.json` apontando para o `fake_provider`, e afirma sobre
   `stdout` e código de saída. Fecha a fronteira `main()` → provider pela primeira vez.
@@ -93,6 +93,28 @@ ADR-0004, e um servidor de teste não justifica isso. Precedente direto no repos
   `~/.agentry/`; falha se o binário responder erro de configuração.
 - **Fora de escopo:** tool-calling, guardrails, auditoria (MT-144 a MT-146).
 - **Depende de:** MT-141, MT-142.
+- **Execução:** o `fake_provider` é `[[bin]]` de `agentry-core`, então
+  `CARGO_BIN_EXE_fake_provider` **não** existe nos testes de `agentry` — só o pacote que
+  declara o binário ganha a variável. O caminho é derivado do diretório de
+  `CARGO_BIN_EXE_agentry` (os dois caem no mesmo lugar), com erro explícito se o binário não
+  estiver compilado. Mover a fixture para `crates/cli` resolveria a variável, mas
+  `cargo install` passaria a instalar o `fake_provider` na máquina do usuário — inaceitável.
+
+### Achado do MT-143 — resposta vazia com código de saída 0
+
+Primeiro defeito candidato encontrado pela própria suíte, antes mesmo de ela cobrir o que foi
+planejada para cobrir. O caminho *one-shot* usa `chat_stream`; quando o endpoint devolve um
+corpo que **não** é SSE (o que acontece com endpoint mal configurado, proxy que intercepta, ou
+provider que ignora `stream: true`), o binário imprime **nada** em `stdout`, registra
+`0 tokens` e sai com **código 0**.
+
+Do ponto de vista de quem usa, é indistinguível de "o modelo não teve o que responder". É
+exatamente a classe de falha silenciosa que motivou a Fase K.
+
+**Não virou teste ainda de propósito:** transformar o comportamento atual em asserção o
+congelaria. Precisa de decisão do mantenedor sobre qual é o comportamento correto — provável
+candidato a **MT-147**: *stream* que termina sem nenhum evento de conteúdo deve produzir erro
+tratado e código de saída diferente de zero, não silêncio.
 
 ### MT-144: caso de tool-calling — regressão do bug do Ollama
 - **Objetivo:** o roteiro faz o modelo pedir uma tool; o teste afirma que o `agentry`
