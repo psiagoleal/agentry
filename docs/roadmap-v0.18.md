@@ -45,7 +45,7 @@ ADR-0004, e um servidor de teste não justifica isso. Precedente direto no repos
 - **Fora de escopo:** qualquer código de teste.
 - **Depende de:** nenhum.
 
-### MT-141: teste-guarda de hermetismo (`HOME` + `cwd`)
+### MT-141: teste-guarda de hermetismo (`HOME` + `cwd`) ✅ concluído
 - **Objetivo:** o escopo original deste ticket — "tornar a raiz de configuração
   redirecionável" — **deixou de existir**. A verificação do MT-140 mostrou que
   `crates/core/src/global_dir.rs` já resolve o home por `std::env::var_os("HOME")`
@@ -62,8 +62,15 @@ ADR-0004, e um servidor de teste não justifica isso. Precedente direto no repos
   workspace.
 - **Fora de escopo:** mudar precedência de configuração, formato ou schema.
 - **Depende de:** MT-140.
+- **Execução:** a guarda foi verificada **por mutação** — introduzido um
+  `std::env::var_os("HOME")` num arquivo temporário, o teste falhou nomeando arquivo e linha;
+  arquivo removido em seguida. Teste-guarda que nunca ficou vermelho pelo motivo certo não
+  prova nada. A segunda asserção (a que protege contra varredura vacuante) pegou um erro real
+  na primeira execução: ela afirmava que `global_dir.rs` contém a string `var_os("HOME")`, e o
+  arquivo usa indireção (`home_dir_de(|nome| std::env::var_os(nome))` com `buscar_var("HOME")`)
+  — a asserção foi corrigida para a forma que o código de fato tem.
 
-### MT-142: `fake_provider` — provider HTTP falso, roteirizado
+### MT-142: `fake_provider` — provider HTTP falso, roteirizado ✅ concluído
 - **Objetivo:** binário de teste que responde ao protocolo OpenAI-compatible (o que cobre
   vLLM/LiteLLM/LM Studio pela ADR-0001) com **roteiro determinístico** — a sequência de
   respostas vem de um arquivo JSON passado por argumento, incluindo respostas com
