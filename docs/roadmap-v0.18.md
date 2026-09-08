@@ -116,7 +116,7 @@ congelaria. Precisa de decisão do mantenedor sobre qual é o comportamento corr
 candidato a **MT-147**: *stream* que termina sem nenhum evento de conteúdo deve produzir erro
 tratado e código de saída diferente de zero, não silêncio.
 
-### MT-144: caso de tool-calling — regressão do bug do Ollama
+### MT-144: caso de tool-calling — regressão do bug do Ollama ✅ concluído (parcial)
 - **Objetivo:** o roteiro faz o modelo pedir uma tool; o teste afirma que o `agentry`
   **executou** a tool sob `PermissionGate` e devolveu o resultado ao modelo. É a regressão
   direta do bug mais grave já encontrado (`structuredOutput` *default* fazendo o modelo
@@ -127,6 +127,32 @@ tratado e código de saída diferente de zero, não silêncio.
 - **Critério de aceite:** com `structuredOutput` no *default* atual, a tool executa; o
   conjunto de tools enviado ao provider confere com o esperado.
 - **Depende de:** MT-143.
+- **Execução — o que entrou:** o laço completo de tool-calling ponta a ponta (o modelo pede
+  `fs_read`, o `agentry` executa sob `PermissionGate`, o conteúdo lido volta ao modelo na
+  segunda ida ao provider, a resposta final chega ao `stdout`) e a afirmação do **conjunto
+  inteiro** de tools anunciado.
+- **Execução — o que NÃO entrou, e por quê:** a regressão específica do
+  `providers.ollama.structuredOutput` **não está coberta**. Esse *flag* é do `OllamaProvider`,
+  e o caminho exercitado aqui é o OpenAI-compatible (`litellm`) — o `fake_provider` não fala o
+  protocolo nativo do Ollama, que o MT-142 deixou explicitamente fora de escopo. O que ficou
+  coberto é a **classe** da falha (tool-call que não executa), não aquele defeito. Fechar de
+  verdade exige o **MT-148** abaixo.
+- **Nota de fixture:** as fixtures desligam **todas** as funcionalidades de contexto. Fosse só
+  as caras, `session_search` continuaria anunciada (o *default* de `sessionSearch` é `true`) e
+  a asserção do conjunto quebraria por mudança de *default*, não por regressão.
+
+### MT-148 (proposto): `fake_provider` fala o protocolo nativo do Ollama
+- **Objetivo:** fechar de verdade a regressão do defeito mais grave já encontrado. Hoje o
+  `fake_provider` só fala OpenAI-compatible, e `structuredOutput` é do `OllamaProvider` — o
+  bug pelo qual **nenhuma tool executava na configuração default** continua sem rede de
+  proteção ponta a ponta.
+- **Arquivos no escopo:** `crates/core/src/bin/fake_provider.rs`, `crates/cli/tests/e2e.rs`,
+  fixtures.
+- **Critério de aceite:** um caso que roteia pelo provider `ollama` com `structuredOutput` no
+  *default* e afirma que a tool **executa**; e um caso que, com `structuredOutput: true`,
+  documenta o comportamento degradado — é o que torna a regressão detectável se o *default*
+  for revertido por engano.
+- **Depende de:** MT-144.
 
 ### MT-145: casos de egresso, auditoria e guardrail
 - **Objetivo:** três afirmações que hoje só existem em teste unitário e nunca ponta a ponta —

@@ -139,16 +139,20 @@ fn preparar_projeto(dir: &TempDir, base_url: &str) -> PathBuf {
     std::fs::create_dir_all(projeto.join(".git")).expect("cria .git");
     std::fs::create_dir_all(projeto.join(".agentry")).expect("cria .agentry");
 
-    // Funcionalidades de contexto desligadas de propósito: `semanticRag`
-    // levantaria índice e pediria embeddings ao Ollama, o que furaria o
-    // hermetismo do caso e o deixaria lento sem cobrir nada de novo.
+    // **Todas** as funcionalidades de contexto desligadas, e não só as caras:
+    // `semanticRag`/`sessionSearch` levantariam índice e pediriam embeddings ao
+    // Ollama, furando o hermetismo. Desligar o conjunto inteiro também torna o
+    // set de tools anunciado determinístico — se dependesse dos *defaults*
+    // (`semanticRag` e `sessionSearch` são `true` quando ausentes), a asserção
+    // do conjunto quebraria por mudança de default, não por regressão real.
     let settings = format!(
         r#"{{
   "schemaVersion": 1,
   "context": {{
     "repoMap": {{ "enabled": false }},
     "semanticRag": {{ "enabled": false }},
-    "lspGrounding": {{ "enabled": false }}
+    "lspGrounding": {{ "enabled": false }},
+    "sessionSearch": {{ "enabled": false }}
   }},
   "providers": {{
     "litellm": {{
@@ -274,5 +278,127 @@ fn nao_toca_o_home_real_do_usuario() {
     assert!(
         home.exists(),
         "o HOME temporário deveria continuar existindo após a execução"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// MT-144 — tool-calling ponta a ponta
+// ---------------------------------------------------------------------------
+
+/// Nomes das tools anunciadas ao modelo na primeira requisição.
+fn tools_anunciadas(registro: &Path) -> Vec<String> {
+    let linhas = std::fs::read_to_string(registro).expect("provider deve ter registrado");
+    let pedido: serde_json::Value =
+        serde_json::from_str(linhas.lines().next().expect("uma requisição registrada"))
+            .expect("registro deve ser JSON");
+    let mut nomes: Vec<String> = pedido["corpo"]["tools"]
+        .as_array()
+        .map(|ts| {
+            ts.iter()
+                .filter_map(|t| t["function"]["name"].as_str().map(str::to_owned))
+                .collect()
+        })
+        .unwrap_or_default();
+    nomes.sort();
+    nomes
+}
+
+#[test]
+fn tool_calling_executa_a_tool_e_devolve_o_resultado_ao_modelo() {
+    let dir = TempDir::new("toolcall");
+    let registro = dir.path().join("registro.jsonl");
+    let provider = Provider::subir(
+        &dir,
+        r#"{"respostas":[
+            {"sse":[
+                "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"function\":{\"name\":\"fs_read\",\"arguments\":\"{\\\"path\\\":\\\"alvo.txt\\\"}\"}}]}}]}"
+            ]},
+            {"sse":[
+                "{\"choices\":[{\"delta\":{\"content\":\"o arquivo diz batata\"}}]}"
+            ]}
+        ]}"#,
+        Some(&registro),
+    );
+    let projeto = preparar_projeto(&dir, &provider.base_url());
+    std::fs::write(projeto.join("alvo.txt"), "batata").expect("cria alvo.txt");
+
+    let saida = rodar_agentry(&dir, &projeto, &["leia o alvo.txt"]);
+
+    assert!(
+        saida.status.success(),
+        "stdout: {}\nstderr: {}",
+        texto(&saida.stdout),
+        texto(&saida.stderr)
+    );
+    assert!(
+        texto(&saida.stdout).contains("o arquivo diz batata"),
+        "a resposta final deveria chegar ao stdout.\nstdout: {}\nstderr: {}",
+        texto(&saida.stdout),
+        texto(&saida.stderr)
+    );
+
+    // O ponto do caso: a tool foi mesmo **executada** e o resultado voltou ao
+    // modelo. Sem isso, o bug do Ollama (tool-call devolvida como texto, nada
+    // executando) passaria de novo — foi o defeito mais grave já encontrado.
+    let linhas = std::fs::read_to_string(&registro).expect("registro deve existir");
+    assert_eq!(
+        linhas.lines().count(),
+        2,
+        "deveria haver duas idas ao provider: a que pediu a tool e a que recebeu o resultado"
+    );
+    let segunda: serde_json::Value =
+        serde_json::from_str(linhas.lines().nth(1).expect("segunda requisição"))
+            .expect("segunda requisição deve ser JSON");
+    let mensagens = segunda["corpo"]["messages"]
+        .as_array()
+        .expect("segunda requisição deve ter messages");
+    assert!(
+        mensagens
+            .iter()
+            .any(|m| m["content"].as_str().is_some_and(|c| c.contains("batata"))),
+        "o conteúdo lido pela tool deveria voltar ao modelo; veio: {mensagens:?}"
+    );
+}
+
+#[test]
+fn conjunto_de_tools_anunciado_ao_modelo_e_exatamente_o_esperado() {
+    let dir = TempDir::new("tools");
+    let registro = dir.path().join("registro.jsonl");
+    let provider = Provider::subir(
+        &dir,
+        r#"{"respostas":[{"sse":["{\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}"]}]}"#,
+        Some(&registro),
+    );
+    let projeto = preparar_projeto(&dir, &provider.base_url());
+
+    let saida = rodar_agentry(&dir, &projeto, &["oi"]);
+    assert!(
+        saida.status.success(),
+        "stdout: {}\nstderr: {}",
+        texto(&saida.stdout),
+        texto(&saida.stderr)
+    );
+
+    // Afirmação sobre o conjunto **inteiro**, não sobre presença individual: o
+    // defeito real foi uma tool a **mais** no pedido (`shell_background`), que
+    // nenhuma asserção de presença teria pego (ADR-0045).
+    let esperado = vec![
+        "ask_user",
+        "fs_edit",
+        "fs_read",
+        "fs_search",
+        "fs_write",
+        "glob",
+        "shell_background",
+        "shell_exec",
+        "skill",
+        "subagent",
+        "todo_write",
+    ];
+    assert_eq!(
+        tools_anunciadas(&registro),
+        esperado,
+        "o conjunto de tools mudou; se foi de propósito, atualize esta lista — ela existe \
+         justamente para uma tool nova não entrar no pedido sem ninguém notar"
     );
 }
