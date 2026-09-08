@@ -33,9 +33,16 @@ tmux send-keys -t agentry-teste Enter
 # Lê a tela inteira como texto — é isto que vai para o relatório
 tmux capture-pane -t agentry-teste -p
 
+# Para avaliar QUALQUER COISA VISUAL, capture com -e (preserva as cores)
+tmux capture-pane -t agentry-teste -p -e
+
 # Encerra
 tmux kill-session -t agentry-teste
 ```
+
+**Use `-e` ao julgar aparência.** Sem ele o logo — um raster de meio-blocos `▀` com *true-color*
+por célula — vira um retângulo sólido e **parece defeito de renderização**. Isso já custou um
+falso positivo numa execução real.
 
 **Sempre espere antes de capturar.** A TUI redesenha de forma assíncrona; capturar
 imediatamente depois de `send-keys` costuma pegar a tela anterior. Use `sleep 1` (ou `sleep 3`
@@ -53,6 +60,9 @@ si é um achado de responsividade.
 3. **`HOME` isolado:** exporte `HOME` para um diretório temporário antes de subir o `tmux`.
    Isso protege o `~/.agentry/` real (configuração global e **credenciais**) de qualquer
    escrita acidental. Confira ao final que ele continua vazio.
+   **Crie um `.zshrc` vazio nesse `HOME` antes de qualquer coisa** (`touch $HOME/.zshrc`): sem
+   ele, o assistente `zsh-newuser-install` intercepta a primeira digitação e **engole
+   caracteres do comando**, o que parece falha do `agentry` e não é. Achado de uma execução real.
 4. **Provider:** use o Ollama local se houver; senão, registre no relatório que os cenários
    dependentes de modelo não puderam rodar. **Não** configure provider de nuvem para este
    plano — nenhum cenário aqui precisa sair da máquina.
@@ -172,6 +182,9 @@ Para **cada** comando, registre a saída: `/help`, `/model`, `/task-class`, `/us
 - **I3 — `HOME` intacto.** Confirme que o `HOME` temporário só tem o que o teste criou, e que o
   `~/.agentry/` real **não** foi tocado.
 - **I4 — Processos órfãos.** `ps` para confirmar que nenhum `agentry` ficou rodando.
+  **Cuidado:** confira `etime` e o processo pai antes de acusar. Uma sessão `agentry` do próprio
+  usuário, aberta antes do teste, aparece aqui e **não** é órfã — matá-la seria destruir trabalho
+  alheio.
 
 ## 4. Como reportar
 
