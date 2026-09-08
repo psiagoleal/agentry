@@ -13,7 +13,7 @@
 
 - **Data:** 2026-09-07
 - **Branch:** `chore/build-linux-e-higiene-de-disco` (não mesclada em `main`)
-- **Commits:** `2f359f2`, `95e0966`, `d80d78c`, `e0b85bb`, `ad6606a`, `<mt140>`
+- **Commits:** `2f359f2`, `95e0966`, `d80d78c`, `e0b85bb`, `ad6606a`, `89b7e94`
 - **Estado da árvore:** `AGENTS.md`, `skills/README.md` e os diretórios de skills não
   rastreados seguem modificados de **outra frente**, anteriores a esta rodada e intocados.
 - **DoD:** build `release` OK e pacote Linux verificado a partir do arquivo extraído
@@ -30,7 +30,7 @@
 - [x] **`d80d78c`** — `docs(handoff)`: rodada 9; rodada 8f arquivada.
 - [x] **`e0b85bb`** — `docs(roadmap)`: **v0.18**, Fase K quebrada em MT-140 a MT-146
       (teste de integração ponta a ponta).
-- [x] **`<mt140>`** — **MT-140**: ADR-0045 (estratégia de teste ponta a ponta) + os três
+- [x] **`89b7e94`** — **MT-140**: ADR-0045 (estratégia de teste ponta a ponta) + os três
       pontos do roadmap verificados no código.
 
 ## Rodada 9 (2026-09-07) — build Linux, higiene de disco e ADR-0044
