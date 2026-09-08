@@ -129,14 +129,11 @@ Decisões do mantenedor, em ordem de impacto:
   (`protobuf-compiler` via `apt`) e no CI (passo por SO em `ci.yml`); ambiente novo precisa
   instalar antes de `cargo build`/`test`. Detalhes em `docs/testing.md`. Instalar exige
   `sudo`, que não é interativo aqui — pedir ao usuário, nunca tentar sozinho.
-- **Lacuna de ~140 GB no `df` sem arquivo correspondente (não é bug do projeto).** Em
-  2026-09-07 o disco caiu 121 GB durante uma janela de ~10 min em que `target/` cresceu só
-  3 GB; a soma do que é visível (`/home` 439 GB + `/var` 21 GB + swap 17 GB + `/usr` 13 GB +
-  resto ≈ 495 GB) não fecha com os 638 GB que o `df` reporta. Varredura por arquivos >500 MB
-  modificados em 4h não achou nada, e `lsof +L1` sem privilégio não vê descritor retido —
-  assinatura de arquivo deletado preso em processo de **root**. Consumidores reais mapeados
-  (não são a causa do pico): Steam 162 GB, containers 49 GB, gnome-boxes 23 GB, Trash 5,5 GB.
-  **Pendente:** `sudo lsof -nP +L1` pelo usuário, ou um reboot. `make disk` mostra o estado.
+- **Lacuna de ~140 GB entre `df` e arquivos visíveis (não é bug do projeto).** Assinatura de
+  arquivo deletado preso em processo de **root**: nenhuma varredura acha o consumidor e
+  `lsof +L1` sem privilégio não o vê. Pendente de `sudo lsof -nP +L1` pelo usuário, ou reboot.
+  Consumidores legítimos mapeados, que não são a causa: Steam 162 GB, containers 49 GB,
+  gnome-boxes 23 GB. `make disk` mostra o estado de `target/`.
 
 ## Impedimentos abertos
 
