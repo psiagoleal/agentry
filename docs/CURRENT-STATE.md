@@ -13,11 +13,11 @@
 
 - **Data:** 2026-09-07
 - **Branch:** `chore/build-linux-e-higiene-de-disco` (não mesclada em `main`)
-- **Commits:** `2f359f2`, `95e0966`, `d80d78c`, `e0b85bb`, `ad6606a`, `89b7e94`, `6f41eb2`
+- **Commits:** `2f359f2`, `95e0966`, `d80d78c`, `e0b85bb`, `ad6606a`, `89b7e94`, `6f41eb2`, `d5832d7`
 - **Estado da árvore:** `AGENTS.md`, `skills/README.md` e os diretórios de skills não
   rastreados seguem modificados de **outra frente**, anteriores a esta rodada e intocados.
 - **DoD:** `cargo fmt --check` e `cargo clippy --all-targets -- -D warnings` com saída **0**;
-  suíte completa **819 testes verdes** (era 814 + 5 novos). Pacote Linux verificado a partir do
+  suíte completa **821 testes verdes** (814 + 7 novos). Pacote Linux verificado a partir do
   arquivo extraído (`agentry --version` → `0.1.0`).
 
 ## Metas cumpridas neste turno
@@ -33,6 +33,8 @@
 - [x] **`89b7e94`** — **MT-140**: ADR-0045 (estratégia de teste ponta a ponta) + os três
       pontos do roadmap verificados no código.
 - [x] **`6f41eb2`** — **MT-141** (guarda de hermetismo) e **MT-142** (`fake_provider`).
+- [x] **`d5832d7`** — **MT-143**: harness ponta a ponta; fronteira `main()` → provider
+      fechada pela primeira vez.
 
 ## Rodada 9 (2026-09-07) — build Linux, higiene de disco e ADR-0044
 
@@ -43,7 +45,7 @@ não correção pontual; `make disk` mostra o estado. `strip = "symbols"` (−27
 para releases estáveis, por decisão do mantenedor: apaga a tabela de símbolos e o backtrace de
 panic perde os nomes de função enquanto a `v0.1.0-usertest` colhe relato de bug.
 
-### Fase K — MT-140, MT-141 e MT-142 concluídos
+### Fase K — MT-140 a MT-143 concluídos
 
 **ADR-0045** fixa: provider falso local (não gravação/replay, não provider real em CI), o
 **binário real** subido como subprocesso (a fronteira que os bugs atravessaram não é
@@ -69,6 +71,18 @@ asserção-contraparte (contra varredura vacuante) já se pagou: pegou que a pri
 afirmava a string `var_os("HOME")` em `global_dir.rs`, que usa indireção e nunca conteve essa
 string.
 
+**MT-143** fechou a fronteira `main()` → provider: o caso sobe o binário de verdade com `HOME`
+e `cwd` temporários e afirma **nos dois sentidos** — a resposta chega ao `stdout` e a tarefa da
+linha de comando chega ao provider (lida do registro de requisições). Tudo `local-only`
+(endpoint em `127.0.0.1`, perfil ausente resolve *fail-closed*), então nenhum caso alcança a
+nuvem por acidente.
+
+**Achado, ainda sem decisão:** com corpo **não-SSE** respondido a uma requisição de *stream*, o
+binário imprime nada e sai com **código 0** — silêncio indistinguível de "o modelo não teve o
+que responder", e é o que acontece com endpoint mal configurado ou proxy que intercepta. Não
+virou asserção de propósito: congelaria o comportamento antes de o mantenedor decidir qual é o
+correto. Candidato a **MT-147** (ver `docs/roadmap-v0.18.md`).
+
 **MT-142** entregou o `fake_provider` (`crates/core/src/bin/`) — protocolo OpenAI-compatible,
 roteiro determinístico, registro das requisições recebidas, porta atribuída pelo SO. Roteiro
 esgotado devolve **500 explícito** em vez de repetir a última resposta, que faria um caso
@@ -90,9 +104,10 @@ Decisões do mantenedor, em ordem de impacto:
 
 1. **Teste de integração ponta a ponta em CI** — frente escolhida pelo mantenedor e **já
    planejada**: ver `docs/roadmap-v0.18.md`, Fase K, MT-140 a MT-146. Começar pelo
-   **MT-143** (harness ponta a ponta + primeiro caso), que agora tem tudo de que depende:
-   MT-140, MT-141 e MT-142 estão concluídos. Depois dele, MT-144 e MT-145 são independentes
-   entre si; o MT-146 (fiar no CI) fecha a fase.
+   **MT-144** (tool-calling; regressão do bug do Ollama e do `shell_background` exposto) e
+   **MT-145** (egresso, auditoria e guardrail), independentes entre si — o harness do MT-143 já
+   está de pé. O **MT-146** (fiar no CI) fecha a fase. Decisão pendente à parte: o achado de
+   *stream* vazio acima (candidato a MT-147).
    Causa da frente: todos os bugs de produção do projeto vivem na fronteira `main()` →
    provider real, que os 814 testes unitários não cobrem.
 2. **Implementar a ADR-0044** — providers por assinatura via CLI oficial (Codex para conta
