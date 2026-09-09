@@ -14,11 +14,11 @@
 - **Data:** 2026-09-09
 - **Branch:** `chore/build-linux-e-higiene-de-disco` (**não mesclada em `main`**)
 - **Commits desta rodada:** `882abeb`, `2bf620d`, `67b1e77`, `bcc7788`, `f521dbe`, `5c311ca`,
-  `f1ffdde`
+  `f1ffdde`, `f00b730`, `c4bfda0`
 - **Estado da árvore:** `AGENTS.md`, `skills/README.md` e os diretórios de skills não
   rastreados seguem modificados de **outra frente**, anteriores a esta rodada e intocados.
-  Há um binário `agentry` de ~280 MB **solto na raiz** (não rastreado, não coberto pelo
-  `.gitignore`, de 2026-09-06) — cópia de build, não versionar; remover é decisão do dono.
+  Há um binário `agentry` de ~280 MB **solto na raiz** (não rastreado, fora do `.gitignore`) —
+  cópia de build; remover é decisão do dono.
 - **DoD:** `cargo fmt` aplicado, `cargo clippy --workspace --all-targets -- -D warnings` com
   saída **0**, suíte completa **835 testes verdes**.
 
@@ -32,6 +32,8 @@
       mais o motivo do erro; a ajuda passou a explicar os marcadores e o clique de expansão.
 - [x] **`f1ffdde`** — **MT-157**: saída do processo concentrada na `main`; os 25
       `std::process::exit` viraram `Encerramento(n)` propagado por `?`.
+- [~] **`c4bfda0`** — **MT-146** (parcial): e2e auditado e tornado portável para a matriz; falta
+      **só** observar o CI verde duas vezes, o que depende de um `push` ainda não autorizado.
 
 Causa raiz de cada um (detalhe em `docs/roadmap-v0.18.md`); as três correções compartilham a
 mesma forma — **informação correta produzida no lugar certo, que não chegava a quem precisa**:
@@ -55,14 +57,24 @@ invisível — ocorre antes de a TUI subir e sai em `stderr` com código 1 (veri
 
 ## Em andamento
 
-Nada em execução.
+**MT-146, parado num ponto que exige decisão sua.** O código está pronto: o CI já rodava
+`cargo test --all`, então os casos ponta a ponta **já entram** na matriz de três SOs — não
+faltava fiação. O que faltava era portabilidade real, e havia um defeito concreto: o caso do
+MT-157 redirecionava o diretório temporário só por `TMPDIR`, que o Windows ignora, então ele
+teria passado **por vacuidade** lá (afirmando sobre um diretório que o binário nunca usou).
+Corrigido; o resto do e2e foi auditado e não precisa de recorte por SO.
+
+Falta o critério de aceite: **CI verde em duas execuções seguidas**. Isso exige `push` da
+branch `chore/build-linux-e-higiene-de-disco`, que nunca foi enviada — **não fiz por conta
+própria**. A ADR-0045 §5 **não** foi emendada de propósito: a saída acordada lá (restringir o
+e2e a Linux) depende de instabilidade **observada**, e ainda não houve execução de CI.
 
 **Gateway LiteLLM alcançável desta máquina desde 2026-09-09** — endpoint e chave ficam **fora
-do repositório** (rede interna; o mantenedor tem os valores). Quatro modelos, dos quais
-`qwen3-coder:30b` faz *tool-calling*. **Nunca ecoar a chave:** use
-`agentry --set-credential litellm` lendo de `stdin` — grava com permissão `0600` e mantém o
-valor fora de `argv`. Primeira validação ponta a ponta contra um gateway **real** feita nesta
-rodada: one-shot e TUI, com *tool-calling* completo e auditoria de egresso `cloud-ok, allowed`.
+do repositório**. Quatro modelos, dos quais `qwen3-coder:30b` faz *tool-calling*. **Nunca ecoar
+a chave:** use `agentry --set-credential litellm` lendo de `stdin` (grava `0600`, mantém o valor
+fora de `argv`). Primeira validação ponta a ponta contra um gateway **real**: one-shot e TUI,
+com *tool-calling* completo e auditoria `cloud-ok, allowed`. Existe a skill `delegacao-litellm`
+para mandar trabalho volumoso ao gateway em vez de gastar cota da assinatura.
 
 **Decisão pendente de política:** que `egressClass` o gateway interno deve declarar. Os testes
 usaram `profile: pessoal` + `cloud-ok`, que é o rótulo conservador. Note que `empresa` mapeia
@@ -89,9 +101,9 @@ fronteira de confiança", não "não sai da máquina".
 
 Nenhuma virou asserção, para não congelar comportamento antes da decisão:
 
-- **MT-147** — corpo **não-SSE** respondido a uma requisição de *stream* produz `stdout` vazio,
-  `0 tokens` e **código 0** — indistinguível de "o modelo não teve o que responder", e é o que
-  acontece com endpoint mal configurado ou proxy que intercepta.
+- **MT-147** — corpo **não-SSE** numa requisição de *stream* produz `stdout` vazio, `0 tokens` e
+  **código 0** — indistinguível de "o modelo não teve o que responder", e é o que acontece com
+  endpoint mal configurado ou proxy que intercepta.
 - **MT-148** — a regressão do `providers.ollama.structuredOutput` (nenhuma tool executando no
   *default*) **segue sem rede de proteção**: o *flag* é do `OllamaProvider` e o `fake_provider`
   só fala OpenAI-compatible. O MT-144 cobriu a *classe* da falha, não aquele defeito.
