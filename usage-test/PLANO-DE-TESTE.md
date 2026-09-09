@@ -40,6 +40,20 @@ tmux capture-pane -t agentry-teste -p -e
 tmux kill-session -t agentry-teste
 ```
 
+**`send-keys` não emite eventos de mouse.** O bloco de tool só expande com clique (MT-117,
+ADR-0035), então o cenário E6 exige injetar a sequência SGR crua com `-H` (bytes em hexa) —
+pressionar e soltar o botão esquerdo na coluna `<col>`, linha `<lin>` (1-based, como as linhas
+de `capture-pane`):
+
+```bash
+# ESC [ < 0 ; 20 ; 21 M   (pressiona)  +  ESC [ < 0 ; 20 ; 21 m   (solta)
+tmux send-keys -t agentry-teste -H 1b 5b 3c 30 3b 32 30 3b 32 31 4d \
+                                 1b 5b 3c 30 3b 32 30 3b 32 31 6d
+```
+
+Localize a linha antes de clicar (`capture-pane -p | grep -n "⚙ tool:"`) — e **capture de novo
+depois**, porque expandir um bloco reflui o histórico e muda as linhas dos outros.
+
 **Use `-e` ao julgar aparência.** Sem ele o logo — um raster de meio-blocos `▀` com *true-color*
 por célula — vira um retângulo sólido e **parece defeito de renderização**. Isso já custou um
 falso positivo numa execução real.

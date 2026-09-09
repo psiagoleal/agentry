@@ -13,7 +13,7 @@
 
 - **Data:** 2026-09-08
 - **Branch:** `chore/build-linux-e-higiene-de-disco` (**não mesclada em `main`**)
-- **Commits desta rodada:** `882abeb`
+- **Commits desta rodada:** `882abeb`, `2bf620d`, `<bloco E>`
 - **Estado da árvore:** `AGENTS.md`, `skills/README.md` e os diretórios de skills não
   rastreados seguem modificados de **outra frente**, anteriores a esta rodada e intocados.
   Há um binário `agentry` de ~280 MB **solto na raiz** (não rastreado, não coberto pelo
@@ -25,30 +25,25 @@
 
 - [x] **`882abeb`** — **MT-150**, **MT-151** e **MT-152**: os três achados do teste de uso da
       TUI, corrigidos e verificados na TUI real (via `tmux`), além dos testes.
+- [x] **bloco E do plano de uso** executado (`usage-test/RELATORIO-2026-09-08-bloco-e.md`):
+      6 cenários, **6 passaram**, 3 achados novos (MT-154/155/156).
 
-Um parágrafo por ticket, porque a causa importa mais que o sintoma:
+Causa raiz de cada um (detalhe em `docs/roadmap-v0.18.md`); as três correções compartilham a
+mesma forma — **informação correta produzida no lugar certo, que não chegava a quem precisa**:
 
-- **MT-150** — a legenda de atalhos era montada só de `def.code`, ignorando `def.modifiers`:
-  `Ctrl+C` aparecia como `c`. Não era cosmético — desde o MT-72 letra solta **não resolve**
-  para ação nenhuma (é caractere digitado), então a ajuda anunciava teclas que não funcionam.
-  A guarda fecha a volta: o rótulo exibido é reconstruído em `KeyEvent` e tem de resolver para
-  a ação que ele descreve (verificada por mutação — 3 testes falham se `modifiers` voltar a
-  ser ignorado).
-- **MT-151** — o exemplo do `--init` declarava `mcpServers.exemplo` com `command: "echo"`. O
-  MT-77 apostou que a falha de conexão seria "tratada, não silenciosa", e era — porque naquele
-  momento **nada conectava**; o MT-78 passou a conectar e o exemplo inerte virou erro fixo em
-  toda execução. Regra que fica: bloco cujo valor de exemplo é **executado** não pode ter
-  exemplo inerte — o formato vai no comentário, o mapa sai vazio.
-- **MT-152** — avisos não-fatais de partida (MCP que não conectou, binário `claude` fora do
-  `PATH`, ponte MCP que não montou) iam direto a `stderr` na origem; sob `--tui` o `crossterm`
-  entra na tela alternativa logo depois e o aviso só reaparece **ao sair**. A correção não é
-  escrever mais cedo: é **não escolher o canal na origem**. Quem produz registra em
-  `DiagnosticosDeInicializacao`; `main` decide a superfície.
+- **MT-150** — a legenda vinha só de `def.code`, ignorando `def.modifiers`. Não era cosmético:
+  desde o MT-72 letra solta **não resolve** para ação nenhuma, então a ajuda anunciava teclas
+  que não funcionam. A guarda fecha a volta (o rótulo é reconstruído em `KeyEvent` e tem de
+  resolver para a ação que descreve); verificada por mutação.
+- **MT-151** — regra que fica: bloco de configuração cujo valor de exemplo é **executado** não
+  pode ter exemplo inerte. O `echo` do MT-77 era seguro porque nada conectava; o MT-78 passou a
+  conectar e o exemplo virou erro fixo.
+- **MT-152** — a correção não foi escrever em `stderr` mais cedo: foi **não escolher o canal na
+  origem**. Quem produz registra em `DiagnosticosDeInicializacao`; `main` decide a superfície.
 
 **Correção ao relatório de 2026-09-08:** a recusa de rota sob `local-only` **não** estava
-invisível — ela ocorre antes de a TUI subir e sai em `stderr` com código 1 (verificado). O que
-estava invisível era só a classe de diagnóstico de partida acima; erro de turno já aparecia no
-chat via `marcar_erro`.
+invisível — ocorre antes de a TUI subir e sai em `stderr` com código 1 (verificado). Erro de
+turno já aparecia no chat via `marcar_erro`.
 
 ## Em andamento
 
@@ -56,9 +51,8 @@ Nada em execução.
 
 ## Próximo passo sugerido
 
-1. **Bloco E do plano de uso** (`usage-test/PLANO-DE-TESTE.md`) — cenários de permissão, ainda
-   não executados. Em especial o **E5**: confirmar que `Ctrl+A` **não** afrouxa uma tool sob
-   `deny` é invariante de segurança, e é o buraco mais relevante da cobertura de uso hoje.
+1. **MT-154** — o desfecho de uma chamada de tool é invisível na visão padrão da TUI. Mesmo
+   critério dos três anteriores: vira a experiência de todos com o MT-153, e é barato.
 2. **MT-146** — fiar os testes ponta a ponta no CI; é o **único** ticket restante da Fase K.
    Inclui a regressão da configuração MCP temporária órfã.
 3. **MT-153** — promover a TUI a modo padrão, com `--repl` como escape hatch e *fallback* para
@@ -83,9 +77,11 @@ Nenhuma virou asserção, para não congelar comportamento antes da decisão:
   encontrado: nenhuma tool executando no *default*) **segue sem rede de proteção**. O *flag* é
   do `OllamaProvider` e o `fake_provider` só fala OpenAI-compatible; o MT-144 cobriu a *classe*
   da falha, não aquele defeito.
-- **MT-149** — a recusa **na camada de rota** não deixa trilha persistente, enquanto o bloqueio
-  no `Transport` deixa. A ADR-0002 manda auditar *cada egresso*, e aqui não houve egresso — pode
-  ser lacuna de conformidade ou comportamento correto.
+- **MT-149 + MT-155** — **decidir juntos**: nem a recusa na camada de rota (MT-149) nem a
+  negação de tool por `permissions.deny` (MT-155) deixam trilha persistente, enquanto o bloqueio
+  no `Transport` deixa. É o mesmo formato: todo caminho *fail-closed* do projeto acerta o efeito
+  e não registra nada. Ou a auditoria cobre só egresso — e isso vira texto explícito na ADR-0002
+  —, ou passa a cobrir decisão de política, e os dois entram pela mesma porta.
 
 ## O que saber antes de mexer nos testes ponta a ponta
 
@@ -105,10 +101,15 @@ no [`handoff-arquivo.md`](./handoff-arquivo.md).
    auditar; `Transport` barra e audita `blocked`). Caso de bloqueio afirma o **mecanismo** —
    afirmar só "nada chegou ao provider" passa por vacuidade se o binário falhar por outro
    motivo.
-6. **O plano de uso dirige a TUI por `tmux`** (`send-keys` + `capture-pane`), porque a TUI
+6. **O invariante do `Ctrl+A` foi verificado** (bloco E, cenário E5): com `[auto]` **ligado**,
+   uma tool sob `deny` é chamada pelo modelo, negada com motivo
+   (`tool 'fs_edit' bloqueada por política (deny)`) e o efeito colateral não ocorre. Não é
+   vacuoso — a chamada foi de fato emitida.
+7. **O plano de uso dirige a TUI por `tmux`** (`send-keys` + `capture-pane`), porque a TUI
    exige TTY. Duas armadilhas já corrigidas no plano: capturar sem `-e` achata o logo e
    *parece* defeito; o `HOME` isolado precisa de um `.zshrc` vazio, ou o assistente do zsh
-   engole o comando.
+   engole o comando. `send-keys` **não emite mouse** — expandir bloco de tool exige injetar a
+   sequência SGR com `-H` (receita no plano).
 
 ## Impedimentos de ambiente (não são bugs do código)
 

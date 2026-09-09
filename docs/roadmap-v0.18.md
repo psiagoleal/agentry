@@ -259,6 +259,42 @@ tratado e código de saída diferente de zero, não silêncio.
   exatamente o que vira padrão. O relatório recomenda corrigi-los antes de virar a chave.
   **Desbloqueado em 2026-09-08** (`882abeb`).
 
+### MT-154 (proposto): o desfecho de uma chamada de tool é invisível na visão padrão
+- **Objetivo:** o bloco recolhido mostra nome + início dos argumentos e **nunca o resultado**
+  (`linhas_logicas_do_bloco_de_tool`, ramo `if !expandido`). Tool recusada, tool negada por
+  `deny` e tool executada com sucesso renderizam **linhas idênticas**. O resultado existe e é
+  bom (`usuário recusou a execução de 'fs_write'`, `tool 'fs_edit' bloqueada por política
+  (deny)`), mas só aparece expandido — e expandir é **clique de mouse** (MT-117/ADR-0035), sem
+  equivalente de teclado, sem pista na tela e sem menção no `/help`. Em terminal sem mouse, a
+  informação é inalcançável. Achado do bloco E do plano de uso (`RELATORIO-2026-09-08-bloco-e`).
+- **Arquivos no escopo:** `crates/cli/src/tui/mod.rs` (bloco recolhido e texto de ajuda).
+- **Critério de aceite:** sem nenhuma interação, dá para distinguir na tela uma tool que rodou
+  de uma que não rodou; um teste afirma que as duas formas recolhidas **diferem**. Que a ajuda
+  passe a mencionar a expansão é parte do mesmo ticket.
+- **Fora de escopo:** trocar o mecanismo de expansão por teclado (é decisão de UX à parte).
+- **Depende de:** nenhum.
+
+### MT-155 (proposto): negação de tool por política não deixa trilha persistente
+- **Objetivo:** com `permissions.deny`, a negação produz o efeito certo (verificado no E5, com
+  `[auto]` ligado) e **nenhuma linha** em `.agentry/audit.log`, que só registra egresso.
+- **Relação:** é o **mesmo formato do MT-149** (recusa na camada de rota não auditada) — todo
+  caminho *fail-closed* do projeto acerta o efeito e não deixa registro. Decidir os dois juntos:
+  ou a auditoria cobre só egresso (e isso vira texto explícito na ADR-0002), ou passa a cobrir
+  decisão de política, e aí os dois casos entram pela mesma porta.
+- **Critério de aceite:** decisão registrada em ADR; se for auditar, entrada persistente com o
+  motivo, e caso ponta a ponta afirmando-a.
+- **Depende de:** decisão do mantenedor (junto do MT-149).
+
+### MT-156 (proposto): o modal de confirmação de escrita não mostra o caminho do arquivo
+- **Objetivo:** em `linhas_de_confirmacao`, quando há *diff* o modal mostra `tool: <nome>` + o
+  *diff*, e o ramo que monta `argumentos: {…}` — onde vive o `path` — não roda. Ou seja: é
+  exatamente em `fs_write`/`fs_edit`, as tools em que o alvo mais importa, que o caminho some.
+  O modal é a última barreira antes de escrever em disco.
+- **Arquivos no escopo:** `crates/cli/src/tui/mod.rs`, testes do módulo.
+- **Critério de aceite:** o caminho aparece no modal junto do nome da tool; um teste afirma que
+  o `path` da chamada está nas linhas de confirmação **também** no caso com *diff*.
+- **Depende de:** nenhum.
+
 ### MT-146: fiar no CI (e o que fica de fora)
 - **Objetivo:** rodar os testes ponta a ponta na matriz de 3 SOs, ou decidir e **registrar**
   um recorte menor. Ponto de decisão real: o `fake_provider` sobe processo e abre socket, o
