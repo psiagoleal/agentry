@@ -458,6 +458,15 @@ fn texto_de_ajuda() -> String {
     for (comando, descricao) in COMANDOS_DE_BARRA {
         texto.push_str(&format!("  {comando}: {descricao}\n"));
     }
+    // MT-154: a expansão de bloco de tool é clique de mouse (MT-117,
+    // ADR-0035) e não estava documentada em lugar nenhum — quem não
+    // descobrisse por acidente nunca via os argumentos completos nem a saída
+    // da tool. O marcador (⚙/✓/✗) diz o desfecho sem interação; esta linha
+    // diz como ver o resto.
+    texto.push_str(
+        "\nblocos de tool: ⚙ executando · ✓ concluída · ✗ falhou/recusada; \
+         clique no bloco para expandir (argumentos completos e saída).\n",
+    );
     texto.push_str("\n? com a caixa de entrada vazia abre este painel; Esc fecha.");
     texto
 }
@@ -1053,6 +1062,49 @@ fn montar_linhas_do_historico_com_alvos(
 /// `"agente: "` e o rótulo `"⚙ tool: <nome> — "` já consumindo espaço.
 const LARGURA_DO_PREVIEW_DE_TOOL: usize = 40;
 
+/// Largura máxima do motivo do erro exibido na linha recolhida — cabe as
+/// duas mensagens que quem usa mais encontra, sem espremer o *preview* dos
+/// argumentos: `usuário recusou a execução de 'fs_write'` (40) e
+/// `tool 'fs_edit' bloqueada por política (deny)` (43).
+const LARGURA_DO_MOTIVO_DE_ERRO: usize = 48;
+
+/// Corta `texto` em `limite` caracteres, marcando com `…` que houve corte.
+/// Conta **caracteres**, não bytes: os motivos de erro e os argumentos são
+/// acentuados, e fatiar por byte entraria no meio de um caractere.
+fn truncar(texto: &str, limite: usize) -> String {
+    let cortado: String = texto.chars().take(limite).collect();
+    if texto.chars().count() > limite {
+        format!("{cortado}…")
+    } else {
+        cortado
+    }
+}
+
+/// Marcador e estilo da linha recolhida de um bloco de tool, segundo o
+/// desfecho da chamada (MT-154).
+///
+/// **Achado do bloco E do plano de uso (2026-09-08).** Até aqui a linha
+/// recolhida era sempre `⚙ tool: <nome> — <argumentos>`, sem nenhum traço do
+/// resultado: uma tool **recusada** pelo usuário, uma **negada** por
+/// `permissions.deny` e uma **executada com sucesso** produziam linhas
+/// idênticas. A informação existia e era boa (`usuário recusou a execução de
+/// 'fs_write'`, `tool 'fs_edit' bloqueada por política (deny)`), só que
+/// atrás da expansão — e expandir é clique de mouse (MT-117/ADR-0035), sem
+/// equivalente de teclado. Em terminal sem mouse, "isso rodou ou não?" ficava
+/// **sem resposta possível**.
+///
+/// Os três estados são os três casos de `resultado`, e não uma classificação
+/// nova: `None` é a chamada ainda em curso, `false` é sucesso, `true` é
+/// qualquer desfecho negativo (erro da tool, recusa, negação por política —
+/// a distinção entre eles está no texto, não no tipo).
+fn marcador_de_desfecho(resultado: Option<&(String, bool)>) -> (&'static str, Style) {
+    match resultado {
+        None => ("⚙", ESTILO_MARCADOR_DE_TOOL),
+        Some((_, false)) => ("✓", ESTILO_MARCADOR_DE_TOOL),
+        Some((_, true)) => ("✗", ESTILO_ERRO_DE_TOOL),
+    }
+}
+
 /// Monta as linhas lógicas (ainda sem *wrap*) de um bloco de chamada de
 /// tool, cada uma já com o estilo que deve receber — unifica os três casos
 /// possíveis antes do *wrap* comum (mesmo `quebrar_em_linhas` usado em
@@ -1063,10 +1115,12 @@ const LARGURA_DO_PREVIEW_DE_TOOL: usize = 40;
 ///   ao mesmo tempo a versão resumida e completa, expandir não acrescentaria
 ///   nada. Mantém o comportamento de sempre, sem regressão.
 /// - **Recolhido** (qualquer outra tool, `expandido == false`): uma linha só,
-///   `⚙ tool: <nome> — <início dos argumentos>…` — não mostra nem o comando
-///   completo nem a saída (MT-116, achado real de usabilidade: o comando de
-///   uma tool como `shell_exec` ficava escondido atrás de um marcador
-///   genérico, sem nenhuma pista do que de fato rodou).
+///   `<marcador> tool: <nome> — <início dos argumentos>` — não mostra o
+///   comando completo nem a saída inteira (MT-116, achado real de
+///   usabilidade: o comando de uma tool como `shell_exec` ficava escondido
+///   atrás de um marcador genérico, sem nenhuma pista do que de fato rodou).
+///   O **marcador** e, no caso de erro, um trecho do motivo, dizem o
+///   desfecho — ver [`marcador_de_desfecho`].
 /// - **Expandido**: nome, argumentos completos (reaproveitando o *wrap* já
 ///   existente) e a saída completa da tool, se já chegou
 ///   (`StreamEvent::ToolCallResult`, MT-114) — com [`ESTILO_ERRO_DE_TOOL`]
@@ -1092,18 +1146,21 @@ fn linhas_logicas_do_bloco_de_tool(
     }
 
     if !expandido {
-        let preview: String = argumentos
-            .chars()
-            .take(LARGURA_DO_PREVIEW_DE_TOOL)
-            .collect();
-        let reticencias = if argumentos.chars().count() > LARGURA_DO_PREVIEW_DE_TOOL {
-            "…"
-        } else {
-            ""
+        let preview = truncar(argumentos, LARGURA_DO_PREVIEW_DE_TOOL);
+        let (marcador, estilo) = marcador_de_desfecho(resultado);
+        // Só o caso de erro ganha o motivo na linha recolhida: é o único em
+        // que "o que aconteceu" não é dedutível do marcador. Sucesso já está
+        // dito por `✓`, e a saída de uma tool bem-sucedida pode ser enorme.
+        let motivo = match resultado {
+            Some((conteudo, true)) => {
+                let primeira_linha = conteudo.split('\n').next().unwrap_or_default();
+                format!(" → {}", truncar(primeira_linha, LARGURA_DO_MOTIVO_DE_ERRO))
+            }
+            _ => String::new(),
         };
         return vec![(
-            format!("⚙ tool: {nome} — {preview}{reticencias}"),
-            ESTILO_MARCADOR_DE_TOOL,
+            format!("{marcador} tool: {nome} — {preview}{motivo}"),
+            estilo,
         )];
     }
 
@@ -2375,10 +2432,110 @@ mod tests {
         let linhas = montar_linhas_do_historico(&estado, 80);
         let texto_completo: String = linhas.iter().map(|l| l.to_string()).collect();
 
-        assert!(texto_completo.contains("⚙ tool: shell_exec —"));
+        // MT-154: o marcador passou a dizer o desfecho (aqui, sucesso) — o
+        // que **não** muda é a saída continuar fora da linha recolhida.
+        assert!(texto_completo.contains("✓ tool: shell_exec —"));
         assert!(
             !texto_completo.contains("saida-que-nao-pode-vazar"),
             "saída não deve vazar num bloco recolhido: {texto_completo:?}"
+        );
+    }
+
+    // --- MT-154: o desfecho da chamada é legível sem interação ---
+
+    fn bloco_recolhido(resultado: Option<(&str, bool)>) -> String {
+        let resultado = resultado.map(|(c, e)| (c.to_string(), e));
+        linhas_logicas_do_bloco_de_tool(
+            "fs_write",
+            r#"{"content":"batata","path":"teste.txt"}"#,
+            resultado.as_ref(),
+            false,
+        )
+        .into_iter()
+        .map(|(texto, _)| texto)
+        .collect::<Vec<_>>()
+        .join("\n")
+    }
+
+    #[test]
+    fn tool_executada_e_tool_recusada_nao_renderizam_a_mesma_linha_recolhida() {
+        // O achado do bloco E, na forma mais direta possível: até o MT-154
+        // estas três linhas eram **byte a byte iguais**, e a única forma de
+        // distinguir era um clique de mouse que nada anunciava.
+        let executada = bloco_recolhido(Some(("ok", false)));
+        let recusada = bloco_recolhido(Some(("usuário recusou a execução de 'fs_write'", true)));
+        let em_curso = bloco_recolhido(None);
+
+        assert_ne!(
+            executada, recusada,
+            "uma tool que rodou e uma que foi recusada precisam ser distinguíveis sem expandir"
+        );
+        assert_ne!(executada, em_curso);
+        assert_ne!(recusada, em_curso);
+    }
+
+    #[test]
+    fn linha_recolhida_de_erro_diz_o_motivo_sem_precisar_expandir() {
+        let negada = bloco_recolhido(Some(("tool 'fs_edit' bloqueada por política (deny)", true)));
+
+        assert!(
+            negada.contains("bloqueada por política (deny)"),
+            "o motivo é o que responde \"isso rodou ou não?\"; veio: {negada:?}"
+        );
+        assert!(
+            negada.contains(r#"{"content":"batata""#),
+            "o preview dos argumentos não pode ser perdido para caber o motivo (MT-116); \
+             veio: {negada:?}"
+        );
+    }
+
+    #[test]
+    fn motivo_de_erro_longo_e_truncado_na_linha_recolhida() {
+        // A linha recolhida não pode virar um despejo: um `shell_exec` que
+        // falha traz o stderr inteiro no resultado.
+        let longo = "x".repeat(500);
+        let recolhido = bloco_recolhido(Some((&longo, true)));
+
+        assert!(
+            recolhido.chars().count() < 160,
+            "linha recolhida cresceu demais ({} caracteres) — o motivo precisa ser truncado",
+            recolhido.chars().count()
+        );
+        assert!(
+            recolhido.contains('…'),
+            "corte precisa ser visível: {recolhido:?}"
+        );
+    }
+
+    #[test]
+    fn saida_de_sucesso_continua_fora_da_linha_recolhida_por_mais_longa_que_seja() {
+        // Contraparte do teste acima: só o **erro** ganha motivo na linha
+        // recolhida. Sucesso já está dito pelo marcador, e a saída de uma
+        // tool bem-sucedida (um `fs_read`, um `repo_map`) é grande.
+        let recolhido = bloco_recolhido(Some(("conteudo-inteiro-do-arquivo", false)));
+
+        assert!(
+            !recolhido.contains("conteudo-inteiro-do-arquivo"),
+            "saída de sucesso não entra na linha recolhida: {recolhido:?}"
+        );
+    }
+
+    #[test]
+    fn a_ajuda_explica_os_marcadores_e_como_expandir_um_bloco_de_tool() {
+        // Sem isto o MT-154 fica pela metade: o marcador diz o desfecho, mas
+        // ver argumentos completos e saída continua dependendo de descobrir
+        // o clique por acidente.
+        let texto = texto_de_ajuda();
+
+        for marcador in ['⚙', '✓', '✗'] {
+            assert!(
+                texto.contains(marcador),
+                "a ajuda precisa explicar o marcador {marcador:?}"
+            );
+        }
+        assert!(
+            texto.contains("expandir"),
+            "a ajuda precisa dizer como ver o conteúdo completo de um bloco de tool"
         );
     }
 

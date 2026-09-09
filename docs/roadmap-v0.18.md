@@ -259,7 +259,19 @@ tratado e código de saída diferente de zero, não silêncio.
   exatamente o que vira padrão. O relatório recomenda corrigi-los antes de virar a chave.
   **Desbloqueado em 2026-09-08** (`882abeb`).
 
-### MT-154 (proposto): o desfecho de uma chamada de tool é invisível na visão padrão
+### MT-154: o desfecho de uma chamada de tool é invisível na visão padrão ✅ concluído
+- **Como ficou:** a linha recolhida ganhou um **marcador de desfecho** (`⚙` em curso, `✓`
+  concluída, `✗` falhou/recusada) e, só no caso de erro, o motivo truncado depois de `→`. Os
+  três estados são exatamente os três casos de `resultado` (`None` / `false` / `true`), não uma
+  classificação nova. O *preview* dos argumentos foi preservado (não regride o MT-116), e a
+  saída de **sucesso** continua fora da linha recolhida — ela pode ser enorme, e o marcador já
+  diz o que precisa ser dito. A ajuda passou a explicar os três marcadores e o clique de
+  expansão, que não era documentado em lugar nenhum.
+- **Verificado na TUI real** (via LiteLLM, `qwen3-coder:30b`), os quatro estados no mesmo
+  histórico: `⚙` enquanto o modal está aberto, `✗ … → usuário recusou a execução de 'fs_write'`,
+  `✓ tool: fs_write — {…}` e `✗ … → tool 'fs_edit' bloqueada por política (deny)`.
+
+### MT-157 (proposto): `/tmp/agentry-mcp-<pid>.json` vaza em toda saída por `std::process::exit`
 - **Objetivo:** o bloco recolhido mostra nome + início dos argumentos e **nunca o resultado**
   (`linhas_logicas_do_bloco_de_tool`, ramo `if !expandido`). Tool recusada, tool negada por
   `deny` e tool executada com sucesso renderizam **linhas idênticas**. O resultado existe e é
@@ -273,6 +285,26 @@ tratado e código de saída diferente de zero, não silêncio.
   passe a mencionar a expansão é parte do mesmo ticket.
 - **Fora de escopo:** trocar o mecanismo de expansão por teclado (é decisão de UX à parte).
 - **Depende de:** nenhum.
+
+- **Objetivo:** a ponte MCP do `claudeCli` (ADR-0042) escreve
+  `/tmp/agentry-mcp-<pid>.json` e conta com o `Drop` de `PonteMcp` para removê-lo. `Drop` **não
+  roda** quando o processo termina por `std::process::exit`, que é como `main` encerra **todo**
+  caminho de erro (rota irresolúvel, falha do provider, credencial ilegível). Como
+  `claudeCli.mcpTools` vem ligado no exemplo do `--init`, qualquer pessoa que erre a
+  configuração acumula um arquivo por tentativa.
+- **Como foi isolado (2026-09-09):** cinco arquivos encontrados em `/tmp`, todos de PIDs mortos.
+  Instrumentando o `Drop`: numa execução **bem-sucedida** (one-shot contra LiteLLM) ele roda e o
+  arquivo some; numa saída limpa do **`--tui`** (`Ctrl+C`) ele também roda; numa execução que
+  termina em erro, **não roda**. Ou seja: não é a TUI nem o caminho feliz — é `process::exit`.
+- **Escolha real:** (a) remover o arquivo explicitamente antes de cada `exit`, que espalha a
+  limpeza por ~15 pontos e volta a quebrar no próximo `exit` novo; ou (b) `main` passar a
+  devolver código de saída em vez de chamar `process::exit`, deixando o desempilhamento rodar —
+  corrige esta e qualquer limpeza futura que dependa de `Drop`. **(b) é o conserto; (a) é o
+  curativo.**
+- **Critério de aceite:** teste ponta a ponta que roda o binário num caminho de **erro** e
+  afirma que nenhum `agentry-mcp-*.json` sobra. O harness da Fase K já suporta.
+- **Depende de:** nenhum. Era um item embutido no MT-146; virou ticket próprio ao ganhar causa
+  raiz e por não ter relação com CI.
 
 ### MT-155 (proposto): negação de tool por política não deixa trilha persistente
 - **Objetivo:** com `permissions.deny`, a negação produz o efeito certo (verificado no E5, com
@@ -301,7 +333,7 @@ tratado e código de saída diferente de zero, não silêncio.
   que é a parte mais frágil em Windows e macOS; se a matriz completa se mostrar instável, a
   saída honesta é rodar ponta a ponta só em Linux e declarar isso no ADR-0045, não deixar
   teste intermitente na matriz. Inclui a regressão da config MCP temporária órfã (arquivo
-  removido ao fim do processo).
+  removido ao fim do processo — **movida para o MT-157**, que tem a causa raiz).
 - **Arquivos no escopo:** `.github/workflows/ci.yml`, `docs/testing.md`, `docs/adr/0045-*.md`
   (se o recorte mudar).
 - **Critério de aceite:** CI verde nos SOs escolhidos, em duas execuções seguidas — uma só
