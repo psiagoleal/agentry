@@ -13,7 +13,7 @@
 
 - **Data:** 2026-09-08
 - **Branch:** `chore/build-linux-e-higiene-de-disco` (**não mesclada em `main`**)
-- **Commits desta rodada:** `882abeb`, `2bf620d`, `<bloco E>`
+- **Commits desta rodada:** `882abeb`, `2bf620d`, `67b1e77`
 - **Estado da árvore:** `AGENTS.md`, `skills/README.md` e os diretórios de skills não
   rastreados seguem modificados de **outra frente**, anteriores a esta rodada e intocados.
   Há um binário `agentry` de ~280 MB **solto na raiz** (não rastreado, não coberto pelo
