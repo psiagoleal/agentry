@@ -11,9 +11,9 @@
 
 ## Último turno
 
-- **Data:** 2026-09-08
+- **Data:** 2026-09-09
 - **Branch:** `chore/build-linux-e-higiene-de-disco` (**não mesclada em `main`**)
-- **Commits desta rodada:** `882abeb`, `2bf620d`, `67b1e77`
+- **Commits desta rodada:** `882abeb`, `2bf620d`, `67b1e77`, `bcc7788`, `f521dbe`
 - **Estado da árvore:** `AGENTS.md`, `skills/README.md` e os diretórios de skills não
   rastreados seguem modificados de **outra frente**, anteriores a esta rodada e intocados.
   Há um binário `agentry` de ~280 MB **solto na raiz** (não rastreado, não coberto pelo
@@ -27,32 +27,48 @@
       TUI, corrigidos e verificados na TUI real (via `tmux`), além dos testes.
 - [x] **bloco E do plano de uso** executado (`usage-test/RELATORIO-2026-09-08-bloco-e.md`):
       6 cenários, **6 passaram**, 3 achados novos (MT-154/155/156).
+- [x] **`f521dbe`** — **MT-154**: marcador de desfecho (`⚙`/`✓`/`✗`) na linha recolhida de tool,
+      mais o motivo do erro; a ajuda passou a explicar os marcadores e o clique de expansão.
 
 Causa raiz de cada um (detalhe em `docs/roadmap-v0.18.md`); as três correções compartilham a
 mesma forma — **informação correta produzida no lugar certo, que não chegava a quem precisa**:
 
-- **MT-150** — a legenda vinha só de `def.code`, ignorando `def.modifiers`. Não era cosmético:
-  desde o MT-72 letra solta **não resolve** para ação nenhuma, então a ajuda anunciava teclas
-  que não funcionam. A guarda fecha a volta (o rótulo é reconstruído em `KeyEvent` e tem de
-  resolver para a ação que descreve); verificada por mutação.
+- **MT-150** — a legenda vinha só de `def.code`. Não era cosmético: desde o MT-72 letra solta
+  **não resolve** para ação nenhuma, então a ajuda anunciava teclas que não funcionam.
 - **MT-151** — regra que fica: bloco de configuração cujo valor de exemplo é **executado** não
   pode ter exemplo inerte. O `echo` do MT-77 era seguro porque nada conectava; o MT-78 passou a
   conectar e o exemplo virou erro fixo.
 - **MT-152** — a correção não foi escrever em `stderr` mais cedo: foi **não escolher o canal na
   origem**. Quem produz registra em `DiagnosticosDeInicializacao`; `main` decide a superfície.
+- **MT-154** — o marcador (`⚙`/`✓`/`✗`) responde "isso rodou ou não?" sem interação; o motivo
+  do erro entra truncado, e só no erro. Saída de sucesso continua fora da linha recolhida.
 
 **Correção ao relatório de 2026-09-08:** a recusa de rota sob `local-only` **não** estava
-invisível — ocorre antes de a TUI subir e sai em `stderr` com código 1 (verificado). Erro de
-turno já aparecia no chat via `marcar_erro`.
+invisível — ocorre antes de a TUI subir e sai em `stderr` com código 1 (verificado).
 
 ## Em andamento
 
 Nada em execução.
 
+**Gateway LiteLLM alcançável desta máquina desde 2026-09-09** — endpoint e chave ficam **fora
+do repositório** (rede interna; o mantenedor tem os valores). Quatro modelos, dos quais
+`qwen3-coder:30b` faz *tool-calling*. **Nunca ecoar a chave:** use
+`agentry --set-credential litellm` lendo de `stdin` — grava com permissão `0600` e mantém o
+valor fora de `argv`. Primeira validação ponta a ponta contra um gateway **real** feita nesta
+rodada: one-shot e TUI, com *tool-calling* completo e auditoria de egresso `cloud-ok, allowed`.
+
+**Decisão pendente de política:** que `egressClass` o gateway interno deve declarar. Os testes
+usaram `profile: pessoal` + `cloud-ok`, que é o rótulo conservador. Note que `empresa` mapeia
+para `local-only` (`config/privacy.rs`), então sob o perfil corporativo um gateway interno só é
+alcançável se for declarado `local-only` — ou seja, `local-only` aqui significa "não sai da
+fronteira de confiança", não "não sai da máquina".
+
 ## Próximo passo sugerido
 
-1. **MT-154** — o desfecho de uma chamada de tool é invisível na visão padrão da TUI. Mesmo
-   critério dos três anteriores: vira a experiência de todos com o MT-153, e é barato.
+1. **MT-157** — `/tmp/agentry-mcp-<pid>.json` vaza em **toda** saída por `std::process::exit`
+   (que pula destrutores), e `claudeCli.mcpTools` vem ligado no exemplo do `--init`. Causa raiz
+   isolada; o conserto de verdade é `main` devolver código de saída em vez de chamar
+   `process::exit`.
 2. **MT-146** — fiar os testes ponta a ponta no CI; é o **único** ticket restante da Fase K.
    Inclui a regressão da configuração MCP temporária órfã.
 3. **MT-153** — promover a TUI a modo padrão, com `--repl` como escape hatch e *fallback* para
@@ -71,12 +87,11 @@ Nada em execução.
 Nenhuma virou asserção, para não congelar comportamento antes da decisão:
 
 - **MT-147** — corpo **não-SSE** respondido a uma requisição de *stream* produz `stdout` vazio,
-  `0 tokens` e **código de saída 0**. Indistinguível de "o modelo não teve o que responder" — e
-  é o que acontece com endpoint mal configurado ou proxy que intercepta.
-- **MT-148** — a regressão do `providers.ollama.structuredOutput` (o defeito mais grave já
-  encontrado: nenhuma tool executando no *default*) **segue sem rede de proteção**. O *flag* é
-  do `OllamaProvider` e o `fake_provider` só fala OpenAI-compatible; o MT-144 cobriu a *classe*
-  da falha, não aquele defeito.
+  `0 tokens` e **código 0** — indistinguível de "o modelo não teve o que responder", e é o que
+  acontece com endpoint mal configurado ou proxy que intercepta.
+- **MT-148** — a regressão do `providers.ollama.structuredOutput` (nenhuma tool executando no
+  *default*) **segue sem rede de proteção**: o *flag* é do `OllamaProvider` e o `fake_provider`
+  só fala OpenAI-compatible. O MT-144 cobriu a *classe* da falha, não aquele defeito.
 - **MT-149 + MT-155** — **decidir juntos**: nem a recusa na camada de rota (MT-149) nem a
   negação de tool por `permissions.deny` (MT-155) deixam trilha persistente, enquanto o bloqueio
   no `Transport` deixa. É o mesmo formato: todo caminho *fail-closed* do projeto acerta o efeito
@@ -85,39 +100,17 @@ Nenhuma virou asserção, para não congelar comportamento antes da decisão:
 
 ## O que saber antes de mexer nos testes ponta a ponta
 
-Detalhe por ticket em [`docs/roadmap-v0.18.md`](./roadmap-v0.18.md); relato completo da Fase K
-no [`handoff-arquivo.md`](./handoff-arquivo.md).
-
-1. **Hermetismo é `HOME` + `cwd`**, sem mecanismo novo — `global_dir.rs` é o único resolvedor
-   de *home* do workspace, propriedade protegida pela guarda estática do MT-141.
-2. **`CARGO_BIN_EXE_fake_provider` não existe nos testes de `agentry`** (o bin é de
-   `agentry-core`): o caminho é derivado do diretório do `CARGO_BIN_EXE_agentry`. Mover a
-   fixture para `crates/cli` faria `cargo install` levá-la ao usuário.
-3. **As fixtures desligam todas as funcionalidades de contexto**, não só as caras: senão
-   `session_search` entra no conjunto anunciado (default `true`) e a asserção quebra por
-   mudança de *default*, não por regressão.
-4. **O caminho one-shot é `chat_stream`** — o roteiro do `fake_provider` precisa ser SSE.
-5. **O *fail-closed* tem duas camadas** com comportamento diferente (`Router` recusa sem
-   auditar; `Transport` barra e audita `blocked`). Caso de bloqueio afirma o **mecanismo** —
-   afirmar só "nada chegou ao provider" passa por vacuidade se o binário falhar por outro
-   motivo.
-6. **O invariante do `Ctrl+A` foi verificado** (bloco E, cenário E5): com `[auto]` **ligado**,
-   uma tool sob `deny` é chamada pelo modelo, negada com motivo
-   (`tool 'fs_edit' bloqueada por política (deny)`) e o efeito colateral não ocorre. Não é
-   vacuoso — a chamada foi de fato emitida.
-7. **O plano de uso dirige a TUI por `tmux`** (`send-keys` + `capture-pane`), porque a TUI
-   exige TTY. Duas armadilhas já corrigidas no plano: capturar sem `-e` achata o logo e
-   *parece* defeito; o `HOME` isolado precisa de um `.zshrc` vazio, ou o assistente do zsh
-   engole o comando. `send-keys` **não emite mouse** — expandir bloco de tool exige injetar a
-   sequência SGR com `-H` (receita no plano).
+Sete armadilhas já pagas (hermetismo, `CARGO_BIN_EXE`, *defaults* de contexto, SSE, as duas
+camadas do *fail-closed*, o invariante do `Ctrl+A` e o método de `tmux`) estão registradas em
+[`docs/roadmap-v0.18.md`](./roadmap-v0.18.md), junto do MT-146. **Leia antes de escrever
+qualquer caso novo** — cada uma custou um teste que passava sem verificar nada.
 
 ## Impedimentos de ambiente (não são bugs do código)
 
 - **`protoc` é pré-requisito de build** (build script de `lance-encoding`, transitiva do
-  `lancedb`) — sem ele nem o `clippy` compila. **Já resolvido** nesta máquina
-  (`protobuf-compiler` via `apt`) e no CI (passo por SO em `ci.yml`); ambiente novo precisa
-  instalar antes de `cargo build`/`test`. Detalhes em `docs/testing.md`. Instalar exige
-  `sudo`, que não é interativo aqui — pedir ao usuário, nunca tentar sozinho.
+  `lancedb`) — sem ele nem o `clippy` compila. **Já resolvido** nesta máquina e no CI; ambiente
+  novo precisa instalar antes de `cargo build`/`test` (`docs/testing.md`). Exige `sudo`, que não
+  é interativo aqui — pedir ao usuário, nunca tentar sozinho.
 - **Lacuna de ~140 GB entre `df` e arquivos visíveis (não é bug do projeto).** Assinatura de
   arquivo deletado preso em processo de **root**: nenhuma varredura acha o consumidor e
   `lsof +L1` sem privilégio não o vê. Pendente de `sudo lsof -nP +L1` pelo usuário, ou reboot.
@@ -127,13 +120,12 @@ no [`handoff-arquivo.md`](./handoff-arquivo.md).
 
 ## Impedimentos abertos
 
-- **Roadmap de longo prazo original esgotado — só resta multimodal, bloqueada.** As Fases 11 a
-  20 estão concluídas. A Fase 21+ (multimodal) está bloqueada pela resposta do mantenedor
-  (2026-07-16, `docs/decisoes-autonomas.md`): adiada até existir um *guardrail* de imagem — os
-  guardrails de conteúdo hoje só inspecionam texto, e multimodal sem esse pré-requisito abriria
-  um canal não auditado. Provavelmente exige **dependência nova** (OCR), o que é parada dura
-  por si só. **Decisão pendente:** qual caminho para o guardrail de imagem, ou apontar uma
-  frente nova fora das cinco do roadmap de longo prazo.
+- **Roadmap de longo prazo original esgotado — só resta multimodal, bloqueada.** Fases 11 a 20
+  concluídas. A Fase 21+ está bloqueada pela resposta do mantenedor (2026-07-16,
+  `docs/decisoes-autonomas.md`): adiada até existir um *guardrail* de imagem, já que os
+  guardrails hoje só inspecionam texto e multimodal sem isso abriria um canal não auditado.
+  Provavelmente exige **dependência nova** (OCR). **Decisão pendente:** qual caminho seguir, ou
+  apontar uma frente nova.
 - **ADR-0004 pendente de dado:** maturidade real de `rtk`/`caveman`/`ponytail` não verificada
   via `gh repo view`. Verificar antes de qualquer adoção como dependência.
 - **Copilot/GitHub Enterprise:** caminho oficial (GitHub Models vs. API Enterprise) indefinido
@@ -141,7 +133,6 @@ no [`handoff-arquivo.md`](./handoff-arquivo.md).
 - **CI multi-SO ainda não observado verde:** a matriz do ADR-0005 (`2feed85`) precisa de um
   push ao GitHub para confirmar Windows/macOS verdes.
 - **Verificação de "processo não órfão" do MT-23 é Unix-only de fato:** `processo_existe`
-  (`crates/core/tests/lsp_client.rs`) usa `kill -0`; no branch `#[cfg(not(unix))]` sempre
-  devolve `false`, então em Windows os dois testes de ciclo de vida do `LspClient` passam
-  **vacuamente**. O `Child::wait()`/`kill()` internos continuam corretos; falta uma verificação
-  real de ausência de processo em Windows (ex.: via `tasklist`) quando a matriz de CI rodar.
+  (`crates/core/tests/lsp_client.rs`) usa `kill -0` e devolve `false` em `#[cfg(not(unix))]`,
+  então em Windows os dois testes de ciclo de vida do `LspClient` passam **vacuamente**. Falta
+  uma verificação real (ex.: `tasklist`) quando a matriz de CI rodar.

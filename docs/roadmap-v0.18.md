@@ -327,6 +327,34 @@ tratado e código de saída diferente de zero, não silêncio.
   o `path` da chamada está nas linhas de confirmação **também** no caso com *diff*.
 - **Depende de:** nenhum.
 
+## Armadilhas já pagas — leia antes de escrever caso novo
+
+Relato completo da Fase K no [`handoff-arquivo.md`](./handoff-arquivo.md). Cada item
+abaixo custou um teste que passava **sem verificar nada**.
+
+1. **Hermetismo é `HOME` + `cwd`**, sem mecanismo novo — `global_dir.rs` é o único resolvedor
+   de *home* do workspace, propriedade protegida pela guarda estática do MT-141.
+2. **`CARGO_BIN_EXE_fake_provider` não existe nos testes de `agentry`** (o bin é de
+   `agentry-core`): o caminho vem do diretório do `CARGO_BIN_EXE_agentry`. Mover a fixture para
+   `crates/cli` faria `cargo install` levá-la ao usuário.
+3. **As fixtures desligam todas as funcionalidades de contexto**, não só as caras: senão
+   `session_search` entra no conjunto anunciado (default `true`) e a asserção quebra por
+   mudança de *default*.
+4. **O caminho one-shot é `chat_stream`** — o roteiro do `fake_provider` precisa ser SSE.
+5. **O *fail-closed* tem duas camadas** com comportamento diferente (`Router` recusa sem
+   auditar; `Transport` barra e audita `blocked`). Caso de bloqueio afirma o **mecanismo** —
+   afirmar só "nada chegou ao provider" passa por vacuidade se o binário falhar por outro
+   motivo.
+6. **O invariante do `Ctrl+A` foi verificado** (bloco E, cenário E5): com `[auto]` **ligado**,
+   uma tool sob `deny` é chamada pelo modelo, negada com motivo
+   (`tool 'fs_edit' bloqueada por política (deny)`) e o efeito colateral não ocorre. Não é
+   vacuoso — a chamada foi de fato emitida.
+7. **O plano de uso dirige a TUI por `tmux`** (`send-keys` + `capture-pane`), porque a TUI
+   exige TTY. Duas armadilhas já corrigidas no plano: capturar sem `-e` achata o logo e
+   *parece* defeito; o `HOME` isolado precisa de um `.zshrc` vazio, ou o assistente do zsh
+   engole o comando. `send-keys` **não emite mouse** — expandir bloco de tool exige injetar a
+   sequência SGR com `-H` (receita no plano).
+
 ### MT-146: fiar no CI (e o que fica de fora)
 - **Objetivo:** rodar os testes ponta a ponta na matriz de 3 SOs, ou decidir e **registrar**
   um recorte menor. Ponto de decisão real: o `fake_provider` sobe processo e abre socket, o
