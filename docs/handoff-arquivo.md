@@ -12,6 +12,7 @@
 
 ## Índice
 
+- [Rodada 10 (2026-09-07/08) — Fase K (teste ponta a ponta) e teste de uso da TUI](#rodada-10-2026-09-0708--fase-k-teste-ponta-a-ponta-e-teste-de-uso-da-tui)
 - [Rodada 9 (2026-09-07) — build Linux, higiene de disco e ADR-0044](#rodada-9-2026-09-07--build-linux-higiene-de-disco-e-adr-0044)
 - [Rodada 8f (2026-07-28/30) — detectores de PII (ADR-0043) e release v0.1.0-usertest](#rodada-8f--achados-1-3-resolvidos-adr-0043)
 - [Rodada 8d (2026-07-28) — servidor MCP e assinatura Pro/Max como agente principal](#rodada-8d--adr-0042-servidor-mcp-assinatura-promax-como-agente-principal)
@@ -20,6 +21,89 @@
 - [Rodadas de teste manual e fases (2026-07-17 a 2026-07-24)](#nota-fora-do-loop-2026-07-17)
 - [Turno de 2026-07-16 — roadmap v0.1..v0.4 e Fases 10-20](#último-turno)
 - [Tabela de commits (mais recente no topo)](#histórico-mais-recente-no-topo)
+
+---
+
+## Rodada 10 (2026-09-07/08) — Fase K (teste ponta a ponta) e teste de uso da TUI
+
+Commits: `89b7e94` (MT-140/ADR-0045), `6f41eb2` (MT-141/142), `d5832d7` (MT-143),
+`579184f` (MT-144), `44330e1` (MT-145), `7f6ada0` + `7928809` + `482096b` (plano e
+relatório de teste de uso), `882abeb` (MT-150/151/152).
+
+## Fase K — MT-140 a MT-145 concluídos
+
+Detalhe por ticket em [`docs/roadmap-v0.18.md`](./roadmap-v0.18.md). A fronteira `main()` →
+provider está **fechada**: os casos sobem o binário de verdade contra o `fake_provider` e
+afirmam nos dois sentidos — resposta chega ao `stdout`, e o que o binário **enviou** é lido do
+registro de requisições. Cobertos: conversa simples, laço completo de tool-calling (executa sob
+`PermissionGate`, resultado volta ao modelo) e o **conjunto inteiro** de tools anunciado.
+
+Quatro coisas não óbvias para quem retoma:
+
+1. **Hermetismo é `HOME` + `cwd`**, sem mecanismo novo — `global_dir.rs` é o único resolvedor de
+   *home* do workspace, propriedade protegida pela guarda estática do MT-141 (verificada por
+   mutação).
+2. **`CARGO_BIN_EXE_fake_provider` não existe nos testes de `agentry`** (o bin é de
+   `agentry-core`): o caminho é derivado do diretório do `CARGO_BIN_EXE_agentry`. Mover a
+   fixture para `crates/cli` faria `cargo install` levá-la ao usuário.
+3. **As fixtures desligam todas as funcionalidades de contexto**, não só as caras: senão
+   `session_search` entra no conjunto anunciado (default `true`) e a asserção quebra por
+   mudança de *default*, não por regressão.
+4. **O caminho one-shot é `chat_stream`** — roteiro precisa ser SSE.
+
+O **MT-145** revelou que o *fail-closed* tem **duas camadas** com comportamento diferente:
+candidato de rota mais permissivo que a sessão faz o `Router` recusar (código 1, `stderr`, **nada
+auditado**); candidato permitido com endpoint mais permissivo faz o `Transport` barrar (entrada
+`blocked` no log). Cobrir só uma daria falsa segurança. Suas duas primeiras versões passavam
+**por vacuidade** — afirmavam só "nada chegou ao provider", o que também valeria se o binário
+tivesse falhado por motivo alheio. Regra que ficou: caso de bloqueio afirma o **mecanismo**.
+
+**Três achados aguardando decisão do mantenedor** (nenhum virou asserção, para não congelar
+comportamento antes da decisão):
+
+- **MT-147** — corpo **não-SSE** respondido a uma requisição de *stream* produz `stdout` vazio,
+  `0 tokens` e **código de saída 0**. Indistinguível de "o modelo não teve o que responder", e é
+  o que acontece com endpoint mal configurado ou proxy que intercepta.
+- **MT-149** — a recusa **na camada de rota** não deixa trilha persistente, enquanto o bloqueio
+  no `Transport` deixa. A ADR-0002 manda auditar *cada egresso* e aqui não houve egresso — pode
+  ser lacuna de conformidade ou comportamento correto.
+- **MT-148** — a regressão do `providers.ollama.structuredOutput` (o defeito mais grave já
+  encontrado, nenhuma tool executando no *default*) **segue sem rede de proteção**: o *flag* é do
+  `OllamaProvider` e o `fake_provider` só fala OpenAI-compatible. O MT-144 cobriu a *classe* da
+  falha, não aquele defeito.
+
+### Teste de uso da TUI — executado, com 3 achados
+
+`usage-test/PLANO-DE-TESTE.md` + `RELATORIO-2026-09-08.md`. **13 cenários rodados via `tmux`
+contra Ollama local: 12 passaram, 1 falhou.** A TUI se mostrou **estável** no que foi
+exercitado — abre sem configuração, reflui em 120×40, 80×24 e 40×10, modal claro, seletor de
+modelo funcional, terminal restaurado após `Ctrl+C`, `~/.agentry` real intocado.
+
+Os três achados **não são de estabilidade** — são de primeira impressão, que é exatamente o que
+vira padrão se o `--tui` for promovido:
+
+- **MT-150** — `/help` mostra os atalhos **sem** `Ctrl` (`keybind.rs:154` ignora
+  `def.modifiers`). Descreve atalhos de letra que o MT-72 removeu de propósito.
+- **MT-151** — `--init` gera `mcpServers.exemplo` com `command: "echo"`: **toda** execução
+  termina com erro citando `rmcp::transport`/"Broken pipe". O comentário do template diz que a
+  falha seria tratada — foi escrito quando nada conectava ainda.
+- **MT-152** — sob TUI o `stderr` é descartado, então erro real só aparece **depois** de sair. O
+  caso grave é a recusa de egresso: sob `local-only` o usuário não recebe explicação nenhuma.
+
+**Decisões do mantenedor (2026-09-08):** rodar o plano de uso **antes** de promover a TUI (feito),
+e **`--repl`** como escape hatch. O **MT-153** registra a promoção, bloqueado pelos três acima.
+
+O plano dirige a TUI por **`tmux`** (`send-keys` + `capture-pane`), porque a TUI exige TTY e um
+agente em sessão não-interativa não consegue digitar nela. Duas armadilhas do método já estão
+corrigidas no plano: capturar sem `-e` achata o logo e **parece** defeito, e o `HOME` isolado
+precisa de um `.zshrc` vazio ou o assistente do zsh engole o comando.
+
+**Ainda não executado, e é o que mais falta:** bloco **E** (permissão), em especial o **E5** —
+confirmar que `Ctrl+A` não afrouxa uma tool sob `deny` é invariante de segurança.
+
+**Fecho (2026-09-08):** os três achados do teste de uso viraram correção em `882abeb`
+— ver a seção "Metas cumpridas" da rodada seguinte no `CURRENT-STATE.md` para o resumo,
+e `docs/roadmap-v0.18.md` para o detalhe por ticket.
 
 ---
 

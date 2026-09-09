@@ -193,7 +193,13 @@ tratado e código de saída diferente de zero, não silêncio.
   `crates/core/src/egress/audit.rs`, `docs/adr/0002-*.md` (emenda).
 - **Depende de:** MT-145.
 
-### MT-150 (proposto): `/help` mostra os atalhos sem o modificador `Ctrl`
+### MT-150: `/help` mostra os atalhos sem o modificador `Ctrl` ✅ concluído (`882abeb`)
+- **Como ficou:** o rótulo passou a ser formado a partir da **entrada inteira**
+  (`rotulo_atalho(def)`), não de `def.code` isolado — é o que impede a divergência de voltar
+  quando um modificador for acrescentado à tabela. A guarda fecha a volta em vez de afirmar
+  sobre a forma do texto: o rótulo exibido é **reconstruído em `KeyEvent`** e tem de resolver
+  para a ação que ele descreve. Verificada por mutação (3 testes falham se `modifiers` voltar
+  a ser ignorado). Conferido na TUI real via `tmux`: `Ctrl+C`, `Ctrl+P`, `Ctrl+A`, `Ctrl+Z`.
 - **Objetivo:** `keybind.rs:154` monta cada linha com `rotulo_tecla(def.code)` e **ignora**
   `def.modifiers`, então `Ctrl+C`/`Ctrl+P`/`Ctrl+A`/`Ctrl+Z` aparecem como `c`/`p`/`a`/`z`. A
   ajuda descreve atalhos de letra que o **MT-72 removeu de propósito** — apertar `c` só digita a
@@ -204,7 +210,11 @@ tratado e código de saída diferente de zero, não silêncio.
   certa, e foi por isso que a divergência passou.
 - **Depende de:** nenhum.
 
-### MT-151 (proposto): `--init` gera configuração que sempre erra na conexão MCP
+### MT-151: `--init` gera configuração que sempre erra na conexão MCP ✅ concluído (`882abeb`)
+- **Como ficou:** o exemplo **saiu do mapa** — `"mcpServers": {}`, com o formato num
+  `_comentario_mcpServers` irmão (mesma convenção já usada por `subagentPermissions`). Regra
+  que fica registrada no teste: bloco cujo valor de exemplo é **executado** não pode ter
+  exemplo inerte. Conferido: `--init` numa árvore limpa abre sessão sem erro nenhum.
 - **Objetivo:** o template (`main.rs:224-231`) declara `mcpServers.exemplo` com
   `"command": "echo"`, que não fala MCP. Toda execução termina com erro citando
   `rmcp::transport` e "Broken pipe". O comentário do template afirma que a falha seria "tratada,
@@ -213,7 +223,17 @@ tratado e código de saída diferente de zero, não silêncio.
   nada. Ou o exemplo sai do arquivo (fica só na documentação), ou ganha forma inerte.
 - **Depende de:** nenhum.
 
-### MT-152 (proposto): sob TUI, erro em `stderr` nunca chega ao usuário
+### MT-152: sob TUI, erro em `stderr` nunca chega ao usuário ✅ concluído (`882abeb`)
+- **Como ficou:** a correção não foi escrever em `stderr` mais cedo — foi **não escolher o
+  canal no ponto de origem**. Quem produz o aviso registra em `DiagnosticosDeInicializacao`;
+  `main` decide a superfície (`stderr` nos modos de texto, mensagem de sistema no histórico
+  sob `--tui`). Três avisos cobertos: MCP que não conectou, binário `claude` fora do `PATH`,
+  ponte MCP que não montou. O risco da mudança é o oposto do defeito (um coletor nunca
+  escoado engoliria o aviso em **todos** os modos), e é o que o caso ponta a ponta prende.
+- **Correção ao achado original:** a recusa de rota sob `local-only` **não** estava invisível
+  — ocorre antes de a TUI subir e sai em `stderr` com código 1 (verificado). Erro de turno já
+  aparecia no chat via `marcar_erro`. O que estava invisível era só a classe de diagnóstico de
+  partida.
 - **Objetivo:** o `stderr` é descartado sob TUI de propósito (escrever nele corrompe a tela,
   achado do MT-72), mas **erros reais vão por ali** — só aparecem depois que o usuário sai. O caso
   grave é a recusa de egresso: sob `local-only`, quem pede algo roteado para nuvem não recebe
@@ -237,6 +257,7 @@ tratado e código de saída diferente de zero, não silêncio.
   ADR nova registrando a promoção e citando o relatório como a evidência que a ADR-0027 exigiu.
 - **Depende de:** **MT-150, MT-151 e MT-152** — os três atingem a primeira impressão, que é
   exatamente o que vira padrão. O relatório recomenda corrigi-los antes de virar a chave.
+  **Desbloqueado em 2026-09-08** (`882abeb`).
 
 ### MT-146: fiar no CI (e o que fica de fora)
 - **Objetivo:** rodar os testes ponta a ponta na matriz de 3 SOs, ou decidir e **registrar**
