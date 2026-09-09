@@ -271,7 +271,23 @@ tratado e código de saída diferente de zero, não silêncio.
   histórico: `⚙` enquanto o modal está aberto, `✗ … → usuário recusou a execução de 'fs_write'`,
   `✓ tool: fs_write — {…}` e `✗ … → tool 'fs_edit' bloqueada por política (deny)`.
 
-### MT-157 (proposto): `/tmp/agentry-mcp-<pid>.json` vaza em toda saída por `std::process::exit`
+### MT-157: `/tmp/agentry-mcp-<pid>.json` vaza em toda saída por `std::process::exit` ✅ concluído
+- **Como ficou:** escolhida a opção (b). `main` virou um invólucro de seis linhas — chama
+  `executar()`, converte o resultado em código e só então sai; quando o `exit` acontece, tudo
+  que `executar` criou já foi derrubado. Os 25 `std::process::exit` viraram `Encerramento(n)`
+  propagado por `?`. Para o *diff* não precisar reescrever nenhuma das expressões que produzem
+  erro, a conversão entrou como *trait* de extensão (`.ou_encerrar(n, |erro| format!(…))?`),
+  substituindo o `unwrap_or_else` **no sufixo**.
+- **Duas guardas, porque uma não bastava:** `nenhum_modulo_fora_da_main_encerra_o_processo`
+  (estático — um `exit` novo compila e deixa a suíte verde) e o caso ponta a ponta
+  `saida_por_erro_nao_deixa_a_config_temporaria_da_ponte_mcp_para_tras`. O caso e2e é hermético
+  em dois eixos que valem registro: não depende do `claude` real (um *script* vazio no `PATH`
+  basta, já que só a presença é checada) nem de `/tmp` (`TMPDIR` aponta para o diretório do
+  caso, o que permite afirmar sobre o conteúdo **inteiro** em vez de caçar padrão de nome). Ele
+  força um caminho de **erro** de propósito: o caminho feliz já passava antes da correção.
+  Ambas verificadas por mutação.
+- **Códigos de saída preservados** (1 para rota irresolúvel, 2 para configuração inválida),
+  conferidos rodando o binário.
 - **Objetivo:** o bloco recolhido mostra nome + início dos argumentos e **nunca o resultado**
   (`linhas_logicas_do_bloco_de_tool`, ramo `if !expandido`). Tool recusada, tool negada por
   `deny` e tool executada com sucesso renderizam **linhas idênticas**. O resultado existe e é

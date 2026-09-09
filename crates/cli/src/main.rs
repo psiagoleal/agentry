@@ -1125,15 +1125,78 @@ fn register_subagent_tool(
     )));
 }
 
+/// Código de saída pedido por um caminho de erro de [`executar`].
+///
+/// **MT-157.** Antes disto cada caminho de erro chamava `std::process::exit`
+/// direto, e `exit` **não roda destrutores**: o processo evapora com o
+/// desempilhamento pela metade. O sintoma concreto foi a ponte MCP do
+/// `claudeCli` (ADR-0042), que escreve `agentry-mcp-<pid>.json` no diretório
+/// temporário e conta com o `Drop` de `PonteMcp` para removê-lo — isolado por
+/// instrumentação em 2026-09-09: o `Drop` roda numa execução bem-sucedida e
+/// numa saída limpa do `--tui`, e **não roda** quando a execução termina em
+/// erro. Como `claudeCli.mcpTools` vem ligado no exemplo do `--init`, quem
+/// errasse a configuração acumulava um arquivo por tentativa.
+///
+/// A saída fica concentrada num único ponto — o fim de [`main`], depois de
+/// [`executar`] ter devolvido e **todos** os seus valores terem sido
+/// derrubados. Limpar cada arquivo à mão antes de cada `exit` espalharia a
+/// limpeza por dezenas de pontos e voltaria a quebrar no próximo `exit` novo;
+/// aqui a garantia é estrutural, e o teste-guarda `so_main_encerra_o_processo`
+/// impede que um `exit` novo apareça fora de `main`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Encerramento(i32);
+
+/// Converte o erro de um `Result` em [`Encerramento`], imprimindo a mensagem
+/// em `stderr` — substitui o `unwrap_or_else(|erro| { eprintln!(...);
+/// std::process::exit(n) })` que existia em cada caminho de erro de
+/// [`executar`].
+///
+/// Existe como *trait* de extensão (e não como função livre) para a conversão
+/// ser um sufixo do `Result` já construído: assim a mudança do MT-157 não
+/// precisou reescrever nenhuma das expressões que produzem esses erros.
+trait OuEncerrar<T, E> {
+    fn ou_encerrar(
+        self,
+        codigo: i32,
+        mensagem: impl FnOnce(E) -> String,
+    ) -> Result<T, Encerramento>;
+}
+
+impl<T, E> OuEncerrar<T, E> for Result<T, E> {
+    fn ou_encerrar(
+        self,
+        codigo: i32,
+        mensagem: impl FnOnce(E) -> String,
+    ) -> Result<T, Encerramento> {
+        self.map_err(|erro| {
+            eprintln!("{}", mensagem(erro));
+            Encerramento(codigo)
+        })
+    }
+}
+
+/// Único ponto de saída do processo. `executar` devolve **antes** desta
+/// linha, então todo valor que ela criou já foi derrubado quando o `exit`
+/// acontece — é isso que faz o `Drop` valer como mecanismo de limpeza
+/// (MT-157). Nada mais no binário pode chamar `std::process::exit`.
 #[tokio::main]
 async fn main() {
+    let codigo = match executar().await {
+        Ok(()) => 0,
+        Err(Encerramento(codigo)) => codigo,
+    };
+    std::process::exit(codigo);
+}
+
+/// O programa de verdade — ver [`main`] para por que a saída não acontece
+/// aqui dentro.
+async fn executar() -> Result<(), Encerramento> {
     let args = Args::parse();
 
     if args.init {
-        let workspace_root = std::env::current_dir().unwrap_or_else(|erro| {
-            eprintln!("erro ao ler diretório de trabalho: {erro}");
-            std::process::exit(1)
-        });
+        let workspace_root = std::env::current_dir().ou_encerrar(1, |erro| {
+            format!("erro ao ler diretório de trabalho: {erro}")
+        })?;
         let resultado = match &args.profile {
             Some(perfil) => {
                 let sink: Arc<dyn AuditSink> = Arc::new(audit_sink::SinksCombinados::new(
@@ -1144,7 +1207,7 @@ async fn main() {
                     Ok(conteudo) => write_settings_if_absent(&workspace_root, &conteudo),
                     Err(erro) => {
                         eprintln!("erro ao buscar configuração do perfil: {erro}");
-                        std::process::exit(1)
+                        return Err(Encerramento(1));
                     }
                 }
             }
@@ -1153,62 +1216,56 @@ async fn main() {
         match resultado {
             Ok(outcome) => {
                 escrever_resultado_init(&outcome, args.profile.is_some(), &mut io::stdout())
-                    .unwrap_or_else(|erro| {
-                        eprintln!("erro: {erro}");
-                        std::process::exit(1)
-                    });
+                    .ou_encerrar(1, |erro| format!("erro: {erro}"))?;
             }
             Err(erro) => {
                 eprintln!("erro ao inicializar configuração: {erro}");
-                std::process::exit(1)
+                return Err(Encerramento(1));
             }
         }
-        return;
+        return Ok(());
     }
 
     if args.undo {
-        let workspace_root = std::env::current_dir().unwrap_or_else(|erro| {
-            eprintln!("erro ao ler diretório de trabalho: {erro}");
-            std::process::exit(1)
-        });
+        let workspace_root = std::env::current_dir().ou_encerrar(1, |erro| {
+            format!("erro ao ler diretório de trabalho: {erro}")
+        })?;
         let store = agentry_core::checkpoint::CheckpointStore::new(&workspace_root);
         match store.undo() {
             Ok(outcome) => println!("{}", formatar_undo(&outcome)),
             Err(erro) => {
                 eprintln!("erro: {erro}");
-                std::process::exit(1)
+                return Err(Encerramento(1));
             }
         }
-        return;
+        return Ok(());
     }
 
     if let Some(fato) = &args.remember {
-        let workspace_root = std::env::current_dir().unwrap_or_else(|erro| {
-            eprintln!("erro ao ler diretório de trabalho: {erro}");
-            std::process::exit(1)
-        });
+        let workspace_root = std::env::current_dir().ou_encerrar(1, |erro| {
+            format!("erro ao ler diretório de trabalho: {erro}")
+        })?;
         let store = agentry_core::memory::MemoryStore::new(&workspace_root);
         match store.remember(fato.clone()) {
             Ok(()) => println!("lembrado: {fato}"),
             Err(erro) => {
                 eprintln!("erro: {erro}");
-                std::process::exit(1)
+                return Err(Encerramento(1));
             }
         }
-        return;
+        return Ok(());
     }
 
     if let Some(provider) = &args.set_credential {
         eprint!("valor da credencial para '{provider}': ");
         let mut valor = String::new();
-        io::stdin().read_line(&mut valor).unwrap_or_else(|erro| {
-            eprintln!("erro ao ler stdin: {erro}");
-            std::process::exit(1)
-        });
+        io::stdin()
+            .read_line(&mut valor)
+            .ou_encerrar(1, |erro| format!("erro ao ler stdin: {erro}"))?;
         let valor = valor.trim();
         if valor.is_empty() {
             eprintln!("erro: valor da credencial não pode ser vazio");
-            std::process::exit(1);
+            return Err(Encerramento(1));
         }
         match agentry_core::credentials::set_api_key(provider, valor) {
             Ok(caminho) => println!(
@@ -1217,26 +1274,20 @@ async fn main() {
             ),
             Err(erro) => {
                 eprintln!("erro: {erro}");
-                std::process::exit(1)
+                return Err(Encerramento(1));
             }
         }
-        return;
+        return Ok(());
     }
 
-    let overrides = overrides_from_args(&args).unwrap_or_else(|erro| {
-        eprintln!("erro: {erro}");
-        std::process::exit(2)
-    });
+    let overrides = overrides_from_args(&args).ou_encerrar(2, |erro| format!("erro: {erro}"))?;
 
-    let workspace_root = std::env::current_dir().unwrap_or_else(|erro| {
-        eprintln!("erro ao ler diretório de trabalho: {erro}");
-        std::process::exit(1)
-    });
+    let workspace_root = std::env::current_dir().ou_encerrar(1, |erro| {
+        format!("erro ao ler diretório de trabalho: {erro}")
+    })?;
 
-    let cfg = build_config(&workspace_root).unwrap_or_else(|erro| {
-        eprintln!("erro de configuração: {erro}");
-        std::process::exit(2)
-    });
+    let cfg = build_config(&workspace_root)
+        .ou_encerrar(2, |erro| format!("erro de configuração: {erro}"))?;
     // Construído cedo e compartilhado (`Arc::clone`) entre a `Session`
     // principal e o `SubagentTool` (MT-91/ADR-0031) — mesmo `GuardrailGate`,
     // nenhum mecanismo paralelo.
@@ -1297,16 +1348,10 @@ async fn main() {
         LITELLM_PROVIDER_NAME,
         std::env::var(LITELLM_API_KEY_ENV).ok(),
     )
-    .unwrap_or_else(|erro| {
-        eprintln!("erro ao ler credenciais: {erro}");
-        std::process::exit(2)
-    });
+    .ou_encerrar(2, |erro| format!("erro ao ler credenciais: {erro}"))?;
     let litellm_registro: Option<RegistroDeProvider> =
         build_litellm_provider(&cfg, chave_litellm.as_deref(), Arc::clone(&audit_sink))
-            .unwrap_or_else(|erro| {
-                eprintln!("erro de configuração: {erro}");
-                std::process::exit(2)
-            });
+            .ou_encerrar(2, |erro| format!("erro de configuração: {erro}"))?;
 
     // Mesma disciplina do LiteLLM (ADR-0038): variável de ambiente vence e
     // curto-circuita antes de qualquer I/O; `~/.agentry/credentials.json` só
@@ -1315,16 +1360,10 @@ async fn main() {
         ANTHROPIC_PROVIDER_NAME,
         std::env::var(ANTHROPIC_API_KEY_ENV).ok(),
     )
-    .unwrap_or_else(|erro| {
-        eprintln!("erro ao ler credenciais: {erro}");
-        std::process::exit(2)
-    });
+    .ou_encerrar(2, |erro| format!("erro ao ler credenciais: {erro}"))?;
     let anthropic_registro: Option<RegistroDeProvider> =
         build_anthropic_provider(&cfg, chave_anthropic.as_deref(), Arc::clone(&audit_sink))
-            .unwrap_or_else(|erro| {
-                eprintln!("erro de configuração: {erro}");
-                std::process::exit(2)
-            });
+            .ou_encerrar(2, |erro| format!("erro de configuração: {erro}"))?;
 
     // Coletor único dos avisos não-fatais de partida (MT-152) — preenchido
     // aqui e por `register_mcp_tools` logo abaixo, escoado uma vez só,
@@ -1386,10 +1425,7 @@ async fn main() {
         .unwrap_or_else(|| repl::TASK_CLASS.to_string());
     let rota = router
         .resolve_with_override(&task_class, &overrides)
-        .unwrap_or_else(|erro| {
-            eprintln!("erro ao resolver rota: {erro}");
-            std::process::exit(1)
-        });
+        .ou_encerrar(1, |erro| format!("erro ao resolver rota: {erro}"))?;
 
     // Único `Gitignore` reaproveitado por instruções de projeto (MT-59),
     // descoberta de skills (MT-60) e a tool `skill` (MT-61) — mesma
@@ -1477,7 +1513,7 @@ async fn main() {
         Ok(None) => {}
         Err(erro) => {
             eprintln!("erro de configuração: {erro}");
-            std::process::exit(2)
+            return Err(Encerramento(2));
         }
     }
     register_mcp_tools(&mut registry, &cfg, &mut diagnosticos).await;
@@ -1529,9 +1565,9 @@ async fn main() {
         if let Err(erro) = mcp_server::servir(Arc::new(registry)).await {
             // `stderr`: o `stdout` é o canal do protocolo.
             eprintln!("{erro}");
-            std::process::exit(1);
+            return Err(Encerramento(1));
         }
-        return;
+        return Ok(());
     }
 
     // Capturado antes do `registry` ser consumido por `RegistryToolExecutor`
@@ -1585,7 +1621,7 @@ async fn main() {
             Ok(mensagens) => session = session.with_messages(mensagens),
             Err(erro) => {
                 eprintln!("erro ao retomar sessão: {erro}");
-                std::process::exit(2);
+                return Err(Encerramento(2));
             }
         }
     }
@@ -1603,18 +1639,12 @@ async fn main() {
             diagnosticos.mensagens().to_vec(),
         )
         .await
-        .unwrap_or_else(|erro| {
-            eprintln!("erro: {erro}");
-            std::process::exit(1)
-        });
+        .ou_encerrar(1, |erro| format!("erro: {erro}"))?;
     } else if let Some(tarefa) = args.tarefa {
         session.push_user_message(tarefa);
         let outcome = streaming::stream_to_writer(&mut session, io::stdout(), &router)
             .await
-            .unwrap_or_else(|erro| {
-                eprintln!("erro: {erro}");
-                std::process::exit(1)
-            });
+            .ou_encerrar(1, |erro| format!("erro: {erro}"))?;
         if let Some(aviso) = mensagem_de_teto_de_turnos(&outcome) {
             eprintln!("{aviso}");
         }
@@ -1636,11 +1666,10 @@ async fn main() {
             },
         )
         .await
-        .unwrap_or_else(|erro| {
-            eprintln!("erro: {erro}");
-            std::process::exit(1);
-        });
+        .ou_encerrar(1, |erro| format!("erro: {erro}"))?;
     }
+
+    Ok(())
 }
 
 #[cfg(test)]

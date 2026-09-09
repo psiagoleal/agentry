@@ -157,3 +157,82 @@ fn o_arquivo_autorizado_de_fato_resolve_o_home() {
         );
     }
 }
+
+/// Único ponto do workspace autorizado a encerrar o processo (MT-157).
+const ENCERRAMENTO_AUTORIZADO: &str = "async fn main()";
+
+#[test]
+fn nenhum_modulo_fora_da_main_encerra_o_processo() {
+    // MT-157: `std::process::exit` **não roda destrutores**. Enquanto cada
+    // caminho de erro chamava `exit` direto, todo `Drop` responsável por
+    // limpeza virava condicional ao caminho feliz — o caso concreto foi a
+    // ponte MCP do `claudeCli`, que deixava `agentry-mcp-<pid>.json` no
+    // diretório temporário a cada execução que terminasse em erro.
+    //
+    // Guarda estática, e não de comportamento, pela mesma razão do teste
+    // acima: um `exit` novo introduzido em qualquer caminho de erro continua
+    // compilando e deixa a suíte **verde** — só um teste que exercitasse
+    // exatamente aquele caminho perceberia. Aqui a propriedade é do
+    // código-fonte, então é verificada nele.
+    //
+    // A varredura libera o arquivo **inteiro** que contém a `main`; quem
+    // garante que lá dentro existe uma saída só é
+    // `a_main_autorizada_de_fato_encerra_o_processo`, logo abaixo. A divisão
+    // é intencional: aqui a pergunta é "que arquivos podem encerrar", lá é
+    // "quantas vezes".
+    let fontes = fontes_do_workspace();
+    assert!(fontes.len() > 20, "varredura vazia — ver o teste acima");
+
+    let mut violacoes = Vec::new();
+    for caminho in &fontes {
+        let conteudo = std::fs::read_to_string(caminho).expect("fonte deve ser legível");
+        // `fake_provider` é fixture de teste, não entra no binário instalado.
+        if caminho.to_string_lossy().contains("bin/fake_provider.rs") {
+            continue;
+        }
+        let autorizado = conteudo.contains(ENCERRAMENTO_AUTORIZADO);
+        for (n, linha) in conteudo.lines().enumerate() {
+            if e_comentario(linha) || !linha.contains("process::exit") {
+                continue;
+            }
+            if autorizado {
+                continue;
+            }
+            violacoes.push(format!("{}:{}", caminho.display(), n + 1));
+        }
+    }
+
+    assert!(
+        violacoes.is_empty(),
+        "só a `main` da CLI pode encerrar o processo (MT-157): `std::process::exit` pula \
+         destrutores, então um `exit` fora dela transforma qualquer limpeza por `Drop` em \
+         limpeza condicional ao caminho feliz. Devolva um erro até a `main`. Violações:\n  {}",
+        violacoes.join("\n  ")
+    );
+}
+
+#[test]
+fn a_main_autorizada_de_fato_encerra_o_processo() {
+    // Contraparte: se a `main` deixar de concentrar a saída (ou o marcador
+    // mudar), a varredura acima passaria a não achar nada e ficaria verde
+    // sem estar guardando coisa alguma.
+    let caminho = raiz_do_workspace().join("crates/cli/src/main.rs");
+    let conteudo = std::fs::read_to_string(&caminho).expect("main.rs deve existir");
+    assert!(
+        conteudo.contains(ENCERRAMENTO_AUTORIZADO),
+        "o marcador {ENCERRAMENTO_AUTORIZADO:?} sumiu de main.rs — a guarda do MT-157 precisa \
+         ser atualizada junto"
+    );
+    // Só linhas de código: a documentação do MT-157 cita `std::process::exit`
+    // várias vezes justamente para explicar por que ele é proibido.
+    let chamadas: Vec<&str> = conteudo
+        .lines()
+        .filter(|l| !e_comentario(l) && l.contains("std::process::exit"))
+        .collect();
+    assert_eq!(
+        chamadas.len(),
+        1,
+        "a saída do processo precisa continuar num ponto só, depois de `executar` ter \
+         devolvido e derrubado tudo que criou (MT-157); achadas: {chamadas:?}"
+    );
+}

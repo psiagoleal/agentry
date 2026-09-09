@@ -648,3 +648,109 @@ fn servidor_mcp_que_nao_conecta_avisa_em_stderr_sem_derrubar_a_sessao() {
         saida.status.code()
     );
 }
+
+/// MT-157. A ponte MCP do `claudeCli` (ADR-0042) escreve
+/// `agentry-mcp-<pid>.json` no diretório temporário e conta com o `Drop` de
+/// `PonteMcp` para removê-lo. Enquanto cada caminho de erro de `main` chamava
+/// `std::process::exit`, esse `Drop` **não rodava** — `exit` evapora o
+/// processo com o desempilhamento pela metade — e o arquivo sobrava a cada
+/// execução malsucedida. Achado real: cinco arquivos órfãos em `/tmp`, todos
+/// de PIDs mortos.
+///
+/// O caso é hermético de duas formas que valem registro:
+///
+/// - **não depende do `claude` de verdade.** `build_claude_cli_provider` só
+///   checa se o binário existe no `PATH`; um *script* vazio com esse nome
+///   basta para a ponte ser montada, e é o que mantém o caso rodando em CI.
+/// - **não depende de `/tmp`.** `TMPDIR` aponta para o diretório do caso, o
+///   que permite afirmar sobre o **conteúdo inteiro** do diretório em vez de
+///   caçar um padrão de nome numa pasta compartilhada com o resto da máquina.
+///
+/// A execução é forçada a falhar (rota de nuvem sob `local-only`) porque é
+/// exatamente o caminho que vazava; um caso feliz já passava antes da
+/// correção e não teria detectado nada.
+#[test]
+fn saida_por_erro_nao_deixa_a_config_temporaria_da_ponte_mcp_para_tras() {
+    let dir = TempDir::new("ponte-mcp");
+    let provider = Provider::subir(&dir, r#"{"respostas":[]}"#, None);
+    // Candidato `cloud-ok` sob sessão `local-only`: o `Router` recusa a rota
+    // e `executar` termina com código 1.
+    let projeto = preparar_projeto_com(&dir, &provider.base_url(), "local-only", "cloud-ok", "[]");
+    declarar_claude_cli_com_ponte(&projeto);
+
+    let tmp = dir.path().join("tmp");
+    std::fs::create_dir_all(&tmp).expect("cria TMPDIR do caso");
+    let falso_path = criar_claude_falso(&dir);
+
+    let home = dir.path().join("home");
+    std::fs::create_dir_all(&home).expect("cria HOME temporário");
+    let saida = Command::new(env!("CARGO_BIN_EXE_agentry"))
+        .arg("oi")
+        .current_dir(&projeto)
+        .env("HOME", &home)
+        .env("USERPROFILE", &home)
+        .env("TMPDIR", &tmp)
+        .env("PATH", falso_path)
+        .env_remove("AGENTRY_LITELLM_API_KEY")
+        .env_remove("ANTHROPIC_API_KEY")
+        .env_remove("AGENTRY_PROFILE")
+        .env_remove("AGENTRY_MODEL")
+        .output()
+        .expect("agentry deve executar");
+
+    // Sem isto o caso passaria por vacuidade: se a execução tivesse sido
+    // bem-sucedida, o `Drop` rodaria mesmo antes da correção.
+    assert!(
+        !saida.status.success(),
+        "o caso precisa exercitar um caminho de ERRO; saída: {:?}, stderr: {}",
+        saida.status.code(),
+        texto(&saida.stderr)
+    );
+
+    let restantes: Vec<String> = std::fs::read_dir(&tmp)
+        .expect("TMPDIR deve existir")
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    assert!(
+        restantes.is_empty(),
+        "saída por erro deixou lixo no diretório temporário: {restantes:?} — `Drop` só limpa \
+         se o processo desempilhar, então nenhum caminho pode chamar std::process::exit \
+         (MT-157)"
+    );
+}
+
+/// Acrescenta `providers.claudeCli` com `mcpTools` ligado — é a combinação
+/// que faz `main` montar a ponte e, portanto, escrever o arquivo temporário.
+fn declarar_claude_cli_com_ponte(projeto: &Path) {
+    let caminho = projeto.join(".agentry/agentry.settings.json");
+    let bruto = std::fs::read_to_string(&caminho).expect("settings deve existir");
+    let mut settings: serde_json::Value =
+        serde_json::from_str(&bruto).expect("settings deve ser JSON válido");
+    settings["providers"]["claudeCli"] = serde_json::json!({
+        "model": "opus",
+        "mcpTools": true
+    });
+    std::fs::write(
+        &caminho,
+        serde_json::to_string_pretty(&settings).expect("serializa settings"),
+    )
+    .expect("regrava settings");
+}
+
+/// Cria um `claude` inerte e devolve o `PATH` que o encontra. `agentry` só
+/// verifica a **presença** do binário para registrar o provider; ele não é
+/// executado neste caso, que falha antes de qualquer chamada ao modelo.
+fn criar_claude_falso(dir: &TempDir) -> String {
+    let bin = dir.path().join("bin");
+    std::fs::create_dir_all(&bin).expect("cria bin/ do caso");
+    let falso = bin.join("claude");
+    std::fs::write(&falso, "#!/bin/sh\nexit 0\n").expect("escreve claude falso");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&falso, std::fs::Permissions::from_mode(0o755))
+            .expect("torna executável");
+    }
+    bin.to_string_lossy().into_owned()
+}
