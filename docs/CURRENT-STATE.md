@@ -14,7 +14,7 @@
 - **Data:** 2026-09-09
 - **Branch:** `chore/build-linux-e-higiene-de-disco` (**não mesclada em `main`**)
 - **Commits desta rodada:** `882abeb`, `2bf620d`, `67b1e77`, `bcc7788`, `f521dbe`, `5c311ca`,
-  `f1ffdde`, `f00b730`, `c4bfda0`
+  `f1ffdde`, `f00b730`, `c4bfda0`, `29420cf`, `0ce65a0`
 - **Estado da árvore:** `AGENTS.md`, `skills/README.md` e os diretórios de skills não
   rastreados seguem modificados de **outra frente**, anteriores a esta rodada e intocados.
   Há um binário `agentry` de ~280 MB **solto na raiz** (não rastreado, fora do `.gitignore`) —
@@ -32,21 +32,22 @@
       mais o motivo do erro; a ajuda passou a explicar os marcadores e o clique de expansão.
 - [x] **`f1ffdde`** — **MT-157**: saída do processo concentrada na `main`; os 25
       `std::process::exit` viraram `Encerramento(n)` propagado por `?`.
+- [x] **exemplos de configuração** em `usage-test/exemplos/`, versionados e com duas guardas:
+      todo exemplo tem de **carregar**, e nenhum pode apontar para host real.
 - [~] **`c4bfda0`** — **MT-146** (parcial): e2e auditado e tornado portável para a matriz; falta
       **só** observar o CI verde duas vezes, o que depende de um `push` ainda não autorizado.
 
 Causa raiz de cada um (detalhe em `docs/roadmap-v0.18.md`); as três correções compartilham a
 mesma forma — **informação correta produzida no lugar certo, que não chegava a quem precisa**:
 
-- **MT-150** — a legenda vinha só de `def.code`. Não era cosmético: desde o MT-72 letra solta
-  **não resolve** para ação nenhuma, então a ajuda anunciava teclas que não funcionam.
+- **MT-150** — a legenda vinha só de `def.code`; desde o MT-72 letra solta **não resolve** para
+  ação nenhuma, então a ajuda anunciava teclas que não funcionam.
 - **MT-151** — regra que fica: bloco de configuração cujo valor de exemplo é **executado** não
-  pode ter exemplo inerte. O `echo` do MT-77 era seguro porque nada conectava; o MT-78 passou a
-  conectar e o exemplo virou erro fixo.
+  pode ter exemplo inerte. O `echo` do MT-77 era seguro porque nada conectava; o MT-78 passou
+  a conectar e o exemplo virou erro fixo.
 - **MT-152** — a correção não foi escrever em `stderr` mais cedo: foi **não escolher o canal na
   origem**. Quem produz registra em `DiagnosticosDeInicializacao`; `main` decide a superfície.
-- **MT-154** — o marcador (`⚙`/`✓`/`✗`) responde "isso rodou ou não?" sem interação; o motivo
-  do erro entra truncado, e só no erro. Saída de sucesso continua fora da linha recolhida.
+- **MT-154** — o marcador (`⚙`/`✓`/`✗`) responde "isso rodou ou não?" sem interação.
 - **MT-157** — `std::process::exit` **não roda destrutores**, então todo `Drop` de limpeza era
   condicional ao caminho feliz. A saída passou a acontecer num ponto só, depois de `executar`
   ter devolvido. Vale como regra geral daqui em diante: **limpeza por `Drop` só é confiável
@@ -68,6 +69,10 @@ Falta o critério de aceite: **CI verde em duas execuções seguidas**. Isso exi
 branch `chore/build-linux-e-higiene-de-disco`, que nunca foi enviada — **não fiz por conta
 própria**. A ADR-0045 §5 **não** foi emendada de propósito: a saída acordada lá (restringir o
 e2e a Linux) depende de instabilidade **observada**, e ainda não houve execução de CI.
+
+**Pedido em aberto do mantenedor (2026-09-09):** usar `usage-test/` para exemplos de uso e de
+configuração — feito para a parte de **configuração**; falta **executar** um teste de uso contra
+o gateway e deixar o relatório. Parou por cota, não por dificuldade.
 
 **Gateway LiteLLM alcançável desta máquina desde 2026-09-09** — endpoint e chave ficam **fora
 do repositório**. Quatro modelos, dos quais `qwen3-coder:30b` faz *tool-calling*. **Nunca ecoar
