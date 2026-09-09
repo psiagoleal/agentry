@@ -13,7 +13,8 @@
 
 - **Data:** 2026-09-09
 - **Branch:** `chore/build-linux-e-higiene-de-disco` (**não mesclada em `main`**)
-- **Commits desta rodada:** `882abeb`, `2bf620d`, `67b1e77`, `bcc7788`, `f521dbe`
+- **Commits desta rodada:** `882abeb`, `2bf620d`, `67b1e77`, `bcc7788`, `f521dbe`, `5c311ca`,
+  `f1ffdde`
 - **Estado da árvore:** `AGENTS.md`, `skills/README.md` e os diretórios de skills não
   rastreados seguem modificados de **outra frente**, anteriores a esta rodada e intocados.
   Há um binário `agentry` de ~280 MB **solto na raiz** (não rastreado, não coberto pelo
@@ -29,6 +30,8 @@
       6 cenários, **6 passaram**, 3 achados novos (MT-154/155/156).
 - [x] **`f521dbe`** — **MT-154**: marcador de desfecho (`⚙`/`✓`/`✗`) na linha recolhida de tool,
       mais o motivo do erro; a ajuda passou a explicar os marcadores e o clique de expansão.
+- [x] **`f1ffdde`** — **MT-157**: saída do processo concentrada na `main`; os 25
+      `std::process::exit` viraram `Encerramento(n)` propagado por `?`.
 
 Causa raiz de cada um (detalhe em `docs/roadmap-v0.18.md`); as três correções compartilham a
 mesma forma — **informação correta produzida no lugar certo, que não chegava a quem precisa**:
@@ -42,6 +45,10 @@ mesma forma — **informação correta produzida no lugar certo, que não chegav
   origem**. Quem produz registra em `DiagnosticosDeInicializacao`; `main` decide a superfície.
 - **MT-154** — o marcador (`⚙`/`✓`/`✗`) responde "isso rodou ou não?" sem interação; o motivo
   do erro entra truncado, e só no erro. Saída de sucesso continua fora da linha recolhida.
+- **MT-157** — `std::process::exit` **não roda destrutores**, então todo `Drop` de limpeza era
+  condicional ao caminho feliz. A saída passou a acontecer num ponto só, depois de `executar`
+  ter devolvido. Vale como regra geral daqui em diante: **limpeza por `Drop` só é confiável
+  porque o processo agora desempilha** — a guarda estática impede o próximo `exit` de aparecer.
 
 **Correção ao relatório de 2026-09-08:** a recusa de rota sob `local-only` **não** estava
 invisível — ocorre antes de a TUI subir e sai em `stderr` com código 1 (verificado).
@@ -65,21 +72,17 @@ fronteira de confiança", não "não sai da máquina".
 
 ## Próximo passo sugerido
 
-1. **MT-157** — `/tmp/agentry-mcp-<pid>.json` vaza em **toda** saída por `std::process::exit`
-   (que pula destrutores), e `claudeCli.mcpTools` vem ligado no exemplo do `--init`. Causa raiz
-   isolada; o conserto de verdade é `main` devolver código de saída em vez de chamar
-   `process::exit`.
-2. **MT-146** — fiar os testes ponta a ponta no CI; é o **único** ticket restante da Fase K.
+1. **MT-146** — fiar os testes ponta a ponta no CI; é o **único** ticket restante da Fase K.
    Inclui a regressão da configuração MCP temporária órfã.
-3. **MT-153** — promover a TUI a modo padrão, com `--repl` como escape hatch e *fallback* para
+2. **MT-153** — promover a TUI a modo padrão, com `--repl` como escape hatch e *fallback* para
    texto quando não houver TTY (`std::io::IsTerminal`). **Desbloqueado** por `882abeb`; exige
    ADR nova, citando o relatório de uso como a evidência que a ADR-0027 pedia.
-4. **Implementar a ADR-0044** — providers por assinatura via CLI oficial (Codex/Gemini) e por
+3. **Implementar a ADR-0044** — providers por assinatura via CLI oficial (Codex/Gemini) e por
    API. **Pré-requisito duro, ainda não verificado:** confirmar que cada CLI autoriza consumo
    programático sob a assinatura e qual o modo *headless* suportado. Quebrar com
    `micro-ticket-planner`: o molde da ADR-0040 exige `AuditEntry` por invocação e
    `EgressClass` verificada antes do *spawn* em cada provider.
-5. **Detector de nome de pessoa** — lacuna que a ADR-0043 declara e não resolve; custo de falso
+4. **Detector de nome de pessoa** — lacuna que a ADR-0043 declara e não resolve; custo de falso
    positivo alto, decisão do mantenedor.
 
 ## Decisões pendentes do mantenedor
