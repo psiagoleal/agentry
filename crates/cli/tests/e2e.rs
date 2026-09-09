@@ -662,9 +662,14 @@ fn servidor_mcp_que_nao_conecta_avisa_em_stderr_sem_derrubar_a_sessao() {
 /// - **não depende do `claude` de verdade.** `build_claude_cli_provider` só
 ///   checa se o binário existe no `PATH`; um *script* vazio com esse nome
 ///   basta para a ponte ser montada, e é o que mantém o caso rodando em CI.
-/// - **não depende de `/tmp`.** `TMPDIR` aponta para o diretório do caso, o
-///   que permite afirmar sobre o **conteúdo inteiro** do diretório em vez de
-///   caçar um padrão de nome numa pasta compartilhada com o resto da máquina.
+/// - **não depende de `/tmp`.** O diretório temporário do processo filho é
+///   redirecionado para dentro do caso, o que permite afirmar sobre o
+///   **conteúdo inteiro** dele em vez de caçar um padrão de nome numa pasta
+///   compartilhada com o resto da máquina. As três variáveis são definidas de
+///   propósito: `std::env::temp_dir()` lê `TMPDIR` no Unix e `TMP`/`TEMP` no
+///   Windows — definir só a primeira faria o caso passar **por vacuidade** na
+///   matriz de CI, afirmando sobre um diretório vazio que o binário nunca
+///   usou (MT-146).
 ///
 /// A execução é forçada a falhar (rota de nuvem sob `local-only`) porque é
 /// exatamente o caminho que vazava; um caso feliz já passava antes da
@@ -690,6 +695,8 @@ fn saida_por_erro_nao_deixa_a_config_temporaria_da_ponte_mcp_para_tras() {
         .env("HOME", &home)
         .env("USERPROFILE", &home)
         .env("TMPDIR", &tmp)
+        .env("TMP", &tmp)
+        .env("TEMP", &tmp)
         .env("PATH", falso_path)
         .env_remove("AGENTRY_LITELLM_API_KEY")
         .env_remove("ANTHROPIC_API_KEY")
@@ -738,14 +745,18 @@ fn declarar_claude_cli_com_ponte(projeto: &Path) {
     .expect("regrava settings");
 }
 
-/// Cria um `claude` inerte e devolve o `PATH` que o encontra. `agentry` só
-/// verifica a **presença** do binário para registrar o provider; ele não é
-/// executado neste caso, que falha antes de qualquer chamada ao modelo.
+/// Cria um `claude` inerte e devolve o `PATH` que o encontra.
+///
+/// `agentry` só verifica a **presença** do binário (`binario_no_path` aceita
+/// o arquivo sem extensão em qualquer plataforma), e ele **não é executado**
+/// neste caso — a execução falha ao resolver a rota, antes de qualquer
+/// chamada ao modelo. Por isso um arquivo vazio serve nos três SOs, e o bit
+/// de execução só faz sentido no Unix.
 fn criar_claude_falso(dir: &TempDir) -> String {
     let bin = dir.path().join("bin");
     std::fs::create_dir_all(&bin).expect("cria bin/ do caso");
     let falso = bin.join("claude");
-    std::fs::write(&falso, "#!/bin/sh\nexit 0\n").expect("escreve claude falso");
+    std::fs::write(&falso, "").expect("escreve claude falso");
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;

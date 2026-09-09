@@ -52,6 +52,14 @@ jobs:
       - name: Instala protoc (Windows)
         if: runner.os == 'Windows'
         run: choco install protoc -y
+      # `--all` é o que traz os testes ponta a ponta da Fase K (ADR-0045)
+      # junto: eles vivem em `crates/cli/tests/e2e.rs` e sobem o binário real
+      # contra o `fake_provider`, que é um bin de `agentry-core` — sem `--all`
+      # a fixture não seria compilada e os casos falhariam por ausência dela,
+      # não por regressão. São também a parte mais frágil da matriz (sobem
+      # processo e abrem socket); a ADR-0045 §5 já declara a saída acordada
+      # caso se mostrem instáveis em Windows/macOS: restringir a Linux e
+      # registrar o recorte lá, nunca conviver com teste intermitente.
       - name: Testes
         run: cargo test --all --verbose
       - name: Build release
