@@ -1,0 +1,27 @@
+{
+  "$schema": "https://raw.githubusercontent.com/psiagoleal/agentry/main/docs/schema/agentry.settings.schema.json",
+  "schemaVersion": 1,
+  "_exemplo": "Permissões e guardrails de conteúdo. Na TUI, uma tool sob 'ask' abre modal de confirmação; uma sob 'deny' é negada sem modal, e Ctrl+A (automático) NÃO afrouxa deny — invariante verificado no cenário E5 do plano de teste.",
+  "profile": "empresa",
+  "permissions": {
+    "deny": ["fs_edit"],
+    "ask": ["fs_write"],
+    "readAllow": []
+  },
+  "guardrails": {
+    "_comentario": "match não diferencia maiúsculas/minúsculas. 'block' recusa a chamada; 'redact' mascara o trecho. Detectores nomeados de PII (ADR-0043) são independentes destas regras textuais.",
+    "input": [
+      { "id": "bloqueia-senha", "match": "senha:", "action": "block" }
+    ],
+    "output": [
+      { "id": "mascara-segredo-conhecido", "match": "segredo-abc", "action": "redact" }
+    ]
+  },
+  "taskClasses": {
+    "chat": {
+      "candidates": [
+        { "provider": "ollama", "model": "llama3.1:8b", "egressClass": "local-only" }
+      ]
+    }
+  }
+}

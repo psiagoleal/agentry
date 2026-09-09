@@ -1,0 +1,28 @@
+{
+  "$schema": "https://raw.githubusercontent.com/psiagoleal/agentry/main/docs/schema/agentry.settings.schema.json",
+  "schemaVersion": 1,
+  "_exemplo": "Gateway LiteLLM. Troque baseUrl e model em usage-test/local/, nunca aqui. A chave NÃO vai neste arquivo: use AGENTRY_LITELLM_API_KEY ou `agentry --set-credential litellm`.",
+  "_exemplo_egressClass": "cloud-ok é o rótulo conservador para um endpoint de rede: exige o perfil 'pessoal' para ser alcançável. ATENÇÃO ao caso corporativo — o perfil 'empresa' mapeia para local-only, então um gateway interno só é alcançável sob ele se for declarado local-only. Ou seja: aqui 'local-only' significa 'não sai da fronteira de confiança', não 'não sai da máquina'. Escolher o rótulo é decisão de política, não de conveniência.",
+  "profile": "pessoal",
+  "providers": {
+    "litellm": {
+      "baseUrl": "http://gateway-interno.exemplo:4000",
+      "model": "modelo-do-seu-gateway",
+      "egressClass": "cloud-ok"
+    }
+  },
+  "taskClasses": {
+    "chat": {
+      "candidates": [
+        { "provider": "litellm", "model": "modelo-do-seu-gateway", "egressClass": "cloud-ok" },
+        { "provider": "ollama", "model": "llama3.1:8b", "egressClass": "local-only" }
+      ]
+    },
+    "local": {
+      "_comentario": "Alvo da tool `subagent` — nunca sai da máquina.",
+      "candidates": [
+        { "provider": "ollama", "model": "llama3.1:8b", "egressClass": "local-only" }
+      ]
+    }
+  }
+}

@@ -371,6 +371,27 @@ abaixo custou um teste que passava **sem verificar nada**.
    engole o comando. `send-keys` **não emite mouse** — expandir bloco de tool exige injetar a
    sequência SGR com `-H` (receita no plano).
 
+### MT-158 (proposto): `baseUrl` por variável de ambiente, para exemplo versionado ser utilizável
+- **Objetivo:** hoje a camada de ambiente (`Settings::from_env_vars`) reconhece só
+  `AGENTRY_PROFILE`, `AGENTRY_MODEL` e `AGENTRY_MAX_TOKENS`, e não há interpolação de variável
+  dentro do JSON. Consequência prática: um exemplo em `usage-test/exemplos/` **não pode** ser
+  usado direto contra um gateway real sem que o endereço dele entre no repositório — que é
+  justamente o que a guarda `nenhum_exemplo_aponta_para_um_host_real` proíbe. O pedido veio do
+  mantenedor (2026-09-09): "configurar variáveis de ambiente nos arquivos JSON, assim podemos
+  usar para teste e ainda versionar".
+- **Escolha real:** (a) estender a camada de ambiente com
+  `AGENTRY_LITELLM_BASE_URL`/`AGENTRY_LITELLM_MODEL` (e irmãs por provider) — pequeno, segue o
+  precedente que já existe para a **chave** do mesmo provider, e mantém a configuração
+  declarativa; ou (b) interpolação genérica `${VAR}` no JSON — mais poderosa e imediatamente
+  familiar, mas transforma o arquivo de configuração num **leitor arbitrário do ambiente do
+  processo**, o que é uma capacidade nova e precisa de ADR (um `agentry.settings.json` de
+  terceiro passaria a poder ler qualquer variável).
+- **Recomendação:** (a). Resolve o caso concreto sem abrir a capacidade de (b), e é reversível.
+- **Critério de aceite:** `02-gateway-litellm.json` roda contra um gateway real sem edição, só
+  com variáveis exportadas; a guarda de host continua verde; teste da nova camada, incluindo a
+  precedência sobre o arquivo do projeto.
+- **Depende de:** ADR nova **se** (b) for escolhida; nenhum se (a).
+
 ### MT-146: fiar no CI (e o que fica de fora)
 - **Objetivo:** rodar os testes ponta a ponta na matriz de 3 SOs, ou decidir e **registrar**
   um recorte menor. Ponto de decisão real: o `fake_provider` sobe processo e abre socket, o

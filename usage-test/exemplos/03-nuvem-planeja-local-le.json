@@ -1,0 +1,36 @@
+{
+  "$schema": "https://raw.githubusercontent.com/psiagoleal/agentry/main/docs/schema/agentry.settings.schema.json",
+  "schemaVersion": 1,
+  "_exemplo": "ADR-0041. O agente principal (nuvem) fica estruturalmente impedido de abrir o que é confidencial e precisa delegar essas leituras ao subagente, que roda num modelo local. Garante que nenhuma leitura confidencial ocorre sem passar por um modelo local — NÃO garante que a resposta dele venha sanitizada.",
+  "profile": "pessoal",
+  "permissions": {
+    "_comentario": "readAllow só alcança tools com argumento de caminho (fs_read/fs_write/fs_edit). shell_exec, glob e fs_search leem por outras vias: sem o deny abaixo, readAllow é falsa sensação de proteção.",
+    "readAllow": ["README.md", "AGENTS.md", "docs/**"],
+    "deny": ["shell_exec", "glob", "fs_search"],
+    "ask": []
+  },
+  "subagentPermissions": {
+    "_comentario": "Devolve ao subagente local o acesso negado ao principal. Sem isto, negar ao principal cegaria os dois.",
+    "deny": [],
+    "readAllow": []
+  },
+  "providers": {
+    "litellm": {
+      "baseUrl": "http://gateway-interno.exemplo:4000",
+      "model": "modelo-do-seu-gateway",
+      "egressClass": "cloud-ok"
+    }
+  },
+  "taskClasses": {
+    "chat": {
+      "candidates": [
+        { "provider": "litellm", "model": "modelo-do-seu-gateway", "egressClass": "cloud-ok" }
+      ]
+    },
+    "local": {
+      "candidates": [
+        { "provider": "ollama", "model": "llama3.1:8b", "egressClass": "local-only" }
+      ]
+    }
+  }
+}

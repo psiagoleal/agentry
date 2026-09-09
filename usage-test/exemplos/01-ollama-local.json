@@ -1,0 +1,19 @@
+{
+  "$schema": "https://raw.githubusercontent.com/psiagoleal/agentry/main/docs/schema/agentry.settings.schema.json",
+  "schemaVersion": 1,
+  "_exemplo": "Só modelo local. Com profile 'empresa' a classe de egresso da sessão é local-only, então NENHUM candidato de nuvem seria alcançável mesmo que fosse declarado — a garantia é estrutural, não de disciplina.",
+  "profile": "empresa",
+  "providers": {
+    "ollama": {
+      "_comentario": "Mantenha structuredOutput em false: com ele ativo, um modelo com tool-calling nativo devolve a chamada como texto e nenhuma tool executa.",
+      "structuredOutput": false
+    }
+  },
+  "taskClasses": {
+    "chat": {
+      "candidates": [
+        { "provider": "ollama", "model": "llama3.1:8b", "egressClass": "local-only" }
+      ]
+    }
+  }
+}
