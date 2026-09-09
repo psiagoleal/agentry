@@ -221,14 +221,8 @@ const GENERIC_SETTINGS_EXAMPLE: &str = r#"{
       ]
     }
   },
-  "mcpServers": {
-    "exemplo": {
-      "_comentario": "Servidores MCP (Model Context Protocol) locais (Fase 16/ADR-0028): cada nome mapeia para um comando (+ argumentos) rodado como subprocesso, falando o protocolo MCP via stdin/stdout — mesmo modelo de confiança de um language server local (ADR-0013), nunca uma chamada de rede mediada pelo agentry. egressClass é sempre obrigatória e, nesta versão, só aceita 'local-only' — servidores remotos (HTTP/SSE) ainda não são suportados, declarar qualquer outra classe é erro tratado ao carregar a configuração. Este 'exemplo' usa 'echo' (sempre presente, sem efeito colateral) só para ilustrar o formato — não é um servidor MCP de verdade (não fala o protocolo; uma tentativa de conexão falharia de forma tratada, não silenciosa). Troque por um comando real, ex.: \"command\": \"npx\", \"args\": [\"-y\", \"@modelcontextprotocol/server-filesystem\", \"/caminho/do/projeto\"]. Guia: docs/usuario/configuracao.md.",
-      "command": "echo",
-      "args": ["configure um servidor MCP real aqui"],
-      "egressClass": "local-only"
-    }
-  }
+  "_comentario_mcpServers": "mcpServers (Fase 16/ADR-0028): cada nome mapeia para um comando (+ argumentos) rodado como subprocesso, falando o protocolo MCP via stdin/stdout — mesmo modelo de confiança de um language server local (ADR-0013), nunca uma chamada de rede mediada pelo agentry. egressClass é sempre obrigatória e, nesta versão, só aceita 'local-only' — servidores remotos (HTTP/SSE) ainda não são suportados, declarar qualquer outra classe é erro tratado ao carregar a configuração. Vazio por padrão: um servidor declarado é um servidor ao qual o agentry TENTA CONECTAR em toda execução, então um exemplo inerte aqui viraria uma mensagem de erro fixa a cada início de sessão. Exemplo para copiar dentro de mcpServers: \"filesystem\": { \"command\": \"npx\", \"args\": [\"-y\", \"@modelcontextprotocol/server-filesystem\", \"/caminho/do/projeto\"], \"egressClass\": \"local-only\" }. Guia: docs/usuario/configuracao.md.",
+  "mcpServers": {}
 }
 "#;
 /// Comando manual equivalente, sempre exibido por `--init`/`/init` (ADR-0019
@@ -534,26 +528,35 @@ impl GuardrailAuditSink for NoopAuditSink {
 /// de qualquer outra tool.
 ///
 /// Falha ao conectar a um servidor (comando ausente no `PATH`, *handshake*
-/// que não completa) é reportada em stderr e **não aborta a CLI** — os
+/// que não completa) é registrada em `diagnosticos` (MT-152 — quem decide o
+/// canal de saída é `main`, não este ponto) e **não aborta a CLI** — os
 /// demais servidores (e o restante da sessão) continuam normalmente.
 /// Diferente de `register_context_tools` (nome/schema de cada tool é
 /// estático, erro só aparece por chamada), aqui não há como registrar uma
 /// tool "estática": sem uma conexão bem-sucedida não se sabe nem o nome
 /// nem o schema dela — por isso a falha acontece na hora do registro, não
 /// depois.
-async fn register_mcp_tools(registry: &mut ToolRegistry, cfg: &Config) {
+async fn register_mcp_tools(
+    registry: &mut ToolRegistry,
+    cfg: &Config,
+    diagnosticos: &mut DiagnosticosDeInicializacao,
+) {
     for (nome_servidor, servidor) in &cfg.mcp_servers {
         let cliente = match McpClient::start_from_settings(servidor).await {
             Ok(cliente) => Arc::new(cliente),
             Err(erro) => {
-                eprintln!("erro ao conectar ao servidor MCP '{nome_servidor}': {erro}");
+                diagnosticos.registrar(format!(
+                    "erro ao conectar ao servidor MCP '{nome_servidor}': {erro}"
+                ));
                 continue;
             }
         };
         let tools = match cliente.list_tools().await {
             Ok(tools) => tools,
             Err(erro) => {
-                eprintln!("erro ao listar tools do servidor MCP '{nome_servidor}': {erro}");
+                diagnosticos.registrar(format!(
+                    "erro ao listar tools do servidor MCP '{nome_servidor}': {erro}"
+                ));
                 continue;
             }
         };
@@ -819,10 +822,52 @@ fn build_anthropic_provider(
 /// `audit_sink` da CLI — por isso o sink é passado aqui, e não um `Transport`.
 /// A `egress_class` **da sessão** vai junto para o provider poder recusar o
 /// *spawn* antes de criar o processo (ver a ADR-0040 §Decisão).
+/// Avisos de inicialização que **não** derrubam a sessão: provider
+/// configurado mas indisponível, servidor MCP que não conectou, ponte MCP
+/// que não montou. Diferente de todo outro erro de partida, estes seguem
+/// adiante — e por isso precisam de um lugar para ser vistos.
+///
+/// **MT-152.** Até aqui cada um deles ia direto para `stderr` no ponto em
+/// que acontecia. Nos modos de texto isso funciona; sob `--tui`, não: o
+/// `crossterm` entra na tela alternativa logo depois, e o que já estava
+/// escrito no terminal some junto — a mensagem só reaparece quando quem usa
+/// **sai** da TUI, momento em que ela não serve mais para nada. O achado
+/// concreto do teste de uso de 2026-09-08 foi o erro de servidor MCP:
+/// invisível durante toda a sessão, apesar de o `--init` daquele momento
+/// garantir que ele aconteceria (MT-151).
+///
+/// A correção não é escrever em `stderr` mais cedo — é **não escolher o
+/// canal no ponto de origem**. Quem produz o aviso só o registra aqui; quem
+/// sabe qual é a superfície de saída (`main`) decide onde ele aparece:
+/// `stderr` nos modos de texto, mensagem de sistema no histórico da TUI.
+#[derive(Debug, Default)]
+struct DiagnosticosDeInicializacao {
+    mensagens: Vec<String>,
+}
+
+impl DiagnosticosDeInicializacao {
+    fn registrar(&mut self, mensagem: String) {
+        self.mensagens.push(mensagem);
+    }
+
+    /// Escoa para `stderr`, na ordem em que os avisos ocorreram — o
+    /// comportamento literal de antes do MT-152, para os modos de texto.
+    fn escoar_para_stderr(&self) {
+        for mensagem in &self.mensagens {
+            eprintln!("{mensagem}");
+        }
+    }
+
+    fn mensagens(&self) -> &[String] {
+        &self.mensagens
+    }
+}
+
 fn build_claude_cli_provider(
     cfg: &Config,
     audit_sink: Arc<dyn AuditSink>,
     montar_ponte_mcp: bool,
+    diagnosticos: &mut DiagnosticosDeInicializacao,
 ) -> Option<RegistroDeProvider> {
     let claude_cli = cfg.claude_cli.as_ref()?;
 
@@ -832,10 +877,11 @@ fn build_claude_cli_provider(
     // quem não tem o Claude Code instalado cai no Ollama sozinho, sem editar
     // nada. O aviso existe para a queda nunca ser silenciosa.
     if !binario_no_path(agentry_core::provider::claude_cli::CLAUDE_BINARY) {
-        eprintln!(
+        diagnosticos.registrar(
             "[claude-cli] aviso: providers.claudeCli está configurado mas o binário 'claude' \
              não está no PATH — provider não registrado (instale o Claude Code e rode \
              `claude login` para usá-lo). Os demais candidatos da rota seguem valendo."
+                .to_string(),
         );
         return None;
     }
@@ -863,10 +909,10 @@ fn build_claude_cli_provider(
                 PonteMcp::nova(&exe, mcp_server::NOME_DO_SERVIDOR, &std::env::temp_dir())
             }) {
             Ok(ponte) => provider = provider.with_ponte_mcp(ponte),
-            Err(erro) => eprintln!(
+            Err(erro) => diagnosticos.registrar(format!(
                 "[claude-cli] aviso: providers.claudeCli.mcpTools está ligado mas a ponte MCP \
                  não pôde ser montada ({erro}) — seguindo sem tool-calling (só texto)."
-            ),
+            )),
         }
     }
 
@@ -1280,8 +1326,16 @@ async fn main() {
                 std::process::exit(2)
             });
 
-    let claude_cli_registro =
-        build_claude_cli_provider(&cfg, Arc::clone(&audit_sink), !args.mcp_server);
+    // Coletor único dos avisos não-fatais de partida (MT-152) — preenchido
+    // aqui e por `register_mcp_tools` logo abaixo, escoado uma vez só,
+    // depois que se sabe qual é a superfície de saída desta execução.
+    let mut diagnosticos = DiagnosticosDeInicializacao::default();
+    let claude_cli_registro = build_claude_cli_provider(
+        &cfg,
+        Arc::clone(&audit_sink),
+        !args.mcp_server,
+        &mut diagnosticos,
+    );
 
     // Ordem = preferência de candidato depois do Ollama local.
     let registros_extra: Vec<RegistroDeProvider> = litellm_registro
@@ -1426,7 +1480,12 @@ async fn main() {
             std::process::exit(2)
         }
     }
-    register_mcp_tools(&mut registry, &cfg).await;
+    register_mcp_tools(&mut registry, &cfg, &mut diagnosticos).await;
+    // Sob `--tui` os avisos vão para o histórico de chat (ver `tui::run`);
+    // em qualquer outro modo, para `stderr`, exatamente como antes.
+    if !args.tui {
+        diagnosticos.escoar_para_stderr();
+    }
 
     // Construído aqui (não dentro de `register_context_tools`) porque
     // `/recall` (MT-137, REPL/TUI) precisa da mesma instância — mesmo
@@ -1541,6 +1600,7 @@ async fn main() {
             auto_confirmacao,
             workspace_root.clone(),
             session_search_session,
+            diagnosticos.mensagens().to_vec(),
         )
         .await
         .unwrap_or_else(|erro| {
@@ -1708,19 +1768,20 @@ mod tests {
         assert!(!cfg.task_classes.contains_key("compact"));
         assert!(!cfg.task_classes.contains_key("guardrail-compliance"));
 
-        // MT-77: 'mcpServers' do exemplo — o servidor 'exemplo' usa 'echo'
-        // (sem efeito colateral, não fala MCP de verdade) só para ilustrar
-        // o formato; fica presente no mapa resolvido, mas nada neste ticket
-        // ainda conecta a ele (conectar de fato é o MT-78).
-        assert_eq!(cfg.mcp_servers.len(), 1);
-        let exemplo = cfg
-            .mcp_servers
-            .get("exemplo")
-            .expect("'exemplo' deve estar declarado no exemplo");
-        assert_eq!(exemplo.command, "echo");
-        assert_eq!(
-            exemplo.egress_class,
-            agentry_core::config::privacy::EgressClass::LocalOnly
+        // MT-151: 'mcpServers' sai **vazio** do `--init`. O MT-77 declarava
+        // aqui um servidor 'exemplo' com `command: "echo"`, apostando que
+        // uma conexão falha seria "tratada, não silenciosa" — e era, porque
+        // naquele momento nada conectava. O MT-78 passou a conectar, e o
+        // exemplo inerte virou uma mensagem de erro fixa
+        // (`TokioChildProcess ... Broken pipe`) em **toda** execução de quem
+        // rodou `--init`, achado do teste de uso de 2026-09-08. Um bloco de
+        // configuração cujo valor de exemplo é executado não pode ter
+        // exemplo inerte: o formato vai no comentário, não no mapa.
+        assert!(
+            cfg.mcp_servers.is_empty(),
+            "o exemplo do --init não pode declarar servidor MCP nenhum: todo servidor \
+             declarado é conectado no início da sessão (MT-78), então um exemplo aqui é um \
+             erro garantido para quem acabou de instalar"
         );
     }
 
@@ -2626,6 +2687,50 @@ mod tests {
         );
     }
 
+    // ---- DiagnosticosDeInicializacao (MT-152) ----
+
+    /// A falha de conexão a um servidor MCP tem de virar **dado**, não uma
+    /// escrita imediata em `stderr`: é o que permite a `main` mostrá-la
+    /// dentro da TUI, onde `stderr` está coberto pela tela alternativa.
+    ///
+    /// O par de asserções é o contrato inteiro: o aviso existe *e* nenhuma
+    /// tool foi registrada. Só a primeira passaria também numa versão que
+    /// avisasse e registrasse uma tool quebrada; só a segunda passaria numa
+    /// versão que falhasse em silêncio — que é exatamente o defeito.
+    #[tokio::test]
+    async fn servidor_mcp_que_nao_conecta_vira_diagnostico_em_vez_de_escrita_em_stderr() {
+        let camada = agentry_core::config::Settings::from_json_str(
+            r#"{ "mcpServers": { "inexistente": {
+                "command": "agentry-comando-que-nao-existe",
+                "args": [],
+                "egressClass": "local-only"
+            } } }"#,
+        )
+        .expect("JSON de teste deve ser válido");
+        let cfg = Config::resolve(vec![camada]);
+        let mut registry = ToolRegistry::new(PermissionGate::new(Permissions::default()));
+        let mut diagnosticos = DiagnosticosDeInicializacao::default();
+
+        register_mcp_tools(&mut registry, &cfg, &mut diagnosticos).await;
+
+        assert_eq!(
+            diagnosticos.mensagens().len(),
+            1,
+            "um servidor que não conecta produz exatamente um aviso; veio: {:?}",
+            diagnosticos.mensagens()
+        );
+        assert!(
+            diagnosticos.mensagens()[0].contains("inexistente"),
+            "o aviso precisa nomear o servidor — quem lê tem de saber qual dos declarados \
+             falhou; veio: {:?}",
+            diagnosticos.mensagens()
+        );
+        assert!(
+            registry.specs().is_empty(),
+            "nenhuma tool pode ser registrada por um servidor que não conectou"
+        );
+    }
+
     // ---- build_claude_cli_provider (ADR-0040, assinatura Pro/Max) ----
 
     fn cfg_com_claude_cli(json_interno: &str) -> Config {
@@ -2638,7 +2743,13 @@ mod tests {
     #[test]
     fn ausencia_de_providers_claude_cli_nao_registra() {
         let cfg = Config::resolve(vec![Settings::default()]);
-        assert!(build_claude_cli_provider(&cfg, Arc::new(NoopAuditSink), false).is_none());
+        assert!(build_claude_cli_provider(
+            &cfg,
+            Arc::new(NoopAuditSink),
+            false,
+            &mut DiagnosticosDeInicializacao::default(),
+        )
+        .is_none());
     }
 
     /// Diferente de `anthropic`, este provider **não** pede credencial: a
@@ -2647,8 +2758,13 @@ mod tests {
     fn claude_cli_configurado_monta_sem_exigir_credencial() {
         let cfg = cfg_com_claude_cli(r#"{ "model": "claude-opus-5" }"#);
 
-        let (provider, candidato) = build_claude_cli_provider(&cfg, Arc::new(NoopAuditSink), false)
-            .expect("model declarado deve montar Some");
+        let (provider, candidato) = build_claude_cli_provider(
+            &cfg,
+            Arc::new(NoopAuditSink),
+            false,
+            &mut DiagnosticosDeInicializacao::default(),
+        )
+        .expect("model declarado deve montar Some");
 
         assert_eq!(provider.name(), CLAUDE_CLI_PROVIDER_NAME);
         assert_eq!(candidato.provider, CLAUDE_CLI_PROVIDER_NAME);
@@ -2674,8 +2790,13 @@ mod tests {
         let cfg = cfg_com_claude_cli(r#"{ "model": "haiku", "mcpTools": true }"#);
         let antes = configs_mcp_em_tmp();
 
-        let registro = build_claude_cli_provider(&cfg, Arc::new(NoopAuditSink), false)
-            .expect("o provider continua sendo montado, só sem a ponte");
+        let registro = build_claude_cli_provider(
+            &cfg,
+            Arc::new(NoopAuditSink),
+            false,
+            &mut DiagnosticosDeInicializacao::default(),
+        )
+        .expect("o provider continua sendo montado, só sem a ponte");
         assert_eq!(registro.0.name(), CLAUDE_CLI_PROVIDER_NAME);
 
         assert_eq!(
@@ -2701,8 +2822,13 @@ mod tests {
         let anthropic = build_anthropic_provider(&cfg, Some("chave"), Arc::new(NoopAuditSink))
             .expect("configuração válida")
             .expect("deve montar Some");
-        let claude_cli = build_claude_cli_provider(&cfg, Arc::new(NoopAuditSink), false)
-            .expect("deve montar Some");
+        let claude_cli = build_claude_cli_provider(
+            &cfg,
+            Arc::new(NoopAuditSink),
+            false,
+            &mut DiagnosticosDeInicializacao::default(),
+        )
+        .expect("deve montar Some");
 
         let router = montar_router(
             agentry_core::config::privacy::EgressClass::CloudOk,

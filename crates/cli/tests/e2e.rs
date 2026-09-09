@@ -592,3 +592,59 @@ fn cpf_no_prompt_e_bloqueado_e_o_log_nao_guarda_o_valor() {
         "o bloqueio deveria ser reportado pelo id da regra; veio: {relato}"
     );
 }
+
+/// Acrescenta um bloco `mcpServers` ao `agentry.settings.json` já gravado por
+/// [`preparar_projeto`] — usado só pelo caso de diagnóstico abaixo.
+fn declarar_servidor_mcp(projeto: &Path, nome: &str, comando: &str) {
+    let caminho = projeto.join(".agentry/agentry.settings.json");
+    let bruto = std::fs::read_to_string(&caminho).expect("settings deve existir");
+    let mut settings: serde_json::Value =
+        serde_json::from_str(&bruto).expect("settings deve ser JSON válido");
+    settings["mcpServers"] = serde_json::json!({
+        nome: { "command": comando, "args": [], "egressClass": "local-only" }
+    });
+    std::fs::write(
+        &caminho,
+        serde_json::to_string_pretty(&settings).expect("serializa settings"),
+    )
+    .expect("regrava settings");
+}
+
+/// MT-152. O aviso de servidor MCP que não conectou deixou de ser um
+/// `eprintln!` no ponto de origem e passou por um coletor
+/// (`DiagnosticosDeInicializacao`) para poder aparecer **dentro** da TUI.
+/// O risco dessa mudança é exatamente o oposto do problema que ela resolve:
+/// um coletor que nunca é escoado engole o aviso em todos os modos, e a
+/// sessão segue em silêncio como se o servidor tivesse conectado.
+///
+/// Este caso prende a ponta de texto (a única observável de fora: a TUI
+/// exige TTY). O binário roda de verdade, com um comando que não existe no
+/// `PATH`, e o aviso tem de estar em `stderr` — sem derrubar a execução,
+/// que é a outra metade do contrato.
+#[test]
+fn servidor_mcp_que_nao_conecta_avisa_em_stderr_sem_derrubar_a_sessao() {
+    let dir = TempDir::new("mcp-diagnostico");
+    let provider = Provider::subir(
+        &dir,
+        r#"{"respostas":[{"sse":[
+            "{\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}"
+        ]}]}"#,
+        None,
+    );
+    let projeto = preparar_projeto(&dir, &provider.base_url());
+    declarar_servidor_mcp(&projeto, "inexistente", "agentry-comando-que-nao-existe");
+
+    let saida = rodar_agentry(&dir, &projeto, &["oi"]);
+    let stderr = texto(&saida.stderr);
+
+    assert!(
+        stderr.contains("erro ao conectar ao servidor MCP 'inexistente'"),
+        "o aviso de MCP sumiu de stderr — o coletor do MT-152 precisa ser escoado nos modos \
+         de texto, senão a falha de conexão vira silêncio. stderr: {stderr}"
+    );
+    assert!(
+        saida.status.success(),
+        "servidor MCP indisponível não pode derrubar a sessão; status: {:?}, stderr: {stderr}",
+        saida.status.code()
+    );
+}

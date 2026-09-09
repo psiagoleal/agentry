@@ -151,15 +151,49 @@ pub fn linhas() -> Vec<String> {
     DEFINITIONS
         .iter()
         .filter(|def| vistas.insert(def.action))
-        .map(|def| format!("{}: {}", rotulo_tecla(def.code), def.description))
+        .map(|def| format!("{}: {}", rotulo_atalho(def), def.description))
         .collect()
+}
+
+/// Rótulo de exibição de um atalho **completo** — modificadores + tecla.
+///
+/// **MT-150.** Até aqui a legenda era montada só a partir de `def.code`,
+/// ignorando `def.modifiers`: `Ctrl+C` aparecia como `c`, `Ctrl+P` como `p`,
+/// e assim por diante. O erro não era cosmético — desde o MT-72 letra solta
+/// não resolve para ação nenhuma (é caractere digitado na caixa de entrada),
+/// então a ajuda anunciava teclas que, se pressionadas como escritas, apenas
+/// digitam a letra. A legenda é a única documentação de atalho que quem usa
+/// vê, e descrevia comportamento removido de propósito.
+///
+/// Formar o rótulo a partir da entrada inteira (e não de `code` isolado) é o
+/// que impede a divergência de voltar: qualquer modificador acrescentado à
+/// tabela aparece na legenda sem que ninguém precise lembrar de atualizá-la.
+fn rotulo_atalho(def: &KeyBinding) -> String {
+    let mut rotulo = String::new();
+    // Ordem fixa (Ctrl, Alt, Shift), a convenção usual de terminal — não a
+    // ordem de iteração de `KeyModifiers`, que é detalhe da biblioteca.
+    for (modificador, nome) in [
+        (KeyModifiers::CONTROL, "Ctrl"),
+        (KeyModifiers::ALT, "Alt"),
+        (KeyModifiers::SHIFT, "Shift"),
+    ] {
+        if def.modifiers.contains(modificador) {
+            rotulo.push_str(nome);
+            rotulo.push('+');
+        }
+    }
+    rotulo.push_str(&rotulo_tecla(def.code));
+    rotulo
 }
 
 /// Rótulo curto de exibição de uma [`KeyCode`] — só as variantes usadas em
 /// [`DEFINITIONS`] hoje; teclas fora dessas caem no `Debug` padrão.
+/// Letra vai em **maiúscula** no rótulo (`Ctrl+C`, não `Ctrl+c`): é como o
+/// atalho é escrito em qualquer terminal, e a tabela casa por `KeyCode` em
+/// minúscula, então a diferença é só de exibição.
 fn rotulo_tecla(code: KeyCode) -> String {
     match code {
-        KeyCode::Char(c) => c.to_string(),
+        KeyCode::Char(c) => c.to_ascii_uppercase().to_string(),
         KeyCode::Up => "↑".to_string(),
         KeyCode::Down => "↓".to_string(),
         outro => format!("{outro:?}"),
@@ -218,6 +252,95 @@ mod tests {
             let evento = KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE);
             assert_eq!(resolve(evento), None, "'{c}' não deveria ser uma ação fixa");
         }
+    }
+
+    /// Reconstrói a tecla a partir do rótulo exibido — o inverso de
+    /// [`rotulo_atalho`]. Existe só para o teste de ida-e-volta abaixo:
+    /// afirmar sobre o texto do rótulo ("contém `Ctrl+`") verificaria a
+    /// forma; reconstruir a tecla e resolvê-la verifica o **significado**,
+    /// que é o que estava errado no MT-150.
+    fn tecla_a_partir_do_rotulo(rotulo: &str) -> KeyEvent {
+        let mut partes: Vec<&str> = rotulo.split('+').collect();
+        let tecla = partes.pop().expect("rótulo nunca é vazio");
+        let mut modifiers = KeyModifiers::NONE;
+        for parte in partes {
+            modifiers |= match parte {
+                "Ctrl" => KeyModifiers::CONTROL,
+                "Alt" => KeyModifiers::ALT,
+                "Shift" => KeyModifiers::SHIFT,
+                outro => panic!("modificador {outro:?} não reconhecido no rótulo {rotulo:?}"),
+            };
+        }
+        let code = match tecla {
+            "↑" => KeyCode::Up,
+            "↓" => KeyCode::Down,
+            "Enter" => KeyCode::Enter,
+            "Esc" => KeyCode::Esc,
+            outro if outro.chars().count() == 1 => KeyCode::Char(
+                outro
+                    .chars()
+                    .next()
+                    .expect("um caractere")
+                    .to_ascii_lowercase(),
+            ),
+            outro => panic!("tecla {outro:?} não reconhecida no rótulo {rotulo:?}"),
+        };
+        KeyEvent::new(code, modifiers)
+    }
+
+    #[test]
+    fn todo_atalho_exibido_de_fato_dispara_a_acao_que_ele_anuncia() {
+        // MT-150: a legenda era montada só a partir de `def.code`, então
+        // `Ctrl+C` aparecia como `c` — e `c` sozinho, desde o MT-72, é um
+        // caractere digitado, não uma ação. A ajuda anunciava teclas que
+        // não funcionavam. Este teste fecha a volta: o que a legenda mostra
+        // tem de resolver para a ação que ela descreve.
+        for def in DEFINITIONS {
+            let rotulo = rotulo_atalho(def);
+            assert_eq!(
+                resolve(tecla_a_partir_do_rotulo(&rotulo)),
+                Some(def.action),
+                "o rótulo {rotulo:?} não dispara {:?} — a ajuda anuncia uma tecla que não \
+                 funciona",
+                def.action
+            );
+        }
+    }
+
+    #[test]
+    fn nenhum_atalho_exibido_e_uma_letra_solta() {
+        // Guarda da guarda: se `rotulo_atalho` voltar a ignorar os
+        // modificadores, o teste acima ainda passaria caso o *parser* do
+        // rótulo passasse a inventar o `Ctrl`. Aqui a afirmação é sobre o
+        // texto cru: letra sozinha nunca é atalho válido (MT-72).
+        for def in DEFINITIONS {
+            let rotulo = rotulo_atalho(def);
+            assert!(
+                !(rotulo.chars().count() == 1 && rotulo.chars().all(|c| c.is_ascii_alphabetic())),
+                "atalho exibido como letra solta {rotulo:?}: letra solta é caractere digitado, \
+                 não ação (MT-72)"
+            );
+        }
+    }
+
+    #[test]
+    fn modificadores_aparecem_no_rotulo_na_ordem_convencional() {
+        let combinado = KeyBinding {
+            action: Action::Quit,
+            code: KeyCode::Char('c'),
+            modifiers: KeyModifiers::SHIFT | KeyModifiers::CONTROL | KeyModifiers::ALT,
+            description: "irrelevante",
+        };
+        assert_eq!(rotulo_atalho(&combinado), "Ctrl+Alt+Shift+C");
+    }
+
+    #[test]
+    fn tecla_sem_modificador_nao_ganha_prefixo() {
+        let seta = DEFINITIONS
+            .iter()
+            .find(|def| def.action == Action::ScrollUp)
+            .expect("ScrollUp está na tabela");
+        assert_eq!(rotulo_atalho(seta), "↑");
     }
 
     #[test]

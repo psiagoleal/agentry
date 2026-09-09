@@ -1618,6 +1618,7 @@ pub async fn run(
     auto: Arc<AtomicBool>,
     workspace_root: std::path::PathBuf,
     session_search_session: Arc<agentry_core::tools::session_search::SessionSearchSession>,
+    diagnosticos: Vec<String>,
 ) -> io::Result<()> {
     let mut terminal = ratatui::try_init()?;
     ratatui::crossterm::execute!(io::stdout(), EnableMouseCapture)?;
@@ -1632,6 +1633,7 @@ pub async fn run(
         auto,
         workspace_root,
         session_search_session,
+        diagnosticos,
     )
     .await;
     let _ = ratatui::crossterm::execute!(io::stdout(), DisableMouseCapture);
@@ -1652,6 +1654,25 @@ fn iniciar_leitor_de_terminal() -> mpsc::UnboundedReceiver<io::Result<Event>> {
         }
     });
     rx
+}
+
+/// Injeta os avisos de inicialização (MT-152) no histórico de chat, como
+/// mensagens de sistema já concluídas, **antes** do primeiro `draw`.
+///
+/// É a contraparte de `DiagnosticosDeInicializacao::escoar_para_stderr` em
+/// `main`: sob `--tui`, `stderr` já está coberto pela tela alternativa do
+/// `crossterm` quando quem usa olha para o terminal, então o aviso teria de
+/// esperar a saída da TUI para aparecer — tarde demais para ser útil. Aqui
+/// ele fica visível na própria tela, na primeira coisa que se lê.
+///
+/// Sem prefixo próprio: cada mensagem já chega formatada da origem
+/// (`[claude-cli] aviso: ...`, `erro ao conectar ao servidor MCP ...`), e o
+/// texto exibido tem de ser **o mesmo** que os modos de texto imprimem —
+/// duas redações do mesmo aviso divergiriam com o tempo.
+fn semear_diagnosticos(chat: &mut chat::ChatState, diagnosticos: &[String]) {
+    for mensagem in diagnosticos {
+        chat.registrar_mensagem_sistema(mensagem.clone());
+    }
 }
 
 /// Move `sessao` para uma *task* separada e roda `run_streaming` nela —
@@ -1688,10 +1709,11 @@ fn e_apenas_digitacao(modifiers: KeyModifiers) -> bool {
     modifiers.difference(KeyModifiers::SHIFT).is_empty()
 }
 
-// `workspace_root` (MT-88/ADR-0030, para o `CheckpointStore` de `Ctrl+Z`)
-// leva a contagem a 8 — cada parâmetro já é uma peça distinta montada por
-// `main()`/`run()` (terminal, sessão, roteador, ...), sem par natural para
-// agrupar num `struct` de config só por isso.
+// Cada parâmetro é uma peça distinta montada por `main()`/`run()`
+// (terminal, sessão, roteador, ...), sem par natural para agrupar num
+// `struct` de config só por isso — `workspace_root` (MT-88/ADR-0030, para o
+// `CheckpointStore` de `Ctrl+Z`) e `diagnosticos` (MT-152) entraram pelo
+// mesmo motivo.
 #[allow(clippy::too_many_arguments)]
 async fn loop_eventos(
     terminal: &mut DefaultTerminal,
@@ -1703,6 +1725,7 @@ async fn loop_eventos(
     auto: Arc<AtomicBool>,
     workspace_root: std::path::PathBuf,
     session_search_session: Arc<agentry_core::tools::session_search::SessionSearchSession>,
+    diagnosticos: Vec<String>,
 ) -> io::Result<()> {
     let router = Arc::new(router);
     let checkpoint_store = agentry_core::checkpoint::CheckpointStore::new(workspace_root.clone());
@@ -1712,6 +1735,7 @@ async fn loop_eventos(
         crate::repl::rotulo_de_rota(&sessao_inicial),
     );
     estado.chat.semear_historico(sessao_inicial.messages());
+    semear_diagnosticos(&mut estado.chat, &diagnosticos);
     let mut sessao_atual = Some(sessao_inicial);
     let mut rx_terminal = iniciar_leitor_de_terminal();
     let (tx_agente, mut rx_agente) = mpsc::unbounded_channel::<EventoAgente>();
@@ -2065,6 +2089,50 @@ mod tests {
             Arc::new(AtomicBool::new(false)),
             "⌂ ollama:modelo-de-teste".to_string(),
         )
+    }
+
+    // --- MT-152: avisos de inicialização visíveis dentro da TUI ---
+
+    #[test]
+    fn diagnosticos_de_inicializacao_entram_no_historico_antes_do_primeiro_desenho() {
+        let mut estado = estado_vazio();
+        let avisos = vec![
+            "erro ao conectar ao servidor MCP 'exemplo': Broken pipe".to_string(),
+            "[claude-cli] aviso: binário 'claude' não está no PATH".to_string(),
+        ];
+
+        semear_diagnosticos(&mut estado.chat, &avisos);
+
+        let textos: Vec<String> = estado
+            .chat
+            .mensagens()
+            .iter()
+            .flat_map(|m| m.blocos.iter())
+            .filter_map(|b| match b {
+                chat::Bloco::Texto(t) => Some(t.clone()),
+                _ => None,
+            })
+            .collect();
+        // Texto **idêntico** ao que os modos de texto imprimem: a origem
+        // formata uma vez só, e as duas superfícies mostram a mesma frase.
+        assert_eq!(
+            textos, avisos,
+            "os avisos de partida precisam aparecer na tela, literais e na ordem — sob --tui \
+             o stderr fica atrás da tela alternativa e só reapareceria depois de sair"
+        );
+    }
+
+    #[test]
+    fn sem_diagnosticos_a_tui_abre_com_o_historico_intacto() {
+        let mut estado = estado_vazio();
+
+        semear_diagnosticos(&mut estado.chat, &[]);
+
+        assert!(
+            estado.chat.mensagens().is_empty(),
+            "partida limpa não pode ganhar uma mensagem de sistema vazia: a tela de \
+             boas-vindas depende do histórico estar vazio"
+        );
     }
 
     #[test]
