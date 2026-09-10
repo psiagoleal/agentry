@@ -11,50 +11,37 @@
 
 ## Último turno
 
-- **Data:** 2026-09-09
+- **Data:** 2026-09-10
 - **Branch:** `chore/build-linux-e-higiene-de-disco` (**não mesclada em `main`**)
-- **Commits desta rodada:** `882abeb`, `2bf620d`, `67b1e77`, `bcc7788`, `f521dbe`, `5c311ca`,
-  `f1ffdde`, `f00b730`, `c4bfda0`, `29420cf`, `0ce65a0`
-- **Estado da árvore:** `AGENTS.md`, `skills/README.md` e os diretórios de skills não
-  rastreados seguem modificados de **outra frente**, anteriores a esta rodada e intocados.
-  Há um binário `agentry` de ~280 MB **solto na raiz** (não rastreado, fora do `.gitignore`) —
-  cópia de build; remover é decisão do dono.
+- **Commits desta rodada:** `825a765`, `5027a83`, `bee6c74` — rodada anterior (MT-150 a MT-157)
+  arquivada em [`handoff-arquivo.md`](./handoff-arquivo.md) como Rodada 11
+- **Estado da árvore:** `AGENTS.md`, `skills/README.md` e os diretórios de skills não rastreados
+  seguem modificados de **outra frente**, intocados. Há um binário `agentry` de ~280 MB solto na
+  raiz (não rastreado, fora do `.gitignore`) — cópia de build; remover é decisão do dono.
 - **DoD:** `cargo fmt` aplicado, `cargo clippy --workspace --all-targets -- -D warnings` com
-  saída **0**, suíte completa **835 testes verdes**.
+  saída **0**, suíte completa **851 testes verdes**.
 
 ## Metas cumpridas neste turno
 
-- [x] **`882abeb`** — **MT-150**, **MT-151** e **MT-152**: os três achados do teste de uso da
-      TUI, corrigidos e verificados na TUI real (via `tmux`), além dos testes.
-- [x] **bloco E do plano de uso** executado (`usage-test/RELATORIO-2026-09-08-bloco-e.md`):
-      6 cenários, **6 passaram**, 3 achados novos (MT-154/155/156).
-- [x] **`f521dbe`** — **MT-154**: marcador de desfecho (`⚙`/`✓`/`✗`) na linha recolhida de tool,
-      mais o motivo do erro; a ajuda passou a explicar os marcadores e o clique de expansão.
-- [x] **`f1ffdde`** — **MT-157**: saída do processo concentrada na `main`; os 25
-      `std::process::exit` viraram `Encerramento(n)` propagado por `?`.
-- [x] **exemplos de configuração** em `usage-test/exemplos/`, versionados e com duas guardas:
-      todo exemplo tem de **carregar**, e nenhum pode apontar para host real.
-- [~] **`c4bfda0`** — **MT-146** (parcial): e2e auditado e tornado portável para a matriz; falta
-      **só** observar o CI verde duas vezes, o que depende de um `push` ainda não autorizado.
+- [x] **`825a765`** — avaliação do `agentry` como *harness*
+      ([`analise-harness-engineering.md`](./analise-harness-engineering.md)) e abertura da frente
+      **MT-159 a MT-163**. O mapeamento é majoritariamente favorável; as cinco lacunas têm o
+      mesmo eixo — **o projeto sabe impedir e não sabe contar o que aconteceu**.
+- [x] **`5027a83`** — **MT-158**: `AGENTRY_LITELLM_BASE_URL`/`_MODEL` na camada de ambiente, o
+      que torna o exemplo versionado utilizável sem edição. `egressClass` **não** ganhou
+      variável: endereço é conveniência, classe de egresso é política.
+- [x] **`bee6c74`** — **MT-164** registrado.
 
-Causa raiz de cada um (detalhe em `docs/roadmap-v0.18.md`); as três correções compartilham a
-mesma forma — **informação correta produzida no lugar certo, que não chegava a quem precisa**:
+Dois defeitos encontrados **ao verificar** o MT-158 contra o gateway real, corrigidos junto:
 
-- **MT-150** — a legenda vinha só de `def.code`; desde o MT-72 letra solta **não resolve** para
-  ação nenhuma, então a ajuda anunciava teclas que não funcionam.
-- **MT-151** — regra que fica: bloco de configuração cujo valor de exemplo é **executado** não
-  pode ter exemplo inerte. O `echo` do MT-77 era seguro porque nada conectava; o MT-78 passou
-  a conectar e o exemplo virou erro fixo.
-- **MT-152** — a correção não foi escrever em `stderr` mais cedo: foi **não escolher o canal na
-  origem**. Quem produz registra em `DiagnosticosDeInicializacao`; `main` decide a superfície.
-- **MT-154** — o marcador (`⚙`/`✓`/`✗`) responde "isso rodou ou não?" sem interação.
-- **MT-157** — `std::process::exit` **não roda destrutores**, então todo `Drop` de limpeza era
-  condicional ao caminho feliz. A saída passou a acontecer num ponto só, depois de `executar`
-  ter devolvido. Vale como regra geral daqui em diante: **limpeza por `Drop` só é confiável
-  porque o processo agora desempilha** — a guarda estática impede o próximo `exit` de aparecer.
-
-**Correção ao relatório de 2026-09-08:** a recusa de rota sob `local-only` **não** estava
-invisível — ocorre antes de a TUI subir e sai em `stderr` com código 1 (verificado).
+- **Variável exportada vazia contava como valor declarado.** A camada de ambiente é a **última**
+  de `Config::resolve`, então um `export AGENTRY_LITELLM_BASE_URL=` de espaço reservado apagaria
+  em silêncio o que o arquivo do projeto declarou. Vazio agora conta como ausência.
+- **`build_config` lia o ambiente real dentro da função que os testes usam.** Dois testes de
+  precedência quebraram quando `AGENTRY_MODEL` foi exportada no `.zshrc` — não por regressão:
+  eles ficaram verdes por dois anos só porque nenhuma máquina tinha `AGENTRY_*` exportada. Não
+  verificavam precedência, verificavam o `.zshrc` de quem rodava. Camada agora é injetada, com
+  guarda estática irmã da guarda de `HOME` do MT-141.
 
 ## Em andamento
 
@@ -70,36 +57,41 @@ branch `chore/build-linux-e-higiene-de-disco`, que nunca foi enviada — **não 
 própria**. A ADR-0045 §5 **não** foi emendada de propósito: a saída acordada lá (restringir o
 e2e a Linux) depende de instabilidade **observada**, e ainda não houve execução de CI.
 
-**Pedido em aberto do mantenedor (2026-09-09):** usar `usage-test/` para exemplos de uso e de
-configuração — feito para a parte de **configuração**; falta **executar** um teste de uso contra
-o gateway e deixar o relatório. Parou por cota, não por dificuldade.
+**Gateway LiteLLM alcançável desta máquina** — endereço e chave ficam **fora do repositório**.
+`qwen3-coder:30b` faz *tool-calling*. **Nunca ecoar a chave:** `agentry --set-credential litellm`
+lê de `stdin` (grava `0600`, mantém o valor fora de `argv`). Desde o MT-158 o endereço vem de
+`AGENTRY_LITELLM_BASE_URL`, então `usage-test/exemplos/02-gateway-litellm.json` roda sem edição.
+Existe a skill `delegacao-litellm` para mandar trabalho volumoso ao gateway em vez de gastar
+cota da assinatura.
 
-**Gateway LiteLLM alcançável desta máquina desde 2026-09-09** — endpoint e chave ficam **fora
-do repositório**. Quatro modelos, dos quais `qwen3-coder:30b` faz *tool-calling*. **Nunca ecoar
-a chave:** use `agentry --set-credential litellm` lendo de `stdin` (grava `0600`, mantém o valor
-fora de `argv`). Primeira validação ponta a ponta contra um gateway **real**: one-shot e TUI,
-com *tool-calling* completo e auditoria `cloud-ok, allowed`. Existe a skill `delegacao-litellm`
-para mandar trabalho volumoso ao gateway em vez de gastar cota da assinatura.
-
-**Decisão pendente de política:** que `egressClass` o gateway interno deve declarar. Os testes
-usaram `profile: pessoal` + `cloud-ok`, que é o rótulo conservador. Note que `empresa` mapeia
-para `local-only` (`config/privacy.rs`), então sob o perfil corporativo um gateway interno só é
-alcançável se for declarado `local-only` — ou seja, `local-only` aqui significa "não sai da
-fronteira de confiança", não "não sai da máquina".
+**Decisão pendente de política, agora com consequência prática.** O `.zshrc` do mantenedor
+exporta `AGENTRY_PROFILE=externo-confidencial` (⇒ `cloud-opt-out`), e o gateway está declarado
+`cloud-ok` — logo o `Router` **recusa** a rota e cai para o candidato local. Funcionou como
+projetado, mas bloqueou uma rodada inteira de teste de uso antes de alguém desconfiar do
+ambiente. Escolha uma: declarar o gateway `cloud-opt-out` (leitura: "é da empresa, não treina
+com o dado") ou usar `pessoal`. Note que `empresa` mapeia para `local-only`
+(`config/privacy.rs`), então sob o perfil corporativo um gateway interno só é alcançável se for
+declarado `local-only` — aqui `local-only` significa "não sai da fronteira de confiança", não
+"não sai da máquina".
 
 ## Próximo passo sugerido
 
-1. **MT-146** — fiar os testes ponta a ponta no CI; é o **único** ticket restante da Fase K.
-   Inclui a regressão da configuração MCP temporária órfã.
-2. **MT-153** — promover a TUI a modo padrão, com `--repl` como escape hatch e *fallback* para
+1. **MT-159** — `StopReason::Impasse`. O item de maior retorno da frente nova e o mais barato:
+   hoje um agente preso queima os 25 turnos e reporta `MaxTurnsExceeded`, que **atribui a causa
+   errada** — quem lê conclui que o teto está baixo e o aumenta.
+2. **MT-164** — mostrar a camada de origem de cada valor da configuração. Custou uma rodada de
+   teste de uso; é diagnóstico que qualquer pessoa vai precisar.
+3. **MT-146** — fiar os testes ponta a ponta no CI; é o **único** ticket restante da Fase K.
+   Só falta o `push` (ver *Em andamento*).
+4. **MT-153** — promover a TUI a modo padrão, com `--repl` como escape hatch e *fallback* para
    texto quando não houver TTY (`std::io::IsTerminal`). **Desbloqueado** por `882abeb`; exige
    ADR nova, citando o relatório de uso como a evidência que a ADR-0027 pedia.
-3. **Implementar a ADR-0044** — providers por assinatura via CLI oficial (Codex/Gemini) e por
+5. **Implementar a ADR-0044** — providers por assinatura via CLI oficial (Codex/Gemini) e por
    API. **Pré-requisito duro, ainda não verificado:** confirmar que cada CLI autoriza consumo
    programático sob a assinatura e qual o modo *headless* suportado. Quebrar com
    `micro-ticket-planner`: o molde da ADR-0040 exige `AuditEntry` por invocação e
    `EgressClass` verificada antes do *spawn* em cada provider.
-4. **Detector de nome de pessoa** — lacuna que a ADR-0043 declara e não resolve; custo de falso
+6. **Detector de nome de pessoa** — lacuna que a ADR-0043 declara e não resolve; custo de falso
    positivo alto, decisão do mantenedor.
 
 ## Decisões pendentes do mantenedor

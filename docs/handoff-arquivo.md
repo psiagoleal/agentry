@@ -12,6 +12,7 @@
 
 ## Índice
 
+- [Rodada 11 (2026-09-08/09) — achados do teste de uso, MT-150 a MT-157](#rodada-11-2026-09-0809--achados-do-teste-de-uso-mt-150-a-mt-157)
 - [Rodada 10 (2026-09-07/08) — Fase K (teste ponta a ponta) e teste de uso da TUI](#rodada-10-2026-09-0708--fase-k-teste-ponta-a-ponta-e-teste-de-uso-da-tui)
 - [Rodada 9 (2026-09-07) — build Linux, higiene de disco e ADR-0044](#rodada-9-2026-09-07--build-linux-higiene-de-disco-e-adr-0044)
 - [Rodada 8f (2026-07-28/30) — detectores de PII (ADR-0043) e release v0.1.0-usertest](#rodada-8f--achados-1-3-resolvidos-adr-0043)
@@ -21,6 +22,46 @@
 - [Rodadas de teste manual e fases (2026-07-17 a 2026-07-24)](#nota-fora-do-loop-2026-07-17)
 - [Turno de 2026-07-16 — roadmap v0.1..v0.4 e Fases 10-20](#último-turno)
 - [Tabela de commits (mais recente no topo)](#histórico-mais-recente-no-topo)
+
+---
+
+## Rodada 11 (2026-09-08/09) — achados do teste de uso, MT-150 a MT-157
+
+Commits: `882abeb`, `2bf620d`, `67b1e77`, `bcc7788`, `f521dbe`, `5c311ca`,
+`f1ffdde`, `f00b730`, `c4bfda0`, `29420cf`, `0ce65a0`, `00858f8`.
+
+
+- [x] **`882abeb`** — **MT-150**, **MT-151** e **MT-152**: os três achados do teste de uso da
+      TUI, corrigidos e verificados na TUI real (via `tmux`), além dos testes.
+- [x] **bloco E do plano de uso** executado (`usage-test/RELATORIO-2026-09-08-bloco-e.md`):
+      6 cenários, **6 passaram**, 3 achados novos (MT-154/155/156).
+- [x] **`f521dbe`** — **MT-154**: marcador de desfecho (`⚙`/`✓`/`✗`) na linha recolhida de tool,
+      mais o motivo do erro; a ajuda passou a explicar os marcadores e o clique de expansão.
+- [x] **`f1ffdde`** — **MT-157**: saída do processo concentrada na `main`; os 25
+      `std::process::exit` viraram `Encerramento(n)` propagado por `?`.
+- [x] **exemplos de configuração** em `usage-test/exemplos/`, versionados e com duas guardas:
+      todo exemplo tem de **carregar**, e nenhum pode apontar para host real.
+- [~] **`c4bfda0`** — **MT-146** (parcial): e2e auditado e tornado portável para a matriz; falta
+      **só** observar o CI verde duas vezes, o que depende de um `push` ainda não autorizado.
+
+Causa raiz de cada um (detalhe em `docs/roadmap-v0.18.md`); as três correções compartilham a
+mesma forma — **informação correta produzida no lugar certo, que não chegava a quem precisa**:
+
+- **MT-150** — a legenda vinha só de `def.code`; desde o MT-72 letra solta **não resolve** para
+  ação nenhuma, então a ajuda anunciava teclas que não funcionam.
+- **MT-151** — regra que fica: bloco de configuração cujo valor de exemplo é **executado** não
+  pode ter exemplo inerte. O `echo` do MT-77 era seguro porque nada conectava; o MT-78 passou
+  a conectar e o exemplo virou erro fixo.
+- **MT-152** — a correção não foi escrever em `stderr` mais cedo: foi **não escolher o canal na
+  origem**. Quem produz registra em `DiagnosticosDeInicializacao`; `main` decide a superfície.
+- **MT-154** — o marcador (`⚙`/`✓`/`✗`) responde "isso rodou ou não?" sem interação.
+- **MT-157** — `std::process::exit` **não roda destrutores**, então todo `Drop` de limpeza era
+  condicional ao caminho feliz. A saída passou a acontecer num ponto só, depois de `executar`
+  ter devolvido. Vale como regra geral daqui em diante: **limpeza por `Drop` só é confiável
+  porque o processo agora desempilha** — a guarda estática impede o próximo `exit` de aparecer.
+
+**Correção ao relatório de 2026-09-08:** a recusa de rota sob `local-only` **não** estava
+invisível — ocorre antes de a TUI subir e sai em `stderr` com código 1 (verificado).
 
 ---
 
