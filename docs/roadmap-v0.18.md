@@ -410,6 +410,24 @@ abaixo custou um teste que passava **sem verificar nada**.
 Origem e critério de priorização em [`analise-harness-engineering.md`](./analise-harness-engineering.md).
 As cinco lacunas têm o mesmo eixo: o projeto **sabe impedir e não sabe contar o que aconteceu**.
 
+### MT-164 (proposto): mostrar de qual camada veio cada valor efetivo da configuração
+- **Objetivo:** a configuração é mesclada em três camadas (global → projeto → ambiente) e a
+  **última vence**. Hoje não existe forma de ver de qual delas veio o valor efetivo. O efeito é
+  visível (o título da TUI mostra a rota ativa), a **causa** não.
+- **Achado real (2026-09-10):** com `AGENTRY_PROFILE=externo-confidencial` exportado no
+  `.zshrc`, um gateway declarado `cloud-ok` no `agentry.settings.json` do projeto é recusado
+  pelo `Router` e a rota cai para o candidato local. O sintoma chega como erro de rede do
+  Ollama — três camadas de distância da causa. Custou uma rodada inteira de teste de uso
+  (19 de 21 cenários bloqueados) antes de alguém desconfiar do ambiente.
+- **Forma provável:** `agentry --config-effective` (e `/config` na TUI) imprimindo o valor
+  resolvido de cada chave com a camada de origem. Não é só conveniência: em homologação
+  corporativa, "de onde veio esta política?" é pergunta de auditoria.
+- **Cuidado:** a saída não pode imprimir credencial — o caminho de `credentials.json` sim, o
+  valor nunca.
+- **Relação:** mesma família do **MT-160** (observabilidade/atribuição de falha). Se o MT-160
+  virar ADR, decidir os dois juntos.
+- **Depende de:** nenhum.
+
 ### MT-159 (proposto): `StopReason::Impasse` — o loop precisa saber dizer que travou
 - **Objetivo:** `StopReason` tem `Done`, `BudgetExceeded` e `MaxTurnsExceeded`. Um agente preso
   repetindo a mesma ação queima os 25 turnos do teto (ADR-0033) e reporta `MaxTurnsExceeded` —
