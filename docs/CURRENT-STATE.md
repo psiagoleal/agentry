@@ -13,7 +13,7 @@
 
 - **Data:** 2026-09-10
 - **Branch:** `chore/build-linux-e-higiene-de-disco` (**não mesclada em `main`**)
-- **Commits desta rodada:** `825a765`, `5027a83`, `bee6c74` — rodada anterior (MT-150 a MT-157)
+- **Commits desta rodada:** `825a765`, `5027a83`, `bee6c74`, `d743d64` — rodada anterior (MT-150 a MT-157)
   arquivada em [`handoff-arquivo.md`](./handoff-arquivo.md) como Rodada 11
 - **Estado da árvore:** `AGENTS.md`, `skills/README.md` e os diretórios de skills não rastreados
   seguem modificados de **outra frente**, intocados. Há um binário `agentry` de ~280 MB solto na
@@ -31,6 +31,13 @@
       que torna o exemplo versionado utilizável sem edição. `egressClass` **não** ganhou
       variável: endereço é conveniência, classe de egresso é política.
 - [x] **`bee6c74`** — **MT-164** registrado.
+- [x] **`d743d64`** — teste de uso da TUI contra o **gateway real**
+      ([`RELATORIO-2026-09-10-litellm.md`](../usage-test/RELATORIO-2026-09-10-litellm.md)):
+      10 cenários, os quatro marcadores do **MT-154** confirmados na tela, e a negação por
+      `deny` exercitada com `[auto]` **ligado**. Evidência conferida contra o estado em disco e
+      contra as 15 chamadas do `audit.log`. **Leia com a ressalva registrada no próprio
+      relatório:** ambiente pré-verificado remove por construção a classe de achado de primeira
+      configuração — que foi exatamente onde os MT-150/151/152 apareceram.
 
 Dois defeitos encontrados **ao verificar** o MT-158 contra o gateway real, corrigidos junto:
 
