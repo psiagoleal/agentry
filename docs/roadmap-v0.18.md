@@ -392,6 +392,72 @@ abaixo custou um teste que passava **sem verificar nada**.
   precedência sobre o arquivo do projeto.
 - **Depende de:** ADR nova **se** (b) for escolhida; nenhum se (a).
 
+## Frente nova: o `agentry` como *harness* (MT-159 a MT-163)
+
+Origem e critério de priorização em [`analise-harness-engineering.md`](./analise-harness-engineering.md).
+As cinco lacunas têm o mesmo eixo: o projeto **sabe impedir e não sabe contar o que aconteceu**.
+
+### MT-159 (proposto): `StopReason::Impasse` — o loop precisa saber dizer que travou
+- **Objetivo:** `StopReason` tem `Done`, `BudgetExceeded` e `MaxTurnsExceeded`. Um agente preso
+  repetindo a mesma ação queima os 25 turnos do teto (ADR-0033) e reporta `MaxTurnsExceeded` —
+  que **atribui a causa errada**: diz "orçamento" quando a verdade é "travou". Quem lê o relato
+  conclui que o teto está baixo e o aumenta, piorando o problema.
+- **Detecção:** *hash* de `tool + argumentos` repetido N vezes sem mudança no resultado
+  observado; alternância `A, B, A, B` conta como impasse igual (repetir um par é tão estagnado
+  quanto repetir uma ação).
+- **Arquivos no escopo:** `crates/core/src/session/mod.rs`, testes do módulo.
+- **Critério de aceite:** teste com provider falso que devolve sempre a mesma tool-call encerra
+  com `Impasse` **antes** de atingir `max_tool_turns`; e um caso de progresso legítimo (mesma
+  tool, argumentos diferentes) **não** dispara.
+- **Fora de escopo:** tentar corrigir o impasse. O ticket é só nomear a parada.
+- **Depende de:** nenhum.
+
+### MT-160 (proposto): trilha de decisão — observabilidade além do egresso
+- **Objetivo:** o `audit.log` responde "o que saiu da máquina", não "o que o agente fez". Faltam
+  tool chamada, permissão aplicada, tentativas e motivo de parada. **Absorve o MT-149 e o
+  MT-155**, que hoje ficam soltos como pendência de conformidade: os dois são o mesmo sintoma —
+  todo caminho *fail-closed* acerta o efeito e não deixa rastro.
+- **Enquadramento que muda a decisão:** a pergunta não é "a ADR-0002 exige?", é *dá para dizer
+  se a falha veio do modelo, do contexto, da ferramenta ou da política?*. Num projeto que mira
+  homologação corporativa, a diferença entre "a política me protegeu" e "consigo demonstrar que
+  me protegeu" é o produto inteiro.
+- **Cuidado obrigatório:** a trilha passa a registrar argumento de tool, que pode conter dado
+  sensível — precisa passar pelos mesmos detectores de PII/redação da ADR-0043, ou vira um
+  segundo canal de vazamento com aparência de conformidade.
+- **Critério de aceite:** ADR decidindo o escopo do registro; caso ponta a ponta afirmando que
+  uma tool negada por política deixa entrada com o motivo, e que o valor sensível não aparece.
+- **Depende de:** ADR nova. Decide MT-149 e MT-155 junto.
+
+### MT-161 (proposto): permissão de shell por padrão de comando
+- **Objetivo:** `shell_exec` bloqueada por padrão é o lado certo de errar, mas quem precisa dela
+  **abre por inteiro**. Falta granularidade por padrão de comando, com a precedência usual
+  (*wildcard* primeiro, exceções depois, última correspondência vence): `"*": "ask"` com
+  `"git push*": "deny"`.
+- **Critério de aceite:** teste de precedência (a regra mais específica declarada por último
+  vence) e caso ponta a ponta em que o comando negado não executa.
+- **Risco a tratar no ticket:** casamento por padrão de linha de comando é contornável
+  (`git${IFS}push`, alias, `sh -c`). O ticket precisa declarar isso como limitação **na
+  documentação**, ou a fronteira vira falsa sensação de proteção — o mesmo erro que o
+  `readAllow` já documenta (ADR-0041).
+- **Depende de:** nenhum.
+
+### MT-162 (proposto): orçamento de tempo de parede e custo
+- **Objetivo:** turnos e tokens o loop controla; **tempo** e **custo acumulado** não existem.
+  Uma sessão pode gastar meia hora e uma fatura sem cruzar nenhum teto declarado.
+- **Critério de aceite:** dois `StopReason` novos (ou um com motivo), testes com relógio
+  injetado — nunca `sleep` real na suíte.
+- **Depende de:** nenhum.
+
+### MT-163 (proposto): distinguir falha transitória de determinística
+- **Objetivo:** *rate limit*, *timeout* e 5xx podem funcionar na tentativa seguinte e merecem
+  recuo exponencial; argumento inválido, arquivo inexistente e permissão negada não melhoram com
+  repetição. Hoje os dois derrubam o turno igual. Regra operacional: *retry* é do **transporte**;
+  falha de conteúdo volta como **observação** para o modelo corrigir.
+- **Critério de aceite:** provider falso que devolve 503 nas duas primeiras e 200 na terceira
+  conclui; o que devolve 400 falha **sem** repetir (afirmar a contagem de requisições no
+  registro do `fake_provider`).
+- **Depende de:** nenhum.
+
 ### MT-146: fiar no CI (e o que fica de fora)
 - **Objetivo:** rodar os testes ponta a ponta na matriz de 3 SOs, ou decidir e **registrar**
   um recorte menor. Ponto de decisão real: o `fake_provider` sobe processo e abre socket, o
