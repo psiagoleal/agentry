@@ -637,17 +637,51 @@ impl Settings {
 
     /// Monta a camada de ambiente a partir de pares `NOME=valor`.
     ///
-    /// Reconhece `AGENTRY_PROFILE`, `AGENTRY_MODEL` e `AGENTRY_MAX_TOKENS`;
-    /// valor numérico inválido é erro explícito (não é ignorado em silêncio).
+    /// Reconhece `AGENTRY_PROFILE`, `AGENTRY_MODEL`, `AGENTRY_MAX_TOKENS` e o
+    /// endereço/modelo do gateway LiteLLM (`AGENTRY_LITELLM_BASE_URL`,
+    /// `AGENTRY_LITELLM_MODEL`); valor numérico inválido é erro explícito
+    /// (não é ignorado em silêncio).
+    ///
+    /// **MT-158 — por que o gateway entrou aqui.** Um exemplo de configuração
+    /// versionado (`usage-test/exemplos/`) não podia ser usado direto contra
+    /// um gateway real sem que o endereço dele fosse commitado junto — e
+    /// endereço interno num repositório aberto é topologia publicada, que não
+    /// se despublica. A chave já resolvia por variável desde o MT-49; faltava
+    /// o endereço.
+    ///
+    /// A alternativa considerada era interpolar `${VAR}` dentro do JSON.
+    /// Rejeitada: transformaria o arquivo de configuração num **leitor
+    /// arbitrário do ambiente do processo**, capacidade nova e bem maior que
+    /// o problema — um `agentry.settings.json` de terceiro passaria a poder
+    /// ler qualquer variável da máquina de quem o abrisse.
+    ///
+    /// `egressClass` deliberadamente **não** tem variável: é declaração de
+    /// política, não de endereço. Deixá-la ajustável por ambiente permitiria
+    /// afrouxar a classe de um endpoint sem tocar em nada versionado, que é
+    /// exatamente o tipo de afrouxamento silencioso que a ADR-0006 impede.
+    ///
+    /// **Variável exportada e vazia conta como ausente.** É como um `export`
+    /// de espaço reservado se comporta na prática — `export AGENTRY_LITELLM_BASE_URL=`
+    /// num `.zshrc`, esperando preencher depois. Tratar `""` como valor
+    /// declarado faria a camada de ambiente **sobrepor** o arquivo do projeto
+    /// com nada, e o sintoma apareceria longe da causa: o provider "ativo"
+    /// com URL vazia, ou o perfil vazio derrubando a classe de egresso para
+    /// o *default*. Achado em uso real (2026-09-10).
     pub fn from_env_vars<I>(vars: I) -> Result<Self, ConfigError>
     where
         I: IntoIterator<Item = (String, String)>,
     {
         let mut camada = Self::default();
         for (nome, valor) in vars {
+            let valor = valor.trim().to_string();
+            if valor.is_empty() {
+                continue;
+            }
             match nome.as_str() {
                 "AGENTRY_PROFILE" => camada.profile = Some(valor),
                 "AGENTRY_MODEL" => camada.model = Some(valor),
+                "AGENTRY_LITELLM_BASE_URL" => camada.providers.litellm.base_url = Some(valor),
+                "AGENTRY_LITELLM_MODEL" => camada.providers.litellm.model = Some(valor),
                 "AGENTRY_MAX_TOKENS" => {
                     let n = valor.parse::<u32>().map_err(|_| {
                         ConfigError::Parse(format!(
@@ -1194,6 +1228,142 @@ mod tests {
         assert_eq!(camada.profile.as_deref(), Some("pessoal"));
         assert_eq!(camada.model.as_deref(), Some("claude-sonnet-5"));
         assert_eq!(camada.max_tokens, Some(2048));
+    }
+
+    #[test]
+    fn camada_de_ambiente_resolve_endereco_e_modelo_do_gateway_litellm() {
+        // MT-158: é o que permite `usage-test/exemplos/02-gateway-litellm.json`
+        // ser versionado com endereço de espaço reservado e ainda assim rodar
+        // contra um gateway real, sem o endereço entrar no repositório.
+        let camada = Settings::from_env_vars([
+            (
+                "AGENTRY_LITELLM_BASE_URL".to_string(),
+                "http://gateway.interno:4000".to_string(),
+            ),
+            (
+                "AGENTRY_LITELLM_MODEL".to_string(),
+                "modelo-do-gateway".to_string(),
+            ),
+        ])
+        .expect("variáveis válidas");
+
+        assert_eq!(
+            camada.providers.litellm.base_url.as_deref(),
+            Some("http://gateway.interno:4000")
+        );
+        assert_eq!(
+            camada.providers.litellm.model.as_deref(),
+            Some("modelo-do-gateway")
+        );
+    }
+
+    #[test]
+    fn ambiente_vence_o_arquivo_do_projeto_para_o_gateway() {
+        // `Config::resolve` recebe as camadas da menos para a mais
+        // específica; ambiente é a última. Sem esta ordem, exportar a
+        // variável não teria efeito nenhum sobre um exemplo que já declara
+        // um endereço de espaço reservado — que é justamente o caso de uso.
+        let projeto = Settings::from_json_str(
+            r#"{ "providers": { "litellm": {
+                "baseUrl": "http://gateway-interno.exemplo:4000",
+                "model": "modelo-do-seu-gateway",
+                "egressClass": "cloud-ok"
+            } } }"#,
+        )
+        .expect("JSON de teste deve ser válido");
+        let ambiente = Settings::from_env_vars([(
+            "AGENTRY_LITELLM_BASE_URL".to_string(),
+            "http://gateway.real:4000".to_string(),
+        )])
+        .expect("variáveis válidas");
+
+        let cfg = Config::resolve(vec![projeto, ambiente]);
+        let litellm = cfg.litellm.expect("provider deve resolver");
+
+        assert_eq!(litellm.base_url, "http://gateway.real:4000");
+        assert_eq!(
+            litellm.model, "modelo-do-seu-gateway",
+            "o que o ambiente não declara continua vindo do arquivo"
+        );
+    }
+
+    #[test]
+    fn variavel_exportada_vazia_conta_como_ausente() {
+        // Achado em uso real (2026-09-10): a máquina do mantenedor tinha
+        // `AGENTRY_LITELLM_BASE_URL` exportada **vazia** no `.zshrc`, como
+        // espaço reservado. Se `""` contasse como valor declarado, a camada
+        // de ambiente sobreporia o arquivo do projeto com nada — e o sintoma
+        // (provider com URL vazia, ou perfil vazio derrubando a classe de
+        // egresso) apareceria longe da causa.
+        let camada = Settings::from_env_vars([
+            ("AGENTRY_PROFILE".to_string(), String::new()),
+            ("AGENTRY_MODEL".to_string(), "   ".to_string()),
+            ("AGENTRY_LITELLM_BASE_URL".to_string(), String::new()),
+            ("AGENTRY_MAX_TOKENS".to_string(), String::new()),
+        ])
+        .expect("variável vazia não é erro de parsing, é ausência");
+
+        assert_eq!(camada.profile, None);
+        assert_eq!(camada.model, None);
+        assert_eq!(camada.providers.litellm.base_url, None);
+        assert_eq!(
+            camada.max_tokens, None,
+            "vazio é ausência, não número inválido — só valor não-vazio e não-numérico é erro"
+        );
+    }
+
+    #[test]
+    fn variavel_vazia_nao_apaga_o_que_o_arquivo_do_projeto_declarou() {
+        // A contraparte que importa de verdade: a camada de ambiente é a
+        // última de `Config::resolve`, então um `Some("")` venceria o arquivo.
+        let projeto = Settings::from_json_str(
+            r#"{ "profile": "pessoal", "providers": { "litellm": {
+                "baseUrl": "http://gateway-interno.exemplo:4000",
+                "model": "modelo-do-seu-gateway",
+                "egressClass": "cloud-ok"
+            } } }"#,
+        )
+        .expect("JSON de teste deve ser válido");
+        let ambiente = Settings::from_env_vars([
+            ("AGENTRY_LITELLM_BASE_URL".to_string(), String::new()),
+            ("AGENTRY_PROFILE".to_string(), String::new()),
+        ])
+        .expect("variáveis vazias");
+
+        let cfg = Config::resolve(vec![projeto, ambiente]);
+
+        assert_eq!(
+            cfg.egress_class,
+            EgressClass::CloudOk,
+            "perfil exportado vazio não pode derrubar a classe de egresso do projeto"
+        );
+        assert_eq!(
+            cfg.litellm.expect("provider deve resolver").base_url,
+            "http://gateway-interno.exemplo:4000"
+        );
+    }
+
+    #[test]
+    fn egress_class_nao_e_ajustavel_por_ambiente() {
+        // Guarda deliberada (MT-158): endereço é conveniência, classe de
+        // egresso é política. Se ela fosse ajustável por variável, daria para
+        // afrouxar a classe de um endpoint sem tocar em nada versionado e sem
+        // deixar rastro na revisão — o afrouxamento silencioso que a ADR-0006
+        // existe para impedir.
+        let camada = Settings::from_env_vars([
+            (
+                "AGENTRY_LITELLM_EGRESS_CLASS".to_string(),
+                "cloud-ok".to_string(),
+            ),
+            ("AGENTRY_EGRESS_CLASS".to_string(), "cloud-ok".to_string()),
+        ])
+        .expect("variáveis desconhecidas são ignoradas, não são erro");
+
+        assert_eq!(
+            camada.providers.litellm.egress_class, None,
+            "nenhuma variável de ambiente pode declarar classe de egresso"
+        );
+        assert_eq!(camada.profile, None);
     }
 
     #[test]

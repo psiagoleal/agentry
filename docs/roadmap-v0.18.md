@@ -371,7 +371,20 @@ abaixo custou um teste que passava **sem verificar nada**.
    engole o comando. `send-keys` **não emite mouse** — expandir bloco de tool exige injetar a
    sequência SGR com `-H` (receita no plano).
 
-### MT-158 (proposto): `baseUrl` por variável de ambiente, para exemplo versionado ser utilizável
+### MT-158: `baseUrl` por variável de ambiente ✅ concluído
+- **Como ficou:** escolhida a opção (a). `AGENTRY_LITELLM_BASE_URL` e `AGENTRY_LITELLM_MODEL`
+  entraram na camada de ambiente; `02-gateway-litellm.json` roda contra um gateway real **sem
+  edição**, com o endereço fora do repositório. `egressClass` **não** ganhou variável, e é
+  deliberado: endereço é conveniência, classe de egresso é política — ajustável por ambiente,
+  daria para afrouxar a classe de um endpoint sem tocar em nada versionado.
+- **Defeito encontrado na verificação, corrigido no mesmo ticket:** a máquina do mantenedor
+  tinha `AGENTRY_LITELLM_BASE_URL` exportada **vazia** no `.zshrc`, como espaço reservado. A
+  primeira versão tratava `""` como valor declarado, e a camada de ambiente é a **última** de
+  `Config::resolve` — ou seja, um `export` vazio apagaria silenciosamente o que o arquivo do
+  projeto declarou, com o sintoma aparecendo longe da causa. Agora vazio conta como ausente,
+  com guarda para as duas metades (a leitura e a precedência).
+
+### MT-158 (encerrado): texto original do ticket
 - **Objetivo:** hoje a camada de ambiente (`Settings::from_env_vars`) reconhece só
   `AGENTRY_PROFILE`, `AGENTRY_MODEL` e `AGENTRY_MAX_TOKENS`, e não há interpolação de variável
   dentro do JSON. Consequência prática: um exemplo em `usage-test/exemplos/` **não pode** ser

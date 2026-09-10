@@ -40,7 +40,16 @@ razão prática: ele lê de `stdin` (o valor não passa por `argv` nem pelo hist
 grava com permissão `0600`, enquanto uma variável exportada no `.zshrc` fica em texto claro num
 arquivo de configuração pessoal e é herdada por **todo** processo que você iniciar.
 
-O que **não** existe hoje: interpolação de variável dentro do JSON (`"baseUrl": "${MEU_GATEWAY}"`
-é lido literalmente, não expandido) e variável de ambiente para `baseUrl`. É por isso que
-`02-gateway-litellm.json` traz um endereço de espaço reservado em vez de ser utilizável direto
-— ver **MT-158** no `docs/roadmap-v0.18.md`.
+Desde o **MT-158**, `AGENTRY_LITELLM_BASE_URL` e `AGENTRY_LITELLM_MODEL` também vêm do
+ambiente. É o que torna `02-gateway-litellm.json` utilizável **sem edição**, mantendo o endereço
+real fora do repositório:
+
+```bash
+export AGENTRY_LITELLM_BASE_URL=http://seu-gateway:4000
+export AGENTRY_LITELLM_MODEL=seu-modelo
+agentry --set-credential litellm    # a chave, por stdin
+```
+
+O que continua **não** existindo: interpolação de variável dentro do JSON —
+`"baseUrl": "${MEU_GATEWAY}"` é lido literalmente, não expandido. Foi rejeitado de propósito:
+transformaria o arquivo de configuração num leitor arbitrário do ambiente do processo.

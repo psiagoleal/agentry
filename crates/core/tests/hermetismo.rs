@@ -236,3 +236,48 @@ fn a_main_autorizada_de_fato_encerra_o_processo() {
          devolvido e derrubado tudo que criou (MT-157); achadas: {chamadas:?}"
     );
 }
+
+#[test]
+fn so_a_montagem_de_config_le_o_ambiente_do_processo() {
+    // Irmão da guarda de `HOME` acima, e da mesma família de falha: um teste
+    // que lê o ambiente **real** fica verde enquanto a máquina de quem roda
+    // estiver limpa, e passa a falhar — ou pior, a passar por motivo errado —
+    // no dia em que alguém exportar a variável no `.zshrc`.
+    //
+    // Aconteceu de verdade em 2026-09-10: dois testes de precedência de
+    // camada de configuração quebraram quando `AGENTRY_MODEL` foi exportada,
+    // porque a camada de ambiente é a última de `Config::resolve` e vencia o
+    // que o próprio teste tinha acabado de declarar. Eles não estavam
+    // verificando precedência; estavam verificando o `.zshrc` do mantenedor.
+    //
+    // A correção é injeção: quem monta a configuração lê o ambiente **uma
+    // vez**, na fronteira, e passa a camada adiante. Esta guarda mantém essa
+    // fronteira em um lugar só.
+    let fontes = fontes_do_workspace();
+    assert!(fontes.len() > 20, "varredura vazia — ver o primeiro teste");
+
+    let mut violacoes = Vec::new();
+    for caminho in &fontes {
+        let conteudo = std::fs::read_to_string(caminho).expect("fonte deve ser legível");
+        // `config/mod.rs` **define** `from_process_env`; `main.rs` é o único
+        // que pode chamá-la, e só na montagem da configuração.
+        let e_definicao = caminho.to_string_lossy().contains("config/mod.rs");
+        let e_montagem = conteudo.contains("fn build_config_com_camadas");
+        if e_definicao || e_montagem {
+            continue;
+        }
+        for (n, linha) in conteudo.lines().enumerate() {
+            if !e_comentario(linha) && linha.contains("from_process_env") {
+                violacoes.push(format!("{}:{}", caminho.display(), n + 1));
+            }
+        }
+    }
+
+    assert!(
+        violacoes.is_empty(),
+        "só a montagem da configuração pode ler o ambiente do processo: `from_process_env` \
+         espalhado torna o comportamento dependente do shell de quem roda, e o teste que \
+         depender dele fica verde por acidente. Receba a camada por parâmetro. Violações:\n  {}",
+        violacoes.join("\n  ")
+    );
+}

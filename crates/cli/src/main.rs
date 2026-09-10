@@ -646,25 +646,38 @@ fn register_context_tools(
 fn build_config(
     workspace_root: &std::path::Path,
 ) -> Result<Config, agentry_core::config::ConfigError> {
-    build_config_com_camada_global(workspace_root, Settings::from_global_file()?)
+    build_config_com_camadas(
+        workspace_root,
+        Settings::from_global_file()?,
+        Settings::from_process_env()?,
+    )
 }
 
-/// Núcleo de [`build_config`], recebendo a camada global já resolvida — os
-/// testes deste módulo passam `Settings::default()` explicitamente em vez
-/// de deixar `build_config` ler o `$HOME`/`%USERPROFILE%` **real** da
-/// máquina que roda os testes (que poderia ter um
-/// `~/.agentry/agentry.settings.json` de verdade, tornando o resultado do
-/// teste dependente do ambiente de quem/onde ele roda) — mesmo cuidado de
-/// hermeticidade já aplicado por `global_dir::home_dir_de`/
-/// `Settings::from_env_vars` (injeção em vez de tocar o real).
-fn build_config_com_camada_global(
+/// Núcleo de [`build_config`], recebendo as camadas que dependem do ambiente
+/// da máquina **já resolvidas** — os testes deste módulo passam
+/// `Settings::default()` em vez de deixar `build_config` ler o mundo real.
+///
+/// A camada global cobre o `~/.agentry/agentry.settings.json` de quem roda o
+/// teste; a de ambiente cobre as variáveis `AGENTRY_*` exportadas no *shell*.
+///
+/// **Por que a de ambiente também entrou (2026-09-10).** Antes ela era lida
+/// aqui dentro, e os testes ficaram verdes por dois anos só porque nenhuma
+/// máquina de desenvolvimento tinha `AGENTRY_*` exportada. No dia em que o
+/// mantenedor exportou `AGENTRY_MODEL` no `.zshrc`, dois testes de
+/// precedência de camada passaram a falhar — não por regressão do código,
+/// mas porque a camada de ambiente é a **última** de `Config::resolve` e
+/// vencia o que o teste tinha acabado de declarar. Um teste que só passa
+/// enquanto o ambiente estiver limpo não estava verificando precedência
+/// coisa nenhuma; estava verificando o `.zshrc` de quem rodou.
+fn build_config_com_camadas(
     workspace_root: &std::path::Path,
     camada_global: Settings,
+    camada_ambiente: Settings,
 ) -> Result<Config, agentry_core::config::ConfigError> {
     Ok(Config::resolve(vec![
         camada_global,
         Settings::from_file(workspace_root)?,
-        Settings::from_process_env()?,
+        camada_ambiente,
     ]))
 }
 
@@ -2168,7 +2181,7 @@ mod tests {
             }"#,
         );
 
-        let cfg = build_config_com_camada_global(dir.path(), Settings::default())
+        let cfg = build_config_com_camadas(dir.path(), Settings::default(), Settings::default())
             .expect("arquivo válido deve resolver");
 
         assert_eq!(cfg.guardrails.input.len(), 1);
@@ -2181,7 +2194,7 @@ mod tests {
     fn ausencia_do_arquivo_de_settings_preserva_guardrails_vazio() {
         let dir = TempDir::new();
 
-        let cfg = build_config_com_camada_global(dir.path(), Settings::default())
+        let cfg = build_config_com_camadas(dir.path(), Settings::default(), Settings::default())
             .expect("ausência do arquivo não é erro");
 
         assert!(cfg.guardrails.input.is_empty());
@@ -2204,7 +2217,7 @@ mod tests {
         )
         .expect("JSON válido");
 
-        let cfg = build_config_com_camada_global(dir.path(), camada_global)
+        let cfg = build_config_com_camadas(dir.path(), camada_global, Settings::default())
             .expect("deve resolver com a camada global");
 
         assert_eq!(cfg.model.as_deref(), Some("modelo-pessoal-padrao"));
@@ -2230,7 +2243,7 @@ mod tests {
         )
         .expect("JSON válido");
 
-        let cfg = build_config_com_camada_global(dir.path(), camada_global)
+        let cfg = build_config_com_camadas(dir.path(), camada_global, Settings::default())
             .expect("deve resolver com as duas camadas");
 
         assert_eq!(
@@ -2255,7 +2268,7 @@ mod tests {
             }"#,
         );
 
-        let cfg = build_config_com_camada_global(dir.path(), Settings::default())
+        let cfg = build_config_com_camadas(dir.path(), Settings::default(), Settings::default())
             .expect("camada global vazia não deve mudar nada");
 
         assert_eq!(cfg.guardrails.input.len(), 1);
@@ -2277,7 +2290,7 @@ mod tests {
               }
             }"#,
         );
-        let cfg = build_config_com_camada_global(dir.path(), Settings::default())
+        let cfg = build_config_com_camadas(dir.path(), Settings::default(), Settings::default())
             .expect("arquivo válido deve resolver");
         let mock = Arc::new(MockProvider::new("mock"));
         // Nenhuma resposta enfileirada de propósito: se o provider fosse
@@ -2309,7 +2322,7 @@ mod tests {
               }
             }"#,
         );
-        let cfg = build_config_com_camada_global(dir.path(), Settings::default())
+        let cfg = build_config_com_camadas(dir.path(), Settings::default(), Settings::default())
             .expect("arquivo válido deve resolver");
         let mock = Arc::new(MockProvider::new("mock"));
         mock.enqueue_chat(Ok(agentry_core::provider::ChatResponse {

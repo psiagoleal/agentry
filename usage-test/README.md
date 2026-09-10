@@ -67,16 +67,30 @@ Estas são **todas** as que o `agentry` lê hoje. Não há interpolação de var
 
 | Variável | Efeito | Precedência |
 |---|---|---|
-| `AGENTRY_PROFILE` | Perfil ativo: `empresa`, `externo-confidencial` ou `pessoal`. | Camada de ambiente, vence o arquivo do projeto. |
+| `AGENTRY_PROFILE` | Perfil ativo: `empresa`, `externo-confidencial` ou `pessoal`. | Camada de ambiente, **vence o arquivo do projeto**. |
 | `AGENTRY_MODEL` | Modelo padrão da sessão. | idem |
-| `AGENTRY_MAX_TOKENS` | Teto de tokens de saída (inteiro; valor inválido é erro explícito). | idem |
+| `AGENTRY_MAX_TOKENS` | Teto de tokens de saída (inteiro; valor não-vazio e não-numérico é erro explícito). | idem |
+| `AGENTRY_LITELLM_BASE_URL` | Endereço do gateway LiteLLM (MT-158). | idem |
+| `AGENTRY_LITELLM_MODEL` | Modelo nesse gateway (MT-158). | idem |
 | `AGENTRY_LITELLM_API_KEY` | Chave do gateway LiteLLM. | **Vence** `~/.agentry/credentials.json`. |
 | `ANTHROPIC_API_KEY` | Chave da Messages API da Anthropic. | idem |
 | `NO_COLOR` / `COLORTERM` | Só renderização; não são configuração. | — |
 
-**Não existe variável para `baseUrl`** — é a peça que falta para um exemplo versionado apontar
-para um gateway real sem trazer o endereço junto. Registrado como **MT-158**
-(`docs/roadmap-v0.18.md`). Até lá, o endereço real vive em `local/`.
+**Variável exportada e vazia conta como ausente** — `export AGENTRY_LITELLM_BASE_URL=` não
+sobrepõe o que o arquivo do projeto declarou. Sem isso, um `export` de espaço reservado no
+`.zshrc` apagaria silenciosamente a configuração versionada.
+
+**`egressClass` não tem variável, e é deliberado:** endereço é conveniência, classe de egresso é
+política. Ajustável por ambiente, daria para afrouxar a classe de um endpoint sem tocar em nada
+versionado e sem deixar rastro na revisão.
+
+> **Cuidado com o `.zshrc`.** Como a camada de ambiente vence o arquivo do projeto, uma variável
+> exportada lá muda o comportamento de **todos** os projetos, sem que nada na tela explique por
+> quê. O caso que já mordeu: com `AGENTRY_PROFILE=externo-confidencial` exportado, um gateway
+> declarado `cloud-ok` no `agentry.settings.json` é recusado pelo `Router` e a rota cai para o
+> candidato local — o sintoma aparece como erro de rede do Ollama, longe da causa. Para rodar um
+> exemplo com a configuração dele mesmo, limpe o ambiente:
+> `env -u AGENTRY_PROFILE -u AGENTRY_MODEL -u AGENTRY_LITELLM_BASE_URL agentry "..."`.
 
 Sobre exportar a chave no `.zshrc`: funciona, e **sobrepõe silenciosamente** o que estiver em
 `~/.agentry/credentials.json` — se um dia a chave parecer "errada", é o primeiro lugar a olhar.
