@@ -87,10 +87,25 @@ versionado e sem deixar rastro na revisão.
 > **Cuidado com o `.zshrc`.** Como a camada de ambiente vence o arquivo do projeto, uma variável
 > exportada lá muda o comportamento de **todos** os projetos, sem que nada na tela explique por
 > quê. O caso que já mordeu: com `AGENTRY_PROFILE=externo-confidencial` exportado, um gateway
-> declarado `cloud-ok` no `agentry.settings.json` é recusado pelo `Router` e a rota cai para o
-> candidato local — o sintoma aparece como erro de rede do Ollama, longe da causa. Para rodar um
-> exemplo com a configuração dele mesmo, limpe o ambiente:
+> declarado `cloud-ok` é recusado pelo `Router` e a rota cai para o candidato local — o sintoma
+> aparece como erro de rede do Ollama, longe da causa. Para rodar um exemplo com a configuração
+> dele mesmo, limpe o ambiente:
 > `env -u AGENTRY_PROFILE -u AGENTRY_MODEL -u AGENTRY_LITELLM_BASE_URL agentry "..."`.
+
+## Escolher a `egressClass` de um gateway
+
+Os três degraus descrevem a **fronteira de confiança**, não a distância de rede:
+
+| Classe | Perfil que a alcança | Significa |
+|---|---|---|
+| `local-only` | `empresa` | não sai do perímetro |
+| `cloud-opt-out` | `externo-confidencial` | sai para um terceiro que **não treina** com o dado |
+| `cloud-ok` | `pessoal` | serviço público, sem garantia |
+
+Um gateway **interno** declarado `cloud-ok` exigiria o perfil mais permissivo de todos para ser
+alcançável — ou seja, forçaria afrouxar a sessão **inteira** para falar com um endpoint que é
+mais confiável que a média. É o oposto do pretendido, e foi o erro da primeira versão de
+`exemplos/02-gateway-litellm.json`. Confirme o contrato do seu gateway antes de copiar um valor.
 
 Sobre exportar a chave no `.zshrc`: funciona, e **sobrepõe silenciosamente** o que estiver em
 `~/.agentry/credentials.json` — se um dia a chave parecer "errada", é o primeiro lugar a olhar.

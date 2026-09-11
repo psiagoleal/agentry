@@ -1,27 +1,39 @@
 {
   "$schema": "https://raw.githubusercontent.com/psiagoleal/agentry/main/docs/schema/agentry.settings.schema.json",
   "schemaVersion": 1,
-  "_exemplo": "Gateway LiteLLM. Troque baseUrl e model em usage-test/local/, nunca aqui. A chave NÃO vai neste arquivo: use AGENTRY_LITELLM_API_KEY ou `agentry --set-credential litellm`.",
-  "_exemplo_egressClass": "cloud-ok é o rótulo conservador para um endpoint de rede: exige o perfil 'pessoal' para ser alcançável. ATENÇÃO ao caso corporativo — o perfil 'empresa' mapeia para local-only, então um gateway interno só é alcançável sob ele se for declarado local-only. Ou seja: aqui 'local-only' significa 'não sai da fronteira de confiança', não 'não sai da máquina'. Escolher o rótulo é decisão de política, não de conveniência.",
-  "profile": "pessoal",
+  "_exemplo": "Gateway LiteLLM corporativo. Troque baseUrl e model por variável de ambiente (AGENTRY_LITELLM_BASE_URL / AGENTRY_LITELLM_MODEL) ou em usage-test/local/, nunca aqui. A chave NÃO vai neste arquivo: use AGENTRY_LITELLM_API_KEY ou `agentry --set-credential litellm`.",
+  "_exemplo_egressClass": "Por que cloud-opt-out e não cloud-ok: a taxonomia tem três degraus e eles descrevem A FRONTEIRA DE CONFIANÇA, não a distância de rede. 'local-only' (perfil empresa) = não sai do perímetro; 'cloud-opt-out' (perfil externo-confidencial) = sai para um terceiro que não treina com o dado — é o caso de um gateway da própria empresa ou de um contrato com opt-out; 'cloud-ok' (perfil pessoal) = serviço público, sem garantia. Um gateway interno declarado cloud-ok exigiria o perfil mais permissivo de todos para ser alcançável, o que na prática força quem usa a afrouxar a sessão inteira para falar com um endpoint que é mais confiável que a média — o oposto do pretendido. Escolher o rótulo é decisão de política: confirme o contrato do seu gateway antes de copiar este valor.",
+  "profile": "externo-confidencial",
   "providers": {
     "litellm": {
       "baseUrl": "http://gateway-interno.exemplo:4000",
       "model": "modelo-do-seu-gateway",
-      "egressClass": "cloud-ok"
+      "egressClass": "cloud-opt-out"
     }
   },
   "taskClasses": {
     "chat": {
       "candidates": [
-        { "provider": "litellm", "model": "modelo-do-seu-gateway", "egressClass": "cloud-ok" },
-        { "provider": "ollama", "model": "llama3.1:8b", "egressClass": "local-only" }
+        {
+          "provider": "litellm",
+          "model": "modelo-do-seu-gateway",
+          "egressClass": "cloud-opt-out"
+        },
+        {
+          "provider": "ollama",
+          "model": "llama3.1:8b",
+          "egressClass": "local-only"
+        }
       ]
     },
     "local": {
       "_comentario": "Alvo da tool `subagent` — nunca sai da máquina.",
       "candidates": [
-        { "provider": "ollama", "model": "llama3.1:8b", "egressClass": "local-only" }
+        {
+          "provider": "ollama",
+          "model": "llama3.1:8b",
+          "egressClass": "local-only"
+        }
       ]
     }
   }
