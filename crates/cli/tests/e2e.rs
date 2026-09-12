@@ -25,12 +25,18 @@ struct TempDir(PathBuf);
 impl TempDir {
     fn new(rotulo: &str) -> Self {
         let unico = format!(
-            "agentry-e2e-{rotulo}-{}-{}",
+            "agentry-e2e-{rotulo}-{}-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .expect("relógio do sistema não deve estar antes de 1970")
-                .as_nanos()
+                .as_nanos(),
+            {
+                // Unicidade construída, não observada: ver `hermetismo.rs`.
+                static SEQUENCIA: std::sync::atomic::AtomicU64 =
+                    std::sync::atomic::AtomicU64::new(0);
+                SEQUENCIA.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            }
         );
         // `std::env::temp_dir()` (tipicamente `/tmp`) não fica sob um diretório
         // com `.agentry/`, o que importa: a busca de configuração sobe a

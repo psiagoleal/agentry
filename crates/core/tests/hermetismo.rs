@@ -320,3 +320,65 @@ fn a_presenca_de_binario_externo_nao_e_sondada_fora_da_montagem_da_cli() {
         violacoes.join("\n  ")
     );
 }
+
+// ---------------------------------------------------------------------------
+// Unicidade de diretório temporário de teste (MT-165)
+// ---------------------------------------------------------------------------
+
+/// Coleta todo `.rs` sob `crates/*/src/` **e** `crates/*/tests/`. Os dois
+/// primeiros casos desta guarda (`fake_provider.rs`, `e2e.rs`) moram em
+/// `tests/`, fora do alcance de `fontes_do_workspace`.
+fn fontes_e_testes_do_workspace() -> Vec<PathBuf> {
+    let mut saida = fontes_do_workspace();
+    let crates = raiz_do_workspace().join("crates");
+    for entrada in std::fs::read_dir(&crates).expect("ler crates/").flatten() {
+        let testes = entrada.path().join("tests");
+        if testes.is_dir() {
+            colher_rs(&testes, &mut saida);
+        }
+    }
+    saida
+}
+
+/// Caminho temporário montado a partir do relógio do sistema.
+const LEITURA_DO_RELOGIO: &str = ".as_nanos()";
+
+/// Contador atômico — a unicidade que não depende da resolução do relógio.
+const CONTADOR_ATOMICO: &str = "fetch_add";
+
+/// O nome de um diretório temporário de teste não pode depender **só** do
+/// relógio do sistema.
+///
+/// Achado real (MT-165, primeiro CI da matriz): no Windows o relógio do sistema
+/// avança em passos de ~15 ms, não continuamente. Dois testes que rodam em
+/// paralelo no mesmo binário leem o **mesmo** instante, montam o mesmo caminho
+/// e passam a escrever no diretório um do outro. O sintoma não aponta para o
+/// relógio — em `file_audit_sink_grava_entrada_de_guardrail` apareceu como
+/// `trailing characters` ao ler um JSON, porque o arquivo tinha as entradas dos
+/// dois testes; no `fake_provider`, como um roteiro sobrescrevendo o outro.
+///
+/// A correção é sempre a mesma e é o que esta guarda fixa: **unicidade se
+/// constrói, não se observa**. `std::process::id()` separa processos, o
+/// contador atômico separa chamadas dentro do processo, e o relógio fica só
+/// como defesa contra reuso de PID entre execuções.
+#[test]
+fn caminho_temporario_de_teste_nao_depende_so_do_relogio() {
+    let mut faltando = Vec::new();
+
+    for caminho in fontes_e_testes_do_workspace() {
+        let conteudo = std::fs::read_to_string(&caminho).expect("ler fonte");
+        let usa_relogio = conteudo
+            .lines()
+            .any(|linha| !e_comentario(linha) && linha.contains(LEITURA_DO_RELOGIO));
+        if usa_relogio && !conteudo.contains(CONTADOR_ATOMICO) {
+            faltando.push(caminho);
+        }
+    }
+
+    assert!(
+        faltando.is_empty(),
+        "estes arquivos montam caminho temporário a partir do relógio sem um \
+         contador atômico que garanta unicidade entre testes paralelos \
+         (MT-165): {faltando:#?}"
+    );
+}

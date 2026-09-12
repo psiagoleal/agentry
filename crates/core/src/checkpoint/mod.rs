@@ -199,12 +199,18 @@ mod tests {
     impl TempDir {
         fn new() -> Self {
             let unico = format!(
-                "agentry-checkpoint-test-{}-{}",
+                "agentry-checkpoint-test-{}-{}-{}",
                 std::process::id(),
                 std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .expect("relógio do sistema não deve estar antes de 1970")
-                    .as_nanos()
+                    .as_nanos(),
+                {
+                    // Unicidade construída, não observada: ver `hermetismo.rs`.
+                    static SEQUENCIA: std::sync::atomic::AtomicU64 =
+                        std::sync::atomic::AtomicU64::new(0);
+                    SEQUENCIA.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+                }
             );
             let path = std::env::temp_dir().join(unico);
             fs::create_dir_all(&path).expect("deve criar diretório temporário de teste");

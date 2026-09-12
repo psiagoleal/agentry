@@ -1729,12 +1729,18 @@ mod tests {
     impl TempDir {
         fn new() -> Self {
             let unico = format!(
-                "agentry-cli-main-test-{}-{}",
+                "agentry-cli-main-test-{}-{}-{}",
                 std::process::id(),
                 std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .expect("relógio do sistema não deve estar antes de 1970")
-                    .as_nanos()
+                    .as_nanos(),
+                {
+                    // Unicidade construída, não observada: ver `hermetismo.rs`.
+                    static SEQUENCIA: std::sync::atomic::AtomicU64 =
+                        std::sync::atomic::AtomicU64::new(0);
+                    SEQUENCIA.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+                }
             );
             let path = std::env::temp_dir().join(unico);
             std::fs::create_dir_all(&path).expect("deve criar diretório temporário de teste");
@@ -2881,7 +2887,13 @@ mod tests {
             std::fs::read_dir(std::env::temp_dir())
                 .expect("ler o diretório temporário")
                 .filter_map(Result::ok)
-                .filter(|e| e.file_name().to_string_lossy().starts_with("agentry-mcp-"))
+                // Nome exato que a produção escreve. Filtrar pelo prefixo
+                // "agentry-mcp-" contaria também os diretórios dos testes de
+                // `mcp_server`, que rodam em paralelo neste mesmo binário.
+                .filter(|e| {
+                    e.file_name().to_string_lossy()
+                        == format!("agentry-mcp-{}.json", std::process::id())
+                })
                 .count()
         }
 

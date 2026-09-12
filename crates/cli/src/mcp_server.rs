@@ -221,7 +221,12 @@ mod tests {
     /// `PermissionGate` do modo normal, então `readAllow` continua valendo.
     #[tokio::test]
     async fn chamada_via_mcp_respeita_read_allow() {
-        let dir = std::env::temp_dir().join(format!("agentry-mcp-teste-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("agentry-mcp-teste-{}-{}", std::process::id(), {
+                static SEQUENCIA: std::sync::atomic::AtomicU64 =
+                    std::sync::atomic::AtomicU64::new(0);
+                SEQUENCIA.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            }));
         std::fs::create_dir_all(&dir).expect("criar dir");
         std::fs::write(dir.join("README.md"), "publico").expect("escrever");
         std::fs::write(dir.join("segredo.csv"), "cpf,nome").expect("escrever");
@@ -260,7 +265,12 @@ mod tests {
     /// `ask` sem canal para perguntar: recusa explicada, nunca auto-aprovação.
     #[tokio::test]
     async fn tool_sob_ask_e_recusada_com_explicacao() {
-        let dir = std::env::temp_dir().join(format!("agentry-mcp-ask-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("agentry-mcp-ask-{}-{}", std::process::id(), {
+                static SEQUENCIA: std::sync::atomic::AtomicU64 =
+                    std::sync::atomic::AtomicU64::new(0);
+                SEQUENCIA.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            }));
         std::fs::create_dir_all(&dir).expect("criar dir");
         std::fs::write(dir.join("a.txt"), "x").expect("escrever");
 

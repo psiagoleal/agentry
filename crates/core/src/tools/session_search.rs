@@ -323,12 +323,18 @@ mod tests {
     impl TempDir {
         fn new() -> Self {
             let caminho = std::env::temp_dir().join(format!(
-                "agentry-session-search-teste-{}-{}",
+                "agentry-session-search-teste-{}-{}-{}",
                 std::process::id(),
                 std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
-                    .expect("relógio não deve estar antes de 1970")
-                    .as_nanos()
+                    .expect("relógio do sistema não deve estar antes de 1970")
+                    .as_nanos(),
+                {
+                    // Unicidade construída, não observada: ver `hermetismo.rs`.
+                    static SEQUENCIA: std::sync::atomic::AtomicU64 =
+                        std::sync::atomic::AtomicU64::new(0);
+                    SEQUENCIA.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+                }
             ));
             std::fs::create_dir_all(&caminho).expect("deve criar o diretório temporário");
             Self(caminho)
