@@ -11,15 +11,17 @@
 
 ## Último turno
 
-- **Data:** 2026-09-10
-- **Branch:** `chore/build-linux-e-higiene-de-disco` (**não mesclada em `main`**)
-- **Commits desta rodada:** `825a765`, `5027a83`, `bee6c74`, `d743d64` — rodada anterior (MT-150 a MT-157)
+- **Data:** 2026-09-12
+- **Branch:** `chore/build-linux-e-higiene-de-disco` — **enviada ao remoto** em 2026-09-12
+  (39 commits), ainda **não mesclada em `main`**
+- **Commits desta rodada:** `825a765`, `5027a83`, `bee6c74`, `d743d64`, `d4e7151`,
+  `f23474c`, `dd4ce27`, `fb08f6b` — rodada anterior (MT-150 a MT-157)
   arquivada em [`handoff-arquivo.md`](./handoff-arquivo.md) como Rodada 11
 - **Estado da árvore:** `AGENTS.md`, `skills/README.md` e os diretórios de skills não rastreados
   seguem modificados de **outra frente**, intocados. Há um binário `agentry` de ~280 MB solto na
   raiz (não rastreado, fora do `.gitignore`) — cópia de build; remover é decisão do dono.
 - **DoD:** `cargo fmt` aplicado, `cargo clippy --workspace --all-targets -- -D warnings` com
-  saída **0**, suíte completa **851 testes verdes**.
+  saída **0**, suíte completa **858 testes verdes**.
 
 ## Metas cumpridas neste turno
 
@@ -31,6 +33,22 @@
       que torna o exemplo versionado utilizável sem edição. `egressClass` **não** ganhou
       variável: endereço é conveniência, classe de egresso é política.
 - [x] **`bee6c74`** — **MT-164** registrado.
+- [x] **`d4e7151`** — gateway interno passa a ser **`cloud-opt-out`**, não `cloud-ok` (decisão do
+      mantenedor). A taxonomia descreve a **fronteira de confiança**, não a distância de rede;
+      declarar um gateway interno `cloud-ok` forçaria afrouxar a sessão inteira para falar com um
+      endpoint mais confiável que a média.
+- [x] **`f23474c`** — **ADR-0046 (Proposed)**: hooks de ciclo, e avaliação do núcleo `cepia`.
+- [x] **`dd4ce27`** — **MT-159**: `StopReason::Impasse`, e `mensagem_de_parada` passa a cobrir
+      **todos** os motivos — parar em silêncio era o mesmo defeito de atribuição que o ticket
+      corrige.
+- [x] **`fb08f6b`** — **MT-146**: o primeiro CI da vida do projeto reprovou, e reprovou
+      **exatamente o que a Fase K existia para descobrir**. Três testes de montagem do provider
+      `claude-cli` falharam nos **três** SOs: o *runner* não tem `claude` no `PATH`. Estavam
+      verdes havia meses porque toda máquina de desenvolvimento do projeto tem o Claude Code
+      instalado — não testavam a montagem, testavam a estação de trabalho. Terceiro membro da
+      mesma família (`HOME`/MT-141, `AGENTRY_*`/MT-158, agora `PATH`), com a guarda estática
+      junto das outras duas. **A hipótese da ADR-0045 §5 não se confirmou:** os casos ponta a
+      ponta passaram nos três SOs; a fragilidade não estava em subir processo e abrir socket.
 - [x] **`d743d64`** — teste de uso da TUI contra o **gateway real**
       ([`RELATORIO-2026-09-10-litellm.md`](../usage-test/RELATORIO-2026-09-10-litellm.md)):
       10 cenários, os quatro marcadores do **MT-154** confirmados na tela, e a negação por
@@ -52,7 +70,12 @@ Dois defeitos encontrados **ao verificar** o MT-158 contra o gateway real, corri
 
 ## Em andamento
 
-**MT-146, parado num ponto que exige decisão sua.** O código está pronto: o CI já rodava
+**MT-146 — falta confirmar o CI verde.** A branch está no remoto e o CI **roda de verdade** (o
+repositório é público, então Actions é gratuito e ilimitado). As duas primeiras execuções
+reprovaram, a causa foi corrigida em `fb08f6b`, e o critério de aceite — **duas execuções verdes
+seguidas** — ainda não foi observado. É o primeiro passo de quem retomar.
+
+Contexto anterior do ticket: O código está pronto: o CI já rodava
 `cargo test --all`, então os casos ponta a ponta **já entram** na matriz de três SOs — não
 faltava fiação. O que faltava era portabilidade real, e havia um defeito concreto: o caso do
 MT-157 redirecionava o diretório temporário só por `TMPDIR`, que o Windows ignora, então ele
