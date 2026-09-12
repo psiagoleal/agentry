@@ -26,12 +26,11 @@
 ## Metas cumpridas neste turno
 
 - [x] **`825a765`** — avaliação do `agentry` como *harness*
-      ([`analise-harness-engineering.md`](./analise-harness-engineering.md)) e abertura da frente
-      **MT-159 a MT-163**. O mapeamento é majoritariamente favorável; as cinco lacunas têm o
-      mesmo eixo — **o projeto sabe impedir e não sabe contar o que aconteceu**.
-- [x] **`5027a83`** — **MT-158**: `AGENTRY_LITELLM_BASE_URL`/`_MODEL` na camada de ambiente, o
-      que torna o exemplo versionado utilizável sem edição. `egressClass` **não** ganhou
-      variável: endereço é conveniência, classe de egresso é política.
+      ([`analise-harness-engineering.md`](./analise-harness-engineering.md)) e frente **MT-159 a
+      MT-163**: as cinco lacunas têm o mesmo eixo — **sabe impedir, não sabe contar**.
+- [x] **`5027a83`** — **MT-158**: `AGENTRY_LITELLM_BASE_URL`/`_MODEL` na camada de ambiente.
+      `egressClass` **não** ganhou variável: endereço é conveniência, classe de egresso é
+      política.
 - [x] **`bee6c74`** — **MT-164** registrado.
 - [x] **`d4e7151`** — gateway interno passa a ser **`cloud-opt-out`**, não `cloud-ok` (decisão do
       mantenedor). A taxonomia descreve a **fronteira de confiança**, não a distância de rede;
@@ -57,16 +56,12 @@
       relatório:** ambiente pré-verificado remove por construção a classe de achado de primeira
       configuração — que foi exatamente onde os MT-150/151/152 apareceram.
 
-Dois defeitos encontrados **ao verificar** o MT-158 contra o gateway real, corrigidos junto:
-
-- **Variável exportada vazia contava como valor declarado.** A camada de ambiente é a **última**
-  de `Config::resolve`, então um `export AGENTRY_LITELLM_BASE_URL=` de espaço reservado apagaria
-  em silêncio o que o arquivo do projeto declarou. Vazio agora conta como ausência.
-- **`build_config` lia o ambiente real dentro da função que os testes usam.** Dois testes de
-  precedência quebraram quando `AGENTRY_MODEL` foi exportada no `.zshrc` — não por regressão:
-  eles ficaram verdes por dois anos só porque nenhuma máquina tinha `AGENTRY_*` exportada. Não
-  verificavam precedência, verificavam o `.zshrc` de quem rodava. Camada agora é injetada, com
-  guarda estática irmã da guarda de `HOME` do MT-141.
+**Padrão que se repetiu três vezes nesta rodada e vale como regra:** código que pergunta ao
+sistema *"como é o mundo aqui?"* dentro da função sob teste amarra o resultado à máquina de quem
+roda, e o sintoma só aparece quando alguém roda em outra. Aconteceu com `HOME` (MT-141), com as
+variáveis `AGENTRY_*` (MT-158, quando o mantenedor exportou `AGENTRY_MODEL` no `.zshrc`) e com o
+`PATH` (MT-146, no primeiro CI). A correção é sempre a mesma — **sondar na fronteira e injetar o
+resultado** — e as três guardas estáticas vivem juntas em `crates/core/tests/hermetismo.rs`.
 
 ## Em andamento
 
