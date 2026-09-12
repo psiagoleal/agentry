@@ -118,6 +118,51 @@ o modelo corrigir.
   `agentry`, não features do binário. Boa parte já é praticada aqui (spec → teste que nasce
   falhando → verificação com comando de prova; achado vira ticket, não comentário solto).
 
+## Ser alvo de um núcleo portável (avaliação do material de 2026-09-11)
+
+O segundo lote de material é um **núcleo de engenharia agentic** real, com 135 *skills*, 44
+agentes, *policies*, scripts de build/check e manifesto de plugin para **seis** *harnesses*
+(Claude Code, Codex, ZCode, Copilot, Gemini CLI, OpenCode). Ele não é um concorrente do
+`agentry`: é um **consumidor** de harness. E a leitura mais útil dele para este projeto é
+simples — **o `agentry` não está nessa lista**, e dá para dizer exatamente por quê.
+
+### O que falta para ser alvo
+
+| O que o núcleo precisa do harness | No `agentry` | Falta |
+|---|---|---|
+| Descobrir *skills* por diretório, com `frontmatter` e corpo sob demanda | sim (ADR-0023) | — |
+| Declarar **agentes nomeados** em arquivo, cada um com prompt, modelo, *tools* e permissões próprias | parcial | o subagente tem roteador e permissões próprias (ADR-0031/0041), mas é **um** papel anônimo, não um conjunto de papéis declarados |
+| Impedir o encerramento até um comando de prova passar | não | **ADR-0046** |
+| Rodar verificação sobre o que acabou de ser editado | não | **ADR-0046** |
+
+### A ideia que vale copiar: evidência, não checkbox
+
+O mecanismo central do núcleo é um arquivo de *gates* em que cada item carrega a prova:
+
+```
+- [x] G2: skills, agents e manifests do núcleo continuam válidos
+  CHECK: node scripts/check.mjs
+  EXPECT: CHECK OK
+  EVIDENCE: exit=0; EXPECT=matched; output-sha256=70a77c...; output-bytes=66
+```
+
+O que importa aqui não é o formato, é a regra por trás dele: **checkbox marcado sem evidência
+conta como não cumprido**, e quem decide é código, não a autoavaliação de quem executou. O
+`output-sha256` torna a afirmação verificável por um terceiro — a diferença entre *relatar* que
+o comando passou e *provar* que passou, que é a mesma distinção que separa "a política me
+protegeu" de "consigo demonstrar que me protegeu".
+
+Isso incide direto no **MT-160**: uma trilha de decisão que registre comando, código de saída e
+*hash* da saída é auditável de um jeito que uma linha de log não é. Vale considerar o formato de
+evidência como parte daquele ticket, não só o conteúdo.
+
+### O que **não** importar
+
+As 135 *skills* e os 44 agentes são **conteúdo de política e processo** — pertencem ao
+`ai-coding-agent-profiles`, que é a camada de política deste ecossistema, não ao binário. Trazer
+qualquer parte disso para dentro do `agentry` confundiria o produto (um harness) com a
+configuração que roda sobre ele.
+
 ## O que o modelo público não cobre — e o `agentry` sim
 
 O vocabulário de harness trata permissão como *"o que a ferramenta pode fazer"*. O `agentry`
