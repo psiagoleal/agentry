@@ -517,6 +517,32 @@ As cinco lacunas têm o mesmo eixo: o projeto **sabe impedir e não sabe contar 
   não distingue teste estável de teste com sorte.
 - **Depende de:** MT-143, MT-144, MT-145.
 
+### MT-165: unicidade de diretório temporário de teste ✅ concluído (`9b314bc`)
+- **Objetivo:** nenhum nome de diretório temporário de teste pode depender só do relógio.
+- **Achado (2º CI da matriz):** com o `PATH` corrigido, o Linux passou e Windows e macOS
+  reprovaram por dois sintomas sem relação aparente — `trailing characters` ao parsear um JSON
+  de auditoria, e um roteiro de `fake_provider` servindo o conteúdo errado. Causa única: 26
+  construtores montavam o nome com `std::process::id()` + `SystemTime::now().as_nanos()`. No
+  Windows o relógio do sistema avança em passos de ~15 ms, não continuamente; dois testes que
+  partem no mesmo passo, em paralelo no mesmo binário, montam **o mesmo caminho** e escrevem no
+  diretório um do outro. O sintoma nunca aponta para o relógio — aponta para o arquivo que o
+  outro teste corrompeu.
+- **Correção:** contador atômico por sítio de chamada. `process::id()` separa processos, o
+  contador separa chamadas dentro do processo, e o relógio fica só como defesa contra reuso de
+  PID entre execuções. **Unicidade se constrói, não se observa.**
+- **Dois efeitos colaterais no mesmo tema:** `modo_servidor_mcp_nao_monta_a_ponte` contava
+  entradas do diretório temporário pelo prefixo `agentry-mcp-`, que também casa com os
+  diretórios dos testes de `mcp_server` — paralelos, no mesmo binário; passou a exigir o nome
+  exato que a produção escreve. E os dois caminhos temporários de `mcp_server` se distinguiam
+  só pelo PID.
+- **Guarda:** `caminho_temporario_de_teste_nao_depende_so_do_relogio`, em
+  `crates/core/tests/hermetismo.rs` — a varredura passou a cobrir `crates/*/tests/`, onde moram
+  os dois casos que reprovaram.
+- **Nota sobre a ADR-0045 §5:** ela previa instabilidade de plataforma em subir processo e abrir
+  socket. Isso **não** se confirmou — o e2e passou nos três SOs desde a primeira execução. A
+  instabilidade real existiu em outro lugar, e foi corrigida em vez de contornada com recorte
+  por SO. A ADR segue sem emenda, agora por evidência e não por omissão.
+
 ---
 
 ## Pontos verificados no MT-140 (2026-09-07)

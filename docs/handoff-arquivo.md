@@ -12,6 +12,7 @@
 
 ## Índice
 
+- [Rodada 12 (2026-09-11/12) — frente de *harness*, ADR-0046 e o primeiro CI da matriz (MT-158 a MT-165)](#rodada-12-2026-09-1112--frente-de-harness-adr-0046-e-o-primeiro-ci-da-matriz-mt-158-a-mt-165)
 - [Rodada 11 (2026-09-08/09) — achados do teste de uso, MT-150 a MT-157](#rodada-11-2026-09-0809--achados-do-teste-de-uso-mt-150-a-mt-157)
 - [Rodada 10 (2026-09-07/08) — Fase K (teste ponta a ponta) e teste de uso da TUI](#rodada-10-2026-09-0708--fase-k-teste-ponta-a-ponta-e-teste-de-uso-da-tui)
 - [Rodada 9 (2026-09-07) — build Linux, higiene de disco e ADR-0044](#rodada-9-2026-09-07--build-linux-higiene-de-disco-e-adr-0044)
@@ -24,6 +25,58 @@
 - [Tabela de commits (mais recente no topo)](#histórico-mais-recente-no-topo)
 
 ---
+
+## Rodada 12 (2026-09-11/12) — frente de *harness*, ADR-0046 e o primeiro CI da matriz (MT-158 a MT-165)
+
+- **`825a765`** — avaliação do `agentry` como *harness*
+  ([`analise-harness-engineering.md`](./analise-harness-engineering.md)) e frente **MT-159 a
+  MT-163**: as cinco lacunas têm o mesmo eixo — **sabe impedir, não sabe contar**.
+- **`5027a83`** — **MT-158**: `AGENTRY_LITELLM_BASE_URL`/`_MODEL` na camada de ambiente.
+  `egressClass` **não** ganhou variável: endereço é conveniência, classe de egresso é política.
+- **`bee6c74`** — **MT-164** registrado.
+- **`d4e7151`** — gateway interno passa a ser **`cloud-opt-out`**, não `cloud-ok` (decisão do
+  mantenedor). A taxonomia descreve a **fronteira de confiança**, não a distância de rede;
+  declarar um gateway interno `cloud-ok` forçaria afrouxar a sessão inteira para falar com um
+  endpoint mais confiável que a média.
+- **`f23474c`** — **ADR-0046 (Proposed)**: hooks de ciclo, e avaliação do núcleo `cepia`.
+- **`dd4ce27`** — **MT-159**: `StopReason::Impasse`, e `mensagem_de_parada` passa a cobrir
+  **todos** os motivos — parar em silêncio era o mesmo defeito de atribuição que o ticket
+  corrige.
+- **`fb08f6b`** — **MT-146**: o primeiro CI da vida do projeto reprovou, e reprovou
+  **exatamente o que a Fase K existia para descobrir**. Três testes de montagem do provider
+  `claude-cli` falharam nos **três** SOs: o *runner* não tem `claude` no `PATH`. Estavam verdes
+  havia meses porque toda máquina de desenvolvimento do projeto tem o Claude Code instalado —
+  não testavam a montagem, testavam a estação de trabalho.
+- **`9b314bc`** — **MT-165**: com aquilo corrigido, o CI reprovou de novo, agora só em Windows e
+  macOS, por dois sintomas sem relação aparente (`trailing characters` ao ler um JSON de
+  auditoria; roteiro de `fake_provider` servindo o conteúdo errado). Mesma causa nos dois: 26
+  construtores de diretório temporário montavam o nome com `process::id()` + `as_nanos()`, e
+  essa combinação **não é única**. No Windows o relógio do sistema avança em passos de ~15 ms,
+  então dois testes paralelos leem o mesmo instante e escrevem no diretório um do outro. Todos
+  ganharam contador atômico por sítio de chamada; guarda estática em `hermetismo.rs`, agora
+  varrendo também `crates/*/tests/`. **Unicidade se constrói, não se observa.**
+
+**Padrão que se repetiu quatro vezes nesta rodada e vale como regra:** código que pergunta ao
+sistema *"como é o mundo aqui?"* dentro da função sob teste amarra o resultado à máquina de quem
+roda, e o sintoma só aparece quando alguém roda em outra. Aconteceu com `HOME` (MT-141), com as
+variáveis `AGENTRY_*` (MT-158, quando o mantenedor exportou `AGENTRY_MODEL` no `.zshrc`), com o
+`PATH` (MT-146) e com a **resolução do relógio** (MT-165). A correção é sempre a mesma —
+**sondar na fronteira e injetar o resultado**, ou construir o que não se pode observar — e as
+quatro guardas estáticas vivem juntas em `crates/core/tests/hermetismo.rs`.
+
+**A hipótese da ADR-0045 §5 não se confirmou como escrita:** ela previa instabilidade em subir
+processo e abrir socket em Windows/macOS, e os casos ponta a ponta passaram nos três SOs desde a
+primeira execução. A instabilidade real de plataforma existiu, mas em outro lugar — a resolução
+do relógio — e foi corrigida em vez de contornada com recorte por SO.
+
+- **`d743d64`** — teste de uso da TUI contra o **gateway real**
+  ([`RELATORIO-2026-09-10-litellm.md`](../usage-test/RELATORIO-2026-09-10-litellm.md)): 10
+  cenários, os quatro marcadores do **MT-154** confirmados na tela, e a negação por `deny`
+  exercitada com `[auto]` **ligado**. Evidência conferida contra o estado em disco e contra as
+  15 chamadas do `audit.log`. **Leia com a ressalva registrada no próprio relatório:** ambiente
+  pré-verificado remove por construção a classe de achado de primeira configuração — que foi
+  exatamente onde os MT-150/151/152 apareceram.
+
 
 ## Rodada 11 (2026-09-08/09) — achados do teste de uso, MT-150 a MT-157
 

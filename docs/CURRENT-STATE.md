@@ -12,117 +12,74 @@
 ## Último turno
 
 - **Data:** 2026-09-12
-- **Branch:** `chore/build-linux-e-higiene-de-disco` — **enviada ao remoto** em 2026-09-12
-  (39 commits), ainda **não mesclada em `main`**
-- **Commits desta rodada:** `825a765`, `5027a83`, `bee6c74`, `d743d64`, `d4e7151`,
-  `f23474c`, `dd4ce27`, `fb08f6b` — rodada anterior (MT-150 a MT-157)
-  arquivada em [`handoff-arquivo.md`](./handoff-arquivo.md) como Rodada 11
-- **Estado da árvore:** `AGENTS.md`, `skills/README.md` e os diretórios de skills não rastreados
-  seguem modificados de **outra frente**, intocados. Há um binário `agentry` de ~280 MB solto na
-  raiz (não rastreado, fora do `.gitignore`) — cópia de build; remover é decisão do dono.
+- **Branch:** `chore/build-linux-e-higiene-de-disco` — **no remoto** (41 commits), ainda
+  **não mesclada em `main`**
+- **Último commit:** `9b314bc` (MT-165). A rodada (MT-158 a MT-165) está arquivada em
+  [`handoff-arquivo.md`](./handoff-arquivo.md) como **Rodada 12** — leia lá o relato dos
+  achados, inclusive por que o primeiro CI reprovou duas vezes por causas diferentes.
+- **Estado da árvore:** `AGENTS.md`, `skills/README.md` e os diretórios de skills não
+  rastreados seguem modificados de **outra frente**, intocados. Há um binário `agentry` de
+  ~280 MB solto na raiz (não rastreado, fora do `.gitignore`) — cópia de build; remover é
+  decisão do dono.
 - **DoD:** `cargo fmt` aplicado, `cargo clippy --workspace --all-targets -- -D warnings` com
-  saída **0**, suíte completa **858 testes verdes**.
-
-## Metas cumpridas neste turno
-
-- [x] **`825a765`** — avaliação do `agentry` como *harness*
-      ([`analise-harness-engineering.md`](./analise-harness-engineering.md)) e frente **MT-159 a
-      MT-163**: as cinco lacunas têm o mesmo eixo — **sabe impedir, não sabe contar**.
-- [x] **`5027a83`** — **MT-158**: `AGENTRY_LITELLM_BASE_URL`/`_MODEL` na camada de ambiente.
-      `egressClass` **não** ganhou variável: endereço é conveniência, classe de egresso é
-      política.
-- [x] **`bee6c74`** — **MT-164** registrado.
-- [x] **`d4e7151`** — gateway interno passa a ser **`cloud-opt-out`**, não `cloud-ok` (decisão do
-      mantenedor). A taxonomia descreve a **fronteira de confiança**, não a distância de rede;
-      declarar um gateway interno `cloud-ok` forçaria afrouxar a sessão inteira para falar com um
-      endpoint mais confiável que a média.
-- [x] **`f23474c`** — **ADR-0046 (Proposed)**: hooks de ciclo, e avaliação do núcleo `cepia`.
-- [x] **`dd4ce27`** — **MT-159**: `StopReason::Impasse`, e `mensagem_de_parada` passa a cobrir
-      **todos** os motivos — parar em silêncio era o mesmo defeito de atribuição que o ticket
-      corrige.
-- [x] **`fb08f6b`** — **MT-146**: o primeiro CI da vida do projeto reprovou, e reprovou
-      **exatamente o que a Fase K existia para descobrir**. Três testes de montagem do provider
-      `claude-cli` falharam nos **três** SOs: o *runner* não tem `claude` no `PATH`. Estavam
-      verdes havia meses porque toda máquina de desenvolvimento do projeto tem o Claude Code
-      instalado — não testavam a montagem, testavam a estação de trabalho. Terceiro membro da
-      mesma família (`HOME`/MT-141, `AGENTRY_*`/MT-158, agora `PATH`), com a guarda estática
-      junto das outras duas. **A hipótese da ADR-0045 §5 não se confirmou:** os casos ponta a
-      ponta passaram nos três SOs; a fragilidade não estava em subir processo e abrir socket.
-- [x] **`d743d64`** — teste de uso da TUI contra o **gateway real**
-      ([`RELATORIO-2026-09-10-litellm.md`](../usage-test/RELATORIO-2026-09-10-litellm.md)):
-      10 cenários, os quatro marcadores do **MT-154** confirmados na tela, e a negação por
-      `deny` exercitada com `[auto]` **ligado**. Evidência conferida contra o estado em disco e
-      contra as 15 chamadas do `audit.log`. **Leia com a ressalva registrada no próprio
-      relatório:** ambiente pré-verificado remove por construção a classe de achado de primeira
-      configuração — que foi exatamente onde os MT-150/151/152 apareceram.
-
-**Padrão que se repetiu três vezes nesta rodada e vale como regra:** código que pergunta ao
-sistema *"como é o mundo aqui?"* dentro da função sob teste amarra o resultado à máquina de quem
-roda, e o sintoma só aparece quando alguém roda em outra. Aconteceu com `HOME` (MT-141), com as
-variáveis `AGENTRY_*` (MT-158, quando o mantenedor exportou `AGENTRY_MODEL` no `.zshrc`) e com o
-`PATH` (MT-146, no primeiro CI). A correção é sempre a mesma — **sondar na fronteira e injetar o
-resultado** — e as três guardas estáticas vivem juntas em `crates/core/tests/hermetismo.rs`.
+  saída **0**, suíte completa **859 testes verdes**.
 
 ## Em andamento
 
-**MT-146 — falta confirmar o CI verde.** A branch está no remoto e o CI **roda de verdade** (o
-repositório é público, então Actions é gratuito e ilimitado). As duas primeiras execuções
-reprovaram, a causa foi corrigida em `fb08f6b`, e o critério de aceite — **duas execuções verdes
-seguidas** — ainda não foi observado. É o primeiro passo de quem retomar.
+**MT-146 — falta observar o CI verde; é o único ticket restante da Fase K.** A branch está no
+remoto e o CI **roda de verdade** (o repositório é público, então Actions é gratuito e
+ilimitado). Duas causas distintas já foram encontradas e corrigidas pelo próprio CI —
+`PATH` sem `claude` (`fb08f6b`) e unicidade de diretório temporário (`9b314bc`). O critério de
+aceite é **duas execuções verdes seguidas**; uma só não distingue teste estável de teste com
+sorte. **Primeiro passo de quem retomar:** `gh run list --branch chore/build-linux-e-higiene-de-disco`.
 
-Contexto anterior do ticket: O código está pronto: o CI já rodava
-`cargo test --all`, então os casos ponta a ponta **já entram** na matriz de três SOs — não
-faltava fiação. O que faltava era portabilidade real, e havia um defeito concreto: o caso do
-MT-157 redirecionava o diretório temporário só por `TMPDIR`, que o Windows ignora, então ele
-teria passado **por vacuidade** lá (afirmando sobre um diretório que o binário nunca usou).
-Corrigido; o resto do e2e foi auditado e não precisa de recorte por SO.
-
-Falta o critério de aceite: **CI verde em duas execuções seguidas**. Isso exige `push` da
-branch `chore/build-linux-e-higiene-de-disco`, que nunca foi enviada — **não fiz por conta
-própria**. A ADR-0045 §5 **não** foi emendada de propósito: a saída acordada lá (restringir o
-e2e a Linux) depende de instabilidade **observada**, e ainda não houve execução de CI.
+Se reprovar de novo, o método que funcionou nas duas vezes: `gh run view <id> --json jobs` para
+saber **quais** SOs caíram, e só então `gh run view <id> --log-failed | grep -E "test result:
+FAILED|panicked at|Process completed with exit code"`. **Não** faça `grep` amplo por `error` no
+log — ele casa com `--error-format=json` e despeja o log inteiro no contexto.
 
 **Gateway LiteLLM alcançável desta máquina** — endereço e chave ficam **fora do repositório**.
 `qwen3-coder:30b` faz *tool-calling*. **Nunca ecoar a chave:** `agentry --set-credential litellm`
 lê de `stdin` (grava `0600`, mantém o valor fora de `argv`). Desde o MT-158 o endereço vem de
 `AGENTRY_LITELLM_BASE_URL`, então `usage-test/exemplos/02-gateway-litellm.json` roda sem edição.
-Existe a skill `delegacao-litellm` para mandar trabalho volumoso ao gateway em vez de gastar
-cota da assinatura.
-
-**Decisão pendente de política, agora com consequência prática.** O `.zshrc` do mantenedor
-exporta `AGENTRY_PROFILE=externo-confidencial` (⇒ `cloud-opt-out`), e o gateway está declarado
-`cloud-ok` — logo o `Router` **recusa** a rota e cai para o candidato local. Funcionou como
-projetado, mas bloqueou uma rodada inteira de teste de uso antes de alguém desconfiar do
-ambiente. Escolha uma: declarar o gateway `cloud-opt-out` (leitura: "é da empresa, não treina
-com o dado") ou usar `pessoal`. Note que `empresa` mapeia para `local-only`
-(`config/privacy.rs`), então sob o perfil corporativo um gateway interno só é alcançável se for
-declarado `local-only` — aqui `local-only` significa "não sai da fronteira de confiança", não
-"não sai da máquina".
+O gateway interno está declarado **`cloud-opt-out`** (decisão do mantenedor, `d4e7151`), o que o
+torna alcançável sob o perfil `externo-confidencial` que o `.zshrc` exporta. Existe a skill
+`delegacao-litellm` para mandar trabalho volumoso ao gateway em vez de gastar cota da assinatura.
 
 ## Próximo passo sugerido
 
-1. **MT-159** — `StopReason::Impasse`. O item de maior retorno da frente nova e o mais barato:
-   hoje um agente preso queima os 25 turnos e reporta `MaxTurnsExceeded`, que **atribui a causa
-   errada** — quem lê conclui que o teto está baixo e o aumenta.
+1. **MT-146** — observar o CI (ver *Em andamento*). Barato e fecha a Fase K.
 2. **MT-164** — mostrar a camada de origem de cada valor da configuração. Custou uma rodada de
    teste de uso; é diagnóstico que qualquer pessoa vai precisar.
-3. **MT-146** — fiar os testes ponta a ponta no CI; é o **único** ticket restante da Fase K.
-   Só falta o `push` (ver *Em andamento*).
-4. **MT-153** — promover a TUI a modo padrão, com `--repl` como escape hatch e *fallback* para
+3. **MT-153** — promover a TUI a modo padrão, com `--repl` como escape hatch e *fallback* para
    texto quando não houver TTY (`std::io::IsTerminal`). **Desbloqueado** por `882abeb`; exige
    ADR nova, citando o relatório de uso como a evidência que a ADR-0027 pedia.
-5. **Implementar a ADR-0044** — providers por assinatura via CLI oficial (Codex/Gemini) e por
+4. **MT-160** — trilha de decisão, observabilidade além do egresso. Absorve MT-149 e MT-155 e
+   exige ADR. É a maior lacuna para homologação: o projeto **sabe impedir e não sabe contar**.
+5. **Frente nova proposta pelo mantenedor (2026-09-12): frontend local com acesso remoto** —
+   SvelteKit 5 servido pelo processo no PC, acessível por LAN/VPN do celular ou notebook.
+   **Precede o código uma ADR de ingresso:** hoje toda a conformidade do projeto (`Transport`,
+   allowlist, `egressClass`, audit log) descreve **saída**; um frontend remoto abre **entrada**,
+   e o `egressClass` não diz nada sobre ela. Requisitos mínimos a decidir na ADR: *bind* em
+   `127.0.0.1` por padrão, exposição na interface da VPN **opt-in explícito**, token por cliente
+   e origem da requisição em cada `AuditEntry`. **Tauri 2.0 não resolve este caso** — ele
+   empacota cliente desktop, e o que a LAN precisa é do servidor + SPA no navegador; Tauri
+   entra depois, se houver cliente nativo. Fechar o MT-147 antes ajuda: ele é sobre corpo
+   não-SSE, e o transporte do frontend será SSE ou WebSocket.
+6. **Implementar a ADR-0044** — providers por assinatura via CLI oficial (Codex/Gemini) e por
    API. **Pré-requisito duro, ainda não verificado:** confirmar que cada CLI autoriza consumo
    programático sob a assinatura e qual o modo *headless* suportado. Quebrar com
    `micro-ticket-planner`: o molde da ADR-0040 exige `AuditEntry` por invocação e
    `EgressClass` verificada antes do *spawn* em cada provider.
-6. **Detector de nome de pessoa** — lacuna que a ADR-0043 declara e não resolve; custo de falso
+7. **Detector de nome de pessoa** — lacuna que a ADR-0043 declara e não resolve; custo de falso
    positivo alto, decisão do mantenedor.
 
 ## Decisões pendentes do mantenedor
 
 Nenhuma virou asserção, para não congelar comportamento antes da decisão:
 
+- **ADR-0046 (hooks de ciclo)** está **`Proposed`**. Acrescenta execução arbitrária declarada em
+  arquivo de configuração; quem ratifica é o mantenedor.
 - **MT-147** — corpo **não-SSE** numa requisição de *stream* produz `stdout` vazio, `0 tokens` e
   **código 0** — indistinguível de "o modelo não teve o que responder", e é o que acontece com
   endpoint mal configurado ou proxy que intercepta.
@@ -142,6 +99,11 @@ camadas do *fail-closed*, o invariante do `Ctrl+A` e o método de `tmux`) estão
 [`docs/roadmap-v0.18.md`](./roadmap-v0.18.md), junto do MT-146. **Leia antes de escrever
 qualquer caso novo** — cada uma custou um teste que passava sem verificar nada.
 
+As quatro guardas estáticas de `crates/core/tests/hermetismo.rs` existem porque o mesmo defeito
+apareceu quatro vezes: **o teste pergunta ao sistema como é o mundo aqui, e passa a descrever a
+máquina de quem roda**. Antes de introduzir qualquer sondagem de ambiente (`HOME`, variável de
+processo, `PATH`, relógio) dentro de código sob teste, leia o cabeçalho daquele arquivo.
+
 ## Impedimentos de ambiente (não são bugs do código)
 
 - **`protoc` é pré-requisito de build** (build script de `lance-encoding`, transitiva do
@@ -157,6 +119,7 @@ qualquer caso novo** — cada uma custou um teste que passava sem verificar nada
 
 ## Impedimentos abertos
 
+- **Não há workflow de *release*:** só `ci.yml`. Ninguém instala o `agentry` hoje sem compilar.
 - **Roadmap de longo prazo original esgotado — só resta multimodal, bloqueada.** Fases 11 a 20
   concluídas. A Fase 21+ está bloqueada pela resposta do mantenedor (2026-07-16,
   `docs/decisoes-autonomas.md`): adiada até existir um *guardrail* de imagem, já que os
@@ -167,9 +130,7 @@ qualquer caso novo** — cada uma custou um teste que passava sem verificar nada
   via `gh repo view`. Verificar antes de qualquer adoção como dependência.
 - **Copilot/GitHub Enterprise:** caminho oficial (GitHub Models vs. API Enterprise) indefinido
   pela empresa; adapter adiado.
-- **CI multi-SO ainda não observado verde:** a matriz do ADR-0005 (`2feed85`) precisa de um
-  push ao GitHub para confirmar Windows/macOS verdes.
 - **Verificação de "processo não órfão" do MT-23 é Unix-only de fato:** `processo_existe`
   (`crates/core/tests/lsp_client.rs`) usa `kill -0` e devolve `false` em `#[cfg(not(unix))]`,
   então em Windows os dois testes de ciclo de vida do `LspClient` passam **vacuamente**. Falta
-  uma verificação real (ex.: `tasklist`) quando a matriz de CI rodar.
+  uma verificação real (ex.: `tasklist`) agora que a matriz de CI roda.
