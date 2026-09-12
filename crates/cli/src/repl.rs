@@ -460,7 +460,7 @@ pub async fn run_repl<R: BufRead, W: Write>(
 
         session.push_user_message(linha);
         let outcome = stream_to_writer(session, &mut output, router).await?;
-        if let Some(aviso) = crate::mensagem_de_teto_de_turnos(&outcome) {
+        if let Some(aviso) = crate::mensagem_de_parada(&outcome) {
             writeln!(output, "{aviso}").map_err(|e| e.to_string())?;
         }
     }

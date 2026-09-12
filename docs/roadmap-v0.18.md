@@ -428,7 +428,22 @@ As cinco lacunas têm o mesmo eixo: o projeto **sabe impedir e não sabe contar 
   virar ADR, decidir os dois juntos.
 - **Depende de:** nenhum.
 
-### MT-159 (proposto): `StopReason::Impasse` — o loop precisa saber dizer que travou
+### MT-159: `StopReason::Impasse` ✅ concluído
+- **Como ficou:** a assinatura de detecção inclui o **resultado**, não só a chamada — é isso que
+  separa progresso de estagnação: reler um arquivo enquanto ele muda é trabalho legítimo (esperar
+  um build, acompanhar um log); reler e receber exatamente a mesma coisa pela terceira vez não é.
+  A contagem é por assinatura e **não exige repetição consecutiva**, que é o que faz a alternância
+  `A, B, A, B, A` contar — um detector que só olhasse a volta anterior deixaria esse caso passar.
+  Limiar de **três**, não dois: repetir uma leitura uma vez é plausível.
+- **Escopo que cresceu por necessidade:** `mensagem_de_teto_de_turnos` virou `mensagem_de_parada`
+  e passou a cobrir **todos** os motivos. Sem isso o ticket ficaria pela metade — o laço pararia
+  por impasse **em silêncio**, e a parada silenciosa é o mesmo defeito de atribuição que o ticket
+  existe para corrigir. `BudgetExceeded` também era silencioso e passou a falar.
+- **Testes:** quatro no detector (repetição, resultado que muda, alternância, argumentos
+  diferentes) e um no laço real, afirmando que ele para **na volta que fecha o impasse** e antes
+  do teto de turnos.
+
+### MT-159 (encerrado): texto original
 - **Objetivo:** `StopReason` tem `Done`, `BudgetExceeded` e `MaxTurnsExceeded`. Um agente preso
   repetindo a mesma ação queima os 25 turnos do teto (ADR-0033) e reporta `MaxTurnsExceeded` —
   que **atribui a causa errada**: diz "orçamento" quando a verdade é "travou". Quem lê o relato

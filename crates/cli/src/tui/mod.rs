@@ -2085,7 +2085,7 @@ async fn loop_eventos(
                         match &concluido.resultado {
                             Err(erro) => estado.chat.marcar_erro(&erro.to_string()),
                             Ok(outcome) => {
-                                if let Some(aviso) = crate::mensagem_de_teto_de_turnos(outcome) {
+                                if let Some(aviso) = crate::mensagem_de_parada(outcome) {
                                     estado.chat.registrar_mensagem_sistema(aviso);
                                 }
                             }

@@ -79,6 +79,55 @@ pub enum StopReason {
     /// loop). Histórico e uso acumulado preservados, mesmo padrão de
     /// [`Self::BudgetExceeded`] — nunca um erro fatal.
     MaxTurnsExceeded,
+    /// O laço repetiu a mesma chamada de tool — ou o mesmo par alternado —
+    /// sem que o resultado observado mudasse (MT-159).
+    ///
+    /// Impasse não é erro: cada volta executa, cada tool retorna, e nada
+    /// disso altera o estado. Sem esta parada o agente giraria até bater em
+    /// [`Self::MaxTurnsExceeded`] ou [`Self::BudgetExceeded`] — e os dois
+    /// **atribuem a causa errada**, dizendo "orçamento" quando a verdade é
+    /// "travou". Quem lê o relato conclui que o teto está baixo e o aumenta,
+    /// piorando o problema em vez de corrigi-lo.
+    Impasse,
+}
+
+/// Quantas vezes a mesma assinatura de execução pode aparecer num único
+/// `run`/`run_streaming` antes de contar como impasse.
+///
+/// Três, e não dois, porque repetir uma leitura é plausível (reler um
+/// arquivo depois de outra tool tê-lo tocado, por exemplo); repetir **três**
+/// vezes com resultado idêntico não é.
+const REPETICOES_ATE_IMPASSE: u32 = 3;
+
+/// Detector de impasse do laço de agente (MT-159).
+///
+/// A assinatura inclui o **resultado**, não só a chamada, e é isso que
+/// separa progresso de estagnação: reler o mesmo arquivo enquanto ele muda é
+/// trabalho legítimo; reler e receber exatamente a mesma coisa pela terceira
+/// vez não é.
+///
+/// A contagem é por assinatura e **não exige repetição consecutiva** — é o
+/// que faz a alternância `A, B, A, B, A` contar como impasse. Repetir um par
+/// é tão estagnado quanto repetir uma ação só, e um detector que só olhasse
+/// a volta anterior deixaria esse caso passar.
+#[derive(Debug, Default)]
+struct DetectorDeImpasse {
+    vistas: std::collections::HashMap<u64, u32>,
+}
+
+impl DetectorDeImpasse {
+    /// Registra uma execução; devolve `true` quando ela fecha um impasse.
+    fn registrar(&mut self, call: &ToolCall, resultado: &ToolResult) -> bool {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        call.name.hash(&mut hasher);
+        call.arguments.to_string().hash(&mut hasher);
+        resultado.content.hash(&mut hasher);
+        resultado.is_error.hash(&mut hasher);
+        let contagem = self.vistas.entry(hasher.finish()).or_insert(0);
+        *contagem += 1;
+        *contagem >= REPETICOES_ATE_IMPASSE
+    }
 }
 
 /// Teto *default* de turnos consecutivos com tool-call (ADR-0033) quando
@@ -657,6 +706,7 @@ impl Session {
         consumed: &mut Usage,
         turns: u32,
         resultados: &mut Vec<ToolResult>,
+        impasse: &mut DetectorDeImpasse,
     ) -> Option<SessionOutcome> {
         *consumed = Usage {
             input_tokens: consumed.input_tokens + turn_usage.input_tokens,
@@ -705,8 +755,10 @@ impl Session {
         }
 
         let mut result_blocks = Vec::with_capacity(tool_calls.len());
+        let mut travou = false;
         for call in &tool_calls {
             let result = self.executor.execute(call).await;
+            travou |= impasse.registrar(call, &result);
             resultados.push(result.clone());
             result_blocks.push(ContentBlock::ToolResult(result));
         }
@@ -714,6 +766,20 @@ impl Session {
             role: Role::Tool,
             content: result_blocks,
         });
+
+        // A parada acontece **depois** de empurrar os resultados: o histórico
+        // precisa registrar o que de fato rodou nesta volta, igual a qualquer
+        // outra saída. Quem retomar a sessão precisa ver a repetição para
+        // entender por que ela parou.
+        if travou {
+            return Some(SessionOutcome {
+                reason: StopReason::Impasse,
+                usage: *consumed,
+                turns,
+                reviews: Vec::new(),
+                guardrail_hits: Vec::new(),
+            });
+        }
 
         None
     }
@@ -893,6 +959,8 @@ impl Session {
     pub async fn run(&mut self, router: &Router) -> Result<SessionOutcome, SessionError> {
         let mut consumed = Usage::default();
         let mut turns = 0u32;
+        // Por chamada, não por sessão: um impasse é sobre esta tarefa.
+        let mut impasse = DetectorDeImpasse::default();
         let mut tentativas_de_revisao = 0u32;
         let mut guardrail_hits = Vec::new();
 
@@ -920,6 +988,7 @@ impl Session {
                     &mut consumed,
                     turns,
                     &mut Vec::new(),
+                    &mut impasse,
                 )
                 .await
             else {
@@ -990,6 +1059,8 @@ impl Session {
     {
         let mut consumed = Usage::default();
         let mut turns = 0u32;
+        // Por chamada, não por sessão: um impasse é sobre esta tarefa.
+        let mut impasse = DetectorDeImpasse::default();
         let mut tentativas_de_revisao = 0u32;
         let mut guardrail_hits = Vec::new();
         let buffer_saida = self
@@ -1032,6 +1103,7 @@ impl Session {
                     &mut consumed,
                     turns,
                     &mut resultados_de_tools,
+                    &mut impasse,
                 )
                 .await
             else {
@@ -1300,6 +1372,123 @@ mod tests {
 
     // --- MT-101/ADR-0033: teto de turnos consecutivos com tool-call,
     // independente do orçamento de tokens ---
+
+    // --- MT-159: impasse ---
+
+    fn chamada(nome: &str, args: serde_json::Value) -> ToolCall {
+        ToolCall {
+            id: "irrelevante".into(),
+            name: nome.into(),
+            arguments: args,
+        }
+    }
+
+    fn resultado(conteudo: &str) -> ToolResult {
+        ToolResult {
+            call_id: "irrelevante".into(),
+            content: conteudo.into(),
+            is_error: false,
+        }
+    }
+
+    #[test]
+    fn repetir_a_mesma_chamada_com_o_mesmo_resultado_fecha_impasse() {
+        let mut detector = DetectorDeImpasse::default();
+        let c = chamada("fs_read", serde_json::json!({ "path": "a.txt" }));
+
+        assert!(!detector.registrar(&c, &resultado("mesma coisa")));
+        assert!(!detector.registrar(&c, &resultado("mesma coisa")));
+        assert!(
+            detector.registrar(&c, &resultado("mesma coisa")),
+            "três execuções idênticas não são progresso"
+        );
+    }
+
+    #[test]
+    fn resultado_diferente_nao_e_impasse_por_mais_que_a_chamada_se_repita() {
+        // A distinção que define o detector: reler o mesmo arquivo enquanto
+        // ele muda é trabalho legítimo (esperar um build, acompanhar um log).
+        let mut detector = DetectorDeImpasse::default();
+        let c = chamada("fs_read", serde_json::json!({ "path": "saida.log" }));
+
+        for i in 0..10 {
+            assert!(
+                !detector.registrar(&c, &resultado(&format!("linha {i}"))),
+                "o observado mudou a cada volta — isso é progresso, não impasse"
+            );
+        }
+    }
+
+    #[test]
+    fn alternancia_entre_duas_chamadas_tambem_e_impasse() {
+        // Repetir um par é tão estagnado quanto repetir uma ação só. Um
+        // detector que só olhasse a volta anterior deixaria A,B,A,B,A passar.
+        let mut detector = DetectorDeImpasse::default();
+        let a = chamada("fs_read", serde_json::json!({ "path": "a.txt" }));
+        let b = chamada("fs_read", serde_json::json!({ "path": "b.txt" }));
+
+        assert!(!detector.registrar(&a, &resultado("conteudo de a")));
+        assert!(!detector.registrar(&b, &resultado("conteudo de b")));
+        assert!(!detector.registrar(&a, &resultado("conteudo de a")));
+        assert!(!detector.registrar(&b, &resultado("conteudo de b")));
+        assert!(
+            detector.registrar(&a, &resultado("conteudo de a")),
+            "A,B,A,B,A é impasse: o par se repete sem mudar o observado"
+        );
+    }
+
+    #[test]
+    fn argumentos_diferentes_nunca_fecham_impasse() {
+        let mut detector = DetectorDeImpasse::default();
+        for i in 0..10 {
+            let c = chamada("fs_read", serde_json::json!({ "path": format!("{i}.txt") }));
+            assert!(
+                !detector.registrar(&c, &resultado("mesmo conteudo")),
+                "varrer arquivos diferentes é progresso, mesmo com saída igual"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn o_laco_para_por_impasse_antes_de_gastar_o_teto_de_turnos() {
+        // O ponto do ticket: hoje um agente preso queimava o teto inteiro e
+        // reportava MaxTurnsExceeded, que atribui a causa errada — quem lê
+        // conclui que o teto está baixo e o aumenta, piorando o problema.
+        let mock = Arc::new(MockProvider::new("mock"));
+        for i in 0..10 {
+            mock.enqueue_chat(Ok(resposta_com_tool_call(
+                &format!("call-{i}"),
+                "fs_read",
+                Usage::default(),
+            )));
+        }
+        // `CountingExecutor` devolve sempre "ok": o observado nunca muda.
+        let executor = Arc::new(CountingExecutor::default());
+        let mut session = Session::new(
+            route(mock.clone()),
+            executor.clone(),
+            TokenBudget::new(1_000_000),
+        )
+        .with_max_tool_turns(25);
+        session.push_user_message("tarefa");
+
+        let outcome = session
+            .run(&router_vazio())
+            .await
+            .expect("impasse é parada, não erro");
+
+        assert_eq!(outcome.reason, StopReason::Impasse);
+        assert_eq!(
+            executor.chamadas.load(Ordering::SeqCst),
+            REPETICOES_ATE_IMPASSE as usize,
+            "o laço tem de parar na volta que fecha o impasse, não depois"
+        );
+        assert!(
+            outcome.turns < 25,
+            "parar por impasse só vale se acontecer antes do teto: turns={}",
+            outcome.turns
+        );
+    }
 
     #[tokio::test]
     async fn para_no_teto_de_turnos_sem_executar_a_rodada_que_estourou() {

@@ -459,22 +459,40 @@ pub(crate) fn formatar_undo(outcome: &agentry_core::checkpoint::UndoOutcome) -> 
     }
 }
 
-/// Mensagem de aviso quando a sessão para por
-/// [`agentry_core::session::StopReason::MaxTurnsExceeded`] (MT-102,
-/// ADR-0033) — `None` para qualquer outro motivo de parada. Única fonte da
-/// string, usada pelos três pontos de exposição (REPL, *one-shot*, TUI),
-/// mesma disciplina de [`formatar_uso`]/[`formatar_undo`].
-pub(crate) fn mensagem_de_teto_de_turnos(
+/// Mensagem de aviso quando a sessão para por um motivo que **não** é a
+/// resposta final — `None` para [`StopReason::Done`]. Única fonte da string,
+/// usada pelos três pontos de exposição (REPL, *one-shot*, TUI), mesma
+/// disciplina de [`formatar_uso`]/[`formatar_undo`].
+///
+/// **MT-159.** Antes daqui a função só falava do teto de turnos, e os demais
+/// motivos encerravam em silêncio — quem usava via a resposta simplesmente
+/// parar, sem nada na tela dizendo por quê. Cada motivo agora nomeia a
+/// **causa**, e não só o sintoma: é a diferença entre "parou" e "parou
+/// porque estava repetindo a mesma chamada sem sair do lugar", que é a
+/// informação que decide se a ação certa é insistir, reformular ou desistir.
+pub(crate) fn mensagem_de_parada(
     outcome: &agentry_core::session::SessionOutcome,
 ) -> Option<String> {
-    if outcome.reason != agentry_core::session::StopReason::MaxTurnsExceeded {
-        return None;
+    use agentry_core::session::StopReason;
+    match outcome.reason {
+        StopReason::Done => None,
+        StopReason::MaxTurnsExceeded => Some(format!(
+            "[aviso] parou após {} turnos consecutivos com uso de ferramenta (ADR-0033) — pode \
+             continuar enviando outra mensagem",
+            outcome.turns
+        )),
+        StopReason::Impasse => Some(
+            "[aviso] parou por impasse: a mesma chamada de ferramenta se repetiu sem que o \
+             resultado mudasse (MT-159). Insistir gastaria orçamento sem sair do lugar — \
+             reformule o pedido ou verifique se a ferramenta tem o que precisa."
+                .to_string(),
+        ),
+        StopReason::BudgetExceeded => Some(format!(
+            "[aviso] parou por orçamento de tokens ({} no total) — pode continuar enviando \
+             outra mensagem",
+            outcome.usage.total()
+        )),
     }
-    Some(format!(
-        "[aviso] parou após {} turnos consecutivos com uso de ferramenta (ADR-0033) — pode \
-         continuar enviando outra mensagem",
-        outcome.turns
-    ))
 }
 
 /// Emite cada [`AuditEntry`] de egresso em stderr — suficiente para a v0.1;
@@ -1658,7 +1676,7 @@ async fn executar() -> Result<(), Encerramento> {
         let outcome = streaming::stream_to_writer(&mut session, io::stdout(), &router)
             .await
             .ou_encerrar(1, |erro| format!("erro: {erro}"))?;
-        if let Some(aviso) = mensagem_de_teto_de_turnos(&outcome) {
+        if let Some(aviso) = mensagem_de_parada(&outcome) {
             eprintln!("{aviso}");
         }
         eprintln!("[uso] {}", formatar_uso(session.usage_total()));
@@ -2419,26 +2437,50 @@ mod tests {
     }
 
     #[test]
-    fn mensagem_de_teto_de_turnos_e_none_quando_o_motivo_e_outro() {
+    fn mensagem_de_parada_e_none_so_para_a_resposta_final() {
+        use agentry_core::session::StopReason;
         assert_eq!(
-            mensagem_de_teto_de_turnos(&outcome_de_teste(
-                agentry_core::session::StopReason::Done,
-                3
-            )),
+            mensagem_de_parada(&outcome_de_teste(StopReason::Done, 3)),
             None
         );
-        assert_eq!(
-            mensagem_de_teto_de_turnos(&outcome_de_teste(
-                agentry_core::session::StopReason::BudgetExceeded,
-                3
-            )),
-            None
+
+        // MT-159: **todo** outro motivo precisa dizer alguma coisa. Antes
+        // daqui só o teto de turnos falava, e `BudgetExceeded`/`Impasse`
+        // encerravam em silêncio — quem usava via a resposta parar sem nada
+        // na tela explicando por quê.
+        for motivo in [
+            StopReason::MaxTurnsExceeded,
+            StopReason::BudgetExceeded,
+            StopReason::Impasse,
+        ] {
+            assert!(
+                mensagem_de_parada(&outcome_de_teste(motivo, 3)).is_some(),
+                "parada por {motivo:?} não pode ser silenciosa"
+            );
+        }
+    }
+
+    #[test]
+    fn mensagem_de_impasse_diz_a_causa_e_o_que_fazer() {
+        let mensagem = mensagem_de_parada(&outcome_de_teste(
+            agentry_core::session::StopReason::Impasse,
+            7,
+        ))
+        .expect("impasse precisa de mensagem");
+
+        assert!(
+            mensagem.contains("impasse") && mensagem.contains("repetiu"),
+            "a mensagem tem de nomear a causa, não só dizer que parou: {mensagem:?}"
+        );
+        assert!(
+            mensagem.contains("reformule"),
+            "sem dizer o que fazer a seguir, o aviso só informa que falhou: {mensagem:?}"
         );
     }
 
     #[test]
-    fn mensagem_de_teto_de_turnos_menciona_a_contagem_quando_e_o_motivo() {
-        let mensagem = mensagem_de_teto_de_turnos(&outcome_de_teste(
+    fn mensagem_de_parada_menciona_a_contagem_no_teto_de_turnos() {
+        let mensagem = mensagem_de_parada(&outcome_de_teste(
             agentry_core::session::StopReason::MaxTurnsExceeded,
             25,
         ))
