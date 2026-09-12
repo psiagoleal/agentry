@@ -281,3 +281,42 @@ fn so_a_montagem_de_config_le_o_ambiente_do_processo() {
         violacoes.join("\n  ")
     );
 }
+
+#[test]
+fn a_presenca_de_binario_externo_nao_e_sondada_fora_da_montagem_da_cli() {
+    // Terceiro membro da mesma família (`HOME`, `AGENTRY_*`, e agora `PATH`):
+    // código que pergunta ao sistema "isto está instalado?" torna o resultado
+    // do teste dependente da estação de trabalho de quem roda.
+    //
+    // Aconteceu no primeiro CI da vida do projeto (2026-09-12): três testes
+    // de montagem do provider `claude-cli` reprovaram nos **três** SOs da
+    // matriz, porque o runner não tem `claude` no `PATH`. Eles estavam
+    // verdes havia meses só porque toda máquina de desenvolvimento do
+    // projeto tem o Claude Code instalado — não testavam a montagem do
+    // provider, testavam a máquina.
+    //
+    // A correção é a de sempre: sondar na fronteira e injetar o resultado.
+    let fontes = fontes_do_workspace();
+    assert!(fontes.len() > 20, "varredura vazia — ver o primeiro teste");
+
+    let mut violacoes = Vec::new();
+    for caminho in &fontes {
+        let conteudo = std::fs::read_to_string(caminho).expect("fonte deve ser legível");
+        // `main.rs` **define** a sondagem e a usa uma vez, na montagem.
+        if conteudo.contains("fn binario_no_path") {
+            continue;
+        }
+        for (n, linha) in conteudo.lines().enumerate() {
+            if !e_comentario(linha) && linha.contains("binario_no_path") {
+                violacoes.push(format!("{}:{}", caminho.display(), n + 1));
+            }
+        }
+    }
+
+    assert!(
+        violacoes.is_empty(),
+        "sondar o `PATH` fora da montagem da CLI amarra o comportamento à máquina de quem \
+         roda. Injete o resultado por parâmetro. Violações:\n  {}",
+        violacoes.join("\n  ")
+    );
+}

@@ -894,11 +894,22 @@ impl DiagnosticosDeInicializacao {
     }
 }
 
+/// `binario_presente` chega **injetado**, em vez de a função sondar o `PATH`
+/// por conta própria (MT-146).
+///
+/// Os testes deste módulo passavam `true` implicitamente porque toda máquina
+/// que os rodava tinha o Claude Code instalado — e ficaram verdes por meses
+/// assim. O primeiro CI da vida do projeto reprovou os três de uma vez, nos
+/// **três** SOs da matriz: o *runner* não tem `claude` no `PATH`, então o
+/// provider não era registrado e as asserções sobre a rota caíam. Eles não
+/// testavam a montagem do provider; testavam a estação de trabalho de quem
+/// rodava. Mesma família do `HOME` (MT-141) e das variáveis `AGENTRY_*`.
 fn build_claude_cli_provider(
     cfg: &Config,
     audit_sink: Arc<dyn AuditSink>,
     montar_ponte_mcp: bool,
     diagnosticos: &mut DiagnosticosDeInicializacao,
+    binario_presente: bool,
 ) -> Option<RegistroDeProvider> {
     let claude_cli = cfg.claude_cli.as_ref()?;
 
@@ -907,7 +918,7 @@ fn build_claude_cli_provider(
     // declarar `claude-cli` e `ollama` como candidatos da mesma task-class:
     // quem não tem o Claude Code instalado cai no Ollama sozinho, sem editar
     // nada. O aviso existe para a queda nunca ser silenciosa.
-    if !binario_no_path(agentry_core::provider::claude_cli::CLAUDE_BINARY) {
+    if !binario_presente {
         diagnosticos.registrar(
             "[claude-cli] aviso: providers.claudeCli está configurado mas o binário 'claude' \
              não está no PATH — provider não registrado (instale o Claude Code e rode \
@@ -1405,6 +1416,7 @@ async fn executar() -> Result<(), Encerramento> {
         Arc::clone(&audit_sink),
         !args.mcp_server,
         &mut diagnosticos,
+        binario_no_path(agentry_core::provider::claude_cli::CLAUDE_BINARY),
     );
 
     // Ordem = preferência de candidato depois do Ollama local.
@@ -2832,6 +2844,7 @@ mod tests {
             Arc::new(NoopAuditSink),
             false,
             &mut DiagnosticosDeInicializacao::default(),
+            true,
         )
         .is_none());
     }
@@ -2847,6 +2860,7 @@ mod tests {
             Arc::new(NoopAuditSink),
             false,
             &mut DiagnosticosDeInicializacao::default(),
+            true,
         )
         .expect("model declarado deve montar Some");
 
@@ -2879,6 +2893,7 @@ mod tests {
             Arc::new(NoopAuditSink),
             false,
             &mut DiagnosticosDeInicializacao::default(),
+            true,
         )
         .expect("o provider continua sendo montado, só sem a ponte");
         assert_eq!(registro.0.name(), CLAUDE_CLI_PROVIDER_NAME);
@@ -2911,6 +2926,7 @@ mod tests {
             Arc::new(NoopAuditSink),
             false,
             &mut DiagnosticosDeInicializacao::default(),
+            true,
         )
         .expect("deve montar Some");
 
