@@ -517,6 +517,29 @@ As cinco lacunas têm o mesmo eixo: o projeto **sabe impedir e não sabe contar 
   não distingue teste estável de teste com sorte.
 - **Depende de:** MT-143, MT-144, MT-145.
 
+### MT-166: saída de caminho portável e binário falso executável no Windows ✅ concluído (`6ff2760`)
+- **Objetivo:** fechar as seis falhas exclusivas do Windows na terceira execução da matriz.
+- **Achado 1 (produção):** `glob`, `code_search` e `repo_map` devolviam o caminho relativo com o
+  separador **nativo** — `src\main.rs` no Windows. Os padrões que **entram** nessas tools
+  (`glob`, `.agentryignore`, regras de permissão por caminho) usam `/` em toda plataforma, então
+  a saída falava um alfabeto diferente do da entrada: um caminho devolvido por `glob` não casaria
+  com um padrão escrito pela mesma pessoa que escreveu o padrão da busca. Só o `glob` tinha
+  asserção sobre o separador, mas os três compartilhavam o defeito.
+- **Correção 1:** `tools::caminho_relativo_portavel`, que monta a partir dos **componentes** em
+  vez de substituir texto — correto por construção. No Linux e no macOS é um no-op.
+- **Achado 2 (teste):** os quatro casos do provider `claude-cli` fabricavam o `claude` falso como
+  script `.sh`. O Windows não executa `.sh`: `CreateProcess` devolve `%1 is not a valid Win32
+  application` (os error 193).
+- **Correção 2:** `.cmd` naquela plataforma, com o corpo num arquivo à parte — embutir JSON num
+  `.cmd` exigiria escapar `%`, `^`, `&`, `<` e `>` um a um, e um escape errado apareceria só como
+  resposta truncada, que é o pior modo de falhar.
+- **Nota de método:** o teste do caminho portável **não é vacuoso** no Windows — `Path::join`
+  monta com `\` lá, então ele falha se a montagem voltar a depender do separador nativo. Já o
+  caminho `.cmd` não pode ser exercitado na máquina de desenvolvimento; quem o verifica é o CI.
+- **O que a sequência MT-146 → MT-165 → MT-166 mostra:** três execuções de CI, três causas
+  distintas, nenhuma detectável por leitura de código ou por suíte local. Todas eram
+  **pressupostos sobre a máquina** embutidos em código que passava verde havia meses.
+
 ### MT-165: unicidade de diretório temporário de teste ✅ concluído (`9b314bc`)
 - **Objetivo:** nenhum nome de diretório temporário de teste pode depender só do relógio.
 - **Achado (2º CI da matriz):** com o `PATH` corrigido, o Linux passou e Windows e macOS
