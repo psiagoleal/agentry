@@ -99,12 +99,7 @@ impl Tool for GlobTool {
                 if entrada.file_type().is_some_and(|ft| !ft.is_file()) {
                     continue;
                 }
-                let relativo = entrada
-                    .path()
-                    .strip_prefix(&self.root)
-                    .unwrap_or(entrada.path())
-                    .to_string_lossy()
-                    .into_owned();
+                let relativo = super::caminho_relativo_portavel(entrada.path(), &self.root);
                 caminhos.push(relativo);
                 if caminhos.len() >= MAX_RESULTADOS {
                     break;

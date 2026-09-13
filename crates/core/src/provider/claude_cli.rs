@@ -673,17 +673,43 @@ mod tests {
     fn script_falso(corpo: &str) -> (TempDir, String) {
         use std::io::Write as _;
         let dir = TempDir::new();
-        let caminho = dir.0.join("claude-falso.sh");
-        let mut f = std::fs::File::create(&caminho).expect("criar script");
-        // `cat > /dev/null` consome o prompt do stdin: sem isso o script
-        // terminaria antes da escrita e o provider veria um "broken pipe".
-        writeln!(f, "#!/bin/sh\ncat > /dev/null\ncat <<'FIM'\n{corpo}\nFIM").expect("escrever");
+
+        // O corpo vai para um arquivo à parte em vez de ficar embutido no
+        // script: no Windows, embutir JSON num `.cmd` exigiria escapar `%`,
+        // `^`, `&`, `<` e `>` um a um, e um escape errado só apareceria como
+        // resposta truncada.
+        std::fs::write(dir.0.join("corpo.txt"), format!("{corpo}\n")).expect("escrever corpo");
+
+        // O Windows não executa um `.sh`: `CreateProcess` devolve
+        // "%1 is not a valid Win32 application" (os error 193). Achado real do
+        // primeiro CI da matriz (MT-166).
         #[cfg(unix)]
-        {
+        let caminho = {
+            let caminho = dir.0.join("claude-falso.sh");
+            let mut f = std::fs::File::create(&caminho).expect("criar script");
+            // `cat > /dev/null` consome o prompt do stdin: sem isso o script
+            // terminaria antes da escrita e o provider veria um "broken pipe".
+            writeln!(
+                f,
+                "#!/bin/sh\ncat > /dev/null\ncat \"$(dirname \"$0\")/corpo.txt\""
+            )
+            .expect("escrever");
             use std::os::unix::fs::PermissionsExt as _;
             std::fs::set_permissions(&caminho, std::fs::Permissions::from_mode(0o755))
                 .expect("chmod");
-        }
+            caminho
+        };
+
+        #[cfg(windows)]
+        let caminho = {
+            let caminho = dir.0.join("claude-falso.cmd");
+            let mut f = std::fs::File::create(&caminho).expect("criar script");
+            // `more > NUL` é o equivalente de `cat > /dev/null`; `%~dp0` é o
+            // diretório do próprio script, com a barra final.
+            writeln!(f, "@echo off\r\nmore > NUL\r\ntype \"%~dp0corpo.txt\"").expect("escrever");
+            caminho
+        };
+
         let s = caminho.to_string_lossy().into_owned();
         (dir, s)
     }

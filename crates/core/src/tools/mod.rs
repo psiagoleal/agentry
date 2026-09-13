@@ -11,6 +11,30 @@
 //! devolvendo a [`ToolCall`] pendente; quem interage com o usuário (a
 //! CLI, MT-14) decide o que fazer com esse sinal.
 
+/// Caminho relativo à `raiz`, sempre com `/` como separador — em qualquer
+/// plataforma.
+///
+/// Os padrões que **entram** nestas tools (`glob`, `.agentryignore`, as regras
+/// de permissão por caminho) usam `/` em toda plataforma. Devolver `\` no
+/// Windows faria a saída falar um alfabeto diferente do da entrada: um caminho
+/// devolvido por `glob` não casaria com um padrão escrito pela mesma pessoa que
+/// escreveu o padrão da busca. Achado real do primeiro CI da matriz (MT-166).
+///
+/// Monta a partir dos componentes em vez de substituir texto: assim é correto
+/// por construção, e não depende de o caminho não conter um separador literal.
+pub(crate) fn caminho_relativo_portavel(
+    caminho: &std::path::Path,
+    raiz: &std::path::Path,
+) -> String {
+    caminho
+        .strip_prefix(raiz)
+        .unwrap_or(caminho)
+        .components()
+        .map(|componente| componente.as_os_str().to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
 pub mod ask_user;
 pub mod checkpoint;
 pub mod code_search;
@@ -235,6 +259,28 @@ impl ToolRegistry {
 mod tests {
     use super::*;
     use crate::config::Permissions;
+
+    /// Não é vacuoso no Windows: lá `join` monta o caminho com `\\`, e o teste
+    /// falharia se a montagem dependesse do separador nativo (MT-166).
+    #[test]
+    fn caminho_relativo_sai_com_barra_normal_em_qualquer_plataforma() {
+        let raiz = std::path::Path::new("raiz");
+        let alvo = raiz.join("src").join("main.rs");
+
+        assert_eq!(caminho_relativo_portavel(&alvo, raiz), "src/main.rs");
+    }
+
+    /// Caminho fora da raiz não é truncado: `strip_prefix` falha e o caminho
+    /// inteiro sai, ainda com `/`.
+    #[test]
+    fn caminho_fora_da_raiz_sai_inteiro_e_normalizado() {
+        let alvo = std::path::Path::new("outra").join("coisa.rs");
+
+        assert_eq!(
+            caminho_relativo_portavel(&alvo, std::path::Path::new("raiz")),
+            "outra/coisa.rs"
+        );
+    }
 
     struct DummyTool;
 

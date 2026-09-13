@@ -83,11 +83,7 @@ fn ler_arquivos(root: &Path, respect_gitignore: bool) -> Vec<ArquivoFonte> {
         let Ok(fonte) = fs::read_to_string(caminho) else {
             continue;
         };
-        let relativo = caminho
-            .strip_prefix(root)
-            .unwrap_or(caminho)
-            .to_string_lossy()
-            .into_owned();
+        let relativo = super::caminho_relativo_portavel(caminho, root);
         arquivos.push(ArquivoFonte {
             caminho: relativo,
             fonte,

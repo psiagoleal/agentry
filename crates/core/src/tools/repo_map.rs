@@ -96,11 +96,7 @@ impl RepoMapTool {
             let Ok(conteudo) = fs::read_to_string(caminho) else {
                 continue;
             };
-            let relativo = caminho
-                .strip_prefix(&self.root)
-                .unwrap_or(caminho)
-                .to_string_lossy()
-                .into_owned();
+            let relativo = super::caminho_relativo_portavel(caminho, &self.root);
             arquivos.push((relativo, conteudo, linguagem));
         }
         arquivos
