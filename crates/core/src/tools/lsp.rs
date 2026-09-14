@@ -43,6 +43,53 @@ pub struct LspSession {
     client: Mutex<Option<LspClient>>,
 }
 
+/// Monta o texto de um `file://` URI a partir de um caminho **absoluto**.
+///
+/// `format!("file://{}", caminho.display())` só funciona onde o caminho
+/// absoluto já começa com `/`. No Windows ele começa com a letra da unidade e
+/// separa com `\`, que não é caractere válido de URI: `file://C:\x\a.rs` nem
+/// parseia, e a tool ficava **inutilizável na plataforma inteira** (MT-168,
+/// achado do primeiro CI da matriz). Lá o formato correto tem três barras e a
+/// unidade dentro do caminho — `file:///C:/x/a.rs`.
+///
+/// Os caracteres fora do conjunto *unreserved* do RFC 3986 vão percent-encoded.
+/// Sem isso, um diretório com espaço no nome (`C:\Program Files\…`,
+/// `/home/eu/meus projetos/…`) produzia um URI inválido em **qualquer**
+/// plataforma — o mesmo sintoma, por outra causa.
+fn texto_de_file_uri(absoluto: &std::path::Path) -> String {
+    let nativo = absoluto.display().to_string();
+
+    // Caminho UNC (`\\servidor\share\x`) vira `file://servidor/share/x`: a
+    // autoridade do URI é o servidor, então não leva a terceira barra.
+    let (prefixo, resto) = match nativo.strip_prefix(r"\\") {
+        Some(unc) => ("file://", unc.to_string()),
+        // Um caminho que já começa com separador (Unix) traz a própria barra;
+        // um que começa com a unidade (Windows) precisa dela.
+        None if nativo.starts_with('/') => ("file://", nativo),
+        None => ("file:///", nativo),
+    };
+
+    let escapado: String = resto
+        .chars()
+        .map(|caractere| match caractere {
+            '\\' => "/".to_string(),
+            'A'..='Z' | 'a'..='z' | '0'..='9' | '-' | '.' | '_' | '~' | '/' | ':' => {
+                caractere.to_string()
+            }
+            outro => {
+                let mut buffer = [0u8; 4];
+                outro
+                    .encode_utf8(&mut buffer)
+                    .bytes()
+                    .map(|byte| format!("%{byte:02X}"))
+                    .collect()
+            }
+        })
+        .collect();
+
+    format!("{prefixo}{escapado}")
+}
+
 impl LspSession {
     /// Cria a sessão — `command`/`args` identificam o *language server* a
     /// iniciar (ex.: `"rust-analyzer"`, `&[]`); `root` é a raiz do
@@ -59,7 +106,7 @@ impl LspSession {
 
     fn file_uri(&self, caminho_relativo: &str) -> Result<Uri, String> {
         let absoluto = self.root.join(caminho_relativo);
-        format!("file://{}", absoluto.display())
+        texto_de_file_uri(&absoluto)
             .parse::<Uri>()
             .map_err(|_| format!("caminho não pôde ser convertido em URI: '{caminho_relativo}'"))
     }
@@ -304,6 +351,43 @@ pub fn register_lsp_tools(registry: &mut ToolRegistry, enabled: bool, session: A
 // como sessão de teste.
 #[cfg(test)]
 mod tests {
+    use super::texto_de_file_uri;
+    use std::path::Path;
+
+    /// Nenhum destes é vacuoso: cada um exercita uma forma de caminho que
+    /// existe de fato numa das plataformas da matriz (MT-168).
+    #[test]
+    fn caminho_unix_vira_file_uri_com_duas_barras() {
+        assert_eq!(
+            texto_de_file_uri(Path::new("/home/eu/a.rs")),
+            "file:///home/eu/a.rs"
+        );
+    }
+
+    #[test]
+    fn caminho_windows_ganha_a_terceira_barra_e_troca_o_separador() {
+        assert_eq!(
+            texto_de_file_uri(Path::new(r"C:\Users\eu\a.rs")),
+            "file:///C:/Users/eu/a.rs"
+        );
+    }
+
+    #[test]
+    fn caminho_unc_mantem_o_servidor_como_autoridade() {
+        assert_eq!(
+            texto_de_file_uri(Path::new(r"\\servidor\share\a.rs")),
+            "file://servidor/share/a.rs"
+        );
+    }
+
+    #[test]
+    fn espaco_no_caminho_vai_percent_encoded_em_qualquer_plataforma() {
+        assert_eq!(
+            texto_de_file_uri(Path::new("/home/eu/meus projetos/a.rs")),
+            "file:///home/eu/meus%20projetos/a.rs"
+        );
+    }
+
     use super::*;
     use crate::config::Permissions;
     use crate::model::ToolCall;
