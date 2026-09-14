@@ -83,6 +83,22 @@ fn e_comentario(linha: &str) -> bool {
     linha.trim_start().starts_with("//")
 }
 
+/// O caminho renderizado sempre com `/`, para comparação.
+///
+/// As isenções destas guardas nomeiam arquivos por trecho de caminho
+/// (`config/mod.rs`). No Windows a varredura devolve `config\mod.rs`, a isenção
+/// não casa, e a guarda **acusa o próprio arquivo que autoriza** — foi o que
+/// aconteceu na terceira execução do primeiro CI da matriz (MT-167). É o mesmo
+/// defeito que o MT-166 corrigiu nas tools: comparar caminho como texto,
+/// presumindo o separador.
+fn caminho_com_barra_normal(caminho: &Path) -> String {
+    caminho
+        .components()
+        .map(|componente| componente.as_os_str().to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
 #[test]
 fn home_e_resolvido_unicamente_no_global_dir() {
     let fontes = fontes_do_workspace();
@@ -187,7 +203,7 @@ fn nenhum_modulo_fora_da_main_encerra_o_processo() {
     for caminho in &fontes {
         let conteudo = std::fs::read_to_string(caminho).expect("fonte deve ser legível");
         // `fake_provider` é fixture de teste, não entra no binário instalado.
-        if caminho.to_string_lossy().contains("bin/fake_provider.rs") {
+        if caminho_com_barra_normal(caminho).contains("bin/fake_provider.rs") {
             continue;
         }
         let autorizado = conteudo.contains(ENCERRAMENTO_AUTORIZADO);
@@ -261,7 +277,7 @@ fn so_a_montagem_de_config_le_o_ambiente_do_processo() {
         let conteudo = std::fs::read_to_string(caminho).expect("fonte deve ser legível");
         // `config/mod.rs` **define** `from_process_env`; `main.rs` é o único
         // que pode chamá-la, e só na montagem da configuração.
-        let e_definicao = caminho.to_string_lossy().contains("config/mod.rs");
+        let e_definicao = caminho_com_barra_normal(caminho).contains("config/mod.rs");
         let e_montagem = conteudo.contains("fn build_config_com_camadas");
         if e_definicao || e_montagem {
             continue;
