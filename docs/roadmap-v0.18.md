@@ -517,6 +517,32 @@ As cinco lacunas têm o mesmo eixo: o projeto **sabe impedir e não sabe contar 
   não distingue teste estável de teste com sorte.
 - **Depende de:** MT-143, MT-144, MT-145.
 
+### MT-167: isenção das guardas de hermetismo casa em qualquer separador ✅ concluído (`cb344b3`)
+- **Achado:** as isenções das guardas nomeiam arquivos por trecho de caminho
+  (`bin/fake_provider.rs`, `config/mod.rs`) e comparavam contra `to_string_lossy()`. No Windows a
+  varredura devolve `config\mod.rs`, a isenção não casa, e **a guarda acusa exatamente o arquivo
+  que ela autoriza**.
+- **Registro sem atenuação:** é o mesmo defeito do MT-166 — comparar caminho como texto,
+  presumindo o separador — reaparecendo dentro do arquivo cuja função é impedir que o código
+  presuma coisas sobre a máquina. As guardas **não estão fora do alcance do que elas guardam**, e
+  a guarda escrita no MT-165 não cobre esta variante da família.
+- **Correção:** comparação sobre o caminho montado a partir dos componentes.
+
+### MT-168: `file://` URI válido no Windows e com espaço no caminho ✅ concluído (`05de1fa`)
+- **Achado (produção, não teste):** a tool `lsp_hover` estava **inutilizável no Windows inteiro**.
+  `format!("file://{}", caminho.display())` só funciona onde o caminho absoluto já começa com
+  `/`; lá ele começa com a letra da unidade e separa com `\`, que não é caractere válido de URI —
+  `file://C:\x\a.rs` nem parseia. O formato correto tem três barras e a unidade dentro do
+  caminho (`file:///C:/x/a.rs`); caminho UNC é um terceiro caso, porque o servidor é a
+  **autoridade** do URI e não leva a terceira barra.
+- **Achado 2, não específico do Windows:** caracteres fora do conjunto *unreserved* do RFC 3986
+  iam crus. Um diretório com espaço no nome (`/home/eu/meus projetos/…`) produzia URI inválido em
+  **qualquer** plataforma, com o mesmo sintoma. Agora vão percent-encoded.
+- **Nota de método:** os quatro testes novos não são vacuosos em nenhuma plataforma — um caminho
+  no formato Windows e um UNC continuam sendo texto com `\` quando lidos no Linux, então
+  exercitam a montagem dos dois lados da matriz. É a diferença entre um teste que descreve a
+  plataforma e um que descreve o contrato.
+
 ### MT-166: saída de caminho portável e binário falso executável no Windows ✅ concluído (`6ff2760`)
 - **Objetivo:** fechar as seis falhas exclusivas do Windows na terceira execução da matriz.
 - **Achado 1 (produção):** `glob`, `code_search` e `repo_map` devolviam o caminho relativo com o

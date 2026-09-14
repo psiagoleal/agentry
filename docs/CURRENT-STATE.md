@@ -14,29 +14,50 @@
 - **Data:** 2026-09-12
 - **Branch:** `chore/build-linux-e-higiene-de-disco` — **no remoto** (41 commits), ainda
   **não mesclada em `main`**
-- **Último commit:** `9b314bc` (MT-165). A rodada (MT-158 a MT-165) está arquivada em
-  [`handoff-arquivo.md`](./handoff-arquivo.md) como **Rodada 12** — leia lá o relato dos
-  achados, inclusive por que o primeiro CI reprovou duas vezes por causas diferentes.
+- **Último commit:** `05de1fa` (MT-168). A rodada anterior (MT-158 a MT-165) está arquivada em
+  [`handoff-arquivo.md`](./handoff-arquivo.md) como **Rodada 12**.
 - **Estado da árvore:** `AGENTS.md`, `skills/README.md` e os diretórios de skills não
   rastreados seguem modificados de **outra frente**, intocados. Há um binário `agentry` de
   ~280 MB solto na raiz (não rastreado, fora do `.gitignore`) — cópia de build; remover é
   decisão do dono.
 - **DoD:** `cargo fmt` aplicado, `cargo clippy --workspace --all-targets -- -D warnings` com
-  saída **0**, suíte completa **859 testes verdes**.
+  saída **0**, suíte completa **865 testes verdes**.
+
+## O que o primeiro CI da matriz encontrou (MT-146, MT-165 a MT-168)
+
+Cinco execuções, cinco causas distintas, **nenhuma** detectável por leitura de código ou pela
+suíte local — todas estavam verdes havia meses porque nunca tinham rodado fora de uma máquina de
+desenvolvimento Linux:
+
+| # | Commit | Causa | Onde |
+|---|---|---|---|
+| 1 | `fb08f6b` | `claude` ausente do `PATH` do runner | teste |
+| 2 | `9b314bc` | relógio do Windows avança em passos de ~15 ms; diretórios temporários colidiam | teste |
+| 3 | `6ff2760` | `glob`/`code_search`/`repo_map` devolviam caminho com separador nativo | **produção** |
+| 4 | `cb344b3` | isenção das próprias guardas comparava caminho presumindo `/` | guarda |
+| 5 | `05de1fa` | `file://` URI inválido no Windows — `lsp_hover` inutilizável lá | **produção** |
+
+**A regra que sai disso:** código que pergunta ao sistema *"como é o mundo aqui?"* — ou que
+**presume uma propriedade** do que observou — amarra o resultado à máquina de quem roda. Sondar
+na fronteira e injetar; construir o que não se pode observar; e nunca comparar caminho como texto
+presumindo o separador. As quatro guardas estáticas de `crates/core/tests/hermetismo.rs`
+endereçam parte da família — e o MT-167 mostrou que **elas próprias não estão imunes a ela**.
 
 ## Em andamento
 
 **MT-146 — falta observar o CI verde; é o único ticket restante da Fase K.** A branch está no
 remoto e o CI **roda de verdade** (o repositório é público, então Actions é gratuito e
-ilimitado). Duas causas distintas já foram encontradas e corrigidas pelo próprio CI —
-`PATH` sem `claude` (`fb08f6b`) e unicidade de diretório temporário (`9b314bc`). O critério de
-aceite é **duas execuções verdes seguidas**; uma só não distingue teste estável de teste com
-sorte. **Primeiro passo de quem retomar:** `gh run list --branch chore/build-linux-e-higiene-de-disco`.
+ilimitado). O critério de aceite é **duas execuções verdes seguidas**; uma só não distingue teste
+estável de teste com sorte. Até `05de1fa`, Linux e macOS estão verdes e o Windows vinha
+reprovando por uma causa nova a cada rodada (ver a tabela acima) — a última execução observada
+tinha **uma** falha restante, corrigida em `05de1fa`.
+**Primeiro passo de quem retomar:** `gh run list --branch chore/build-linux-e-higiene-de-disco`.
 
-Se reprovar de novo, o método que funcionou nas duas vezes: `gh run view <id> --json jobs` para
+Se reprovar de novo, o método que funcionou nas cinco vezes: `gh run view <id> --json jobs` para
 saber **quais** SOs caíram, e só então `gh run view <id> --log-failed | grep -E "test result:
-FAILED|panicked at|Process completed with exit code"`. **Não** faça `grep` amplo por `error` no
-log — ele casa com `--error-format=json` e despeja o log inteiro no contexto.
+FAILED|panicked at|Process completed with exit code"`, seguido de `grep -A 3` no `panicked at`
+para ler a mensagem. **Não** faça `grep` amplo por `error` no log — ele casa com
+`--error-format=json` e despeja o log inteiro no contexto.
 
 **Gateway LiteLLM alcançável desta máquina** — endereço e chave ficam **fora do repositório**.
 `qwen3-coder:30b` faz *tool-calling*. **Nunca ecoar a chave:** `agentry --set-credential litellm`
@@ -98,11 +119,6 @@ Sete armadilhas já pagas (hermetismo, `CARGO_BIN_EXE`, *defaults* de contexto, 
 camadas do *fail-closed*, o invariante do `Ctrl+A` e o método de `tmux`) estão registradas em
 [`docs/roadmap-v0.18.md`](./roadmap-v0.18.md), junto do MT-146. **Leia antes de escrever
 qualquer caso novo** — cada uma custou um teste que passava sem verificar nada.
-
-As quatro guardas estáticas de `crates/core/tests/hermetismo.rs` existem porque o mesmo defeito
-apareceu quatro vezes: **o teste pergunta ao sistema como é o mundo aqui, e passa a descrever a
-máquina de quem roda**. Antes de introduzir qualquer sondagem de ambiente (`HOME`, variável de
-processo, `PATH`, relógio) dentro de código sob teste, leia o cabeçalho daquele arquivo.
 
 ## Impedimentos de ambiente (não são bugs do código)
 
