@@ -504,7 +504,7 @@ As cinco lacunas têm o mesmo eixo: o projeto **sabe impedir e não sabe contar 
   registro do `fake_provider`).
 - **Depende de:** nenhum.
 
-### MT-146: fiar no CI (e o que fica de fora)
+### MT-146: fiar no CI (e o que fica de fora) ✅ concluído
 - **Objetivo:** rodar os testes ponta a ponta na matriz de 3 SOs, ou decidir e **registrar**
   um recorte menor. Ponto de decisão real: o `fake_provider` sobe processo e abre socket, o
   que é a parte mais frágil em Windows e macOS; se a matriz completa se mostrar instável, a
@@ -516,6 +516,12 @@ As cinco lacunas têm o mesmo eixo: o projeto **sabe impedir e não sabe contar 
 - **Critério de aceite:** CI verde nos SOs escolhidos, em duas execuções seguidas — uma só
   não distingue teste estável de teste com sorte.
 - **Depende de:** MT-143, MT-144, MT-145.
+- **Critério de aceite cumprido em 2026-09-14:** duas execuções verdes seguidas nos três SOs —
+  `34841143019` (`05de1fa`) e `34848388663` (`e99078b`). **Fase K encerrada.**
+- **A decisão de recorte não foi necessária:** o ticket previa restringir o e2e a Linux se a
+  matriz se mostrasse instável. Os casos ponta a ponta passaram nos três SOs **desde a primeira
+  execução**; o que reprovou cinco vezes foi outra coisa (ver MT-165 a MT-168). A ADR-0045 §5
+  segue sem emenda, agora por evidência e não por omissão.
 
 ### MT-167: isenção das guardas de hermetismo casa em qualquer separador ✅ concluído (`cb344b3`)
 - **Achado:** as isenções das guardas nomeiam arquivos por trecho de caminho

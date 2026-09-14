@@ -45,18 +45,14 @@ endereçam parte da família — e o MT-167 mostrou que **elas próprias não es
 
 ## Em andamento
 
-**MT-146 — falta observar o CI verde; é o único ticket restante da Fase K.** A branch está no
-remoto e o CI **roda de verdade** (o repositório é público, então Actions é gratuito e
-ilimitado). O critério de aceite é **duas execuções verdes seguidas**; uma só não distingue teste
-estável de teste com sorte. Até `05de1fa`, Linux e macOS estão verdes e o Windows vinha
-reprovando por uma causa nova a cada rodada (ver a tabela acima) — a última execução observada
-tinha **uma** falha restante, corrigida em `05de1fa`.
-**Primeiro passo de quem retomar:** `gh run list --branch chore/build-linux-e-higiene-de-disco`.
+**Nada bloqueado.** O MT-146 fechou em 2026-09-14 com o critério de aceite cumprido — duas
+execuções verdes seguidas nos três SOs, `34841143019` (`05de1fa`) e `34848388663` (`e99078b`).
+**A Fase K está encerrada**, e o CI passa a ser a rede que antes não existia.
 
-Se reprovar de novo, o método que funcionou nas cinco vezes: `gh run view <id> --json jobs` para
-saber **quais** SOs caíram, e só então `gh run view <id> --log-failed | grep -E "test result:
-FAILED|panicked at|Process completed with exit code"`, seguido de `grep -A 3` no `panicked at`
-para ler a mensagem. **Não** faça `grep` amplo por `error` no log — ele casa com
+O método que funcionou nas cinco rodadas de diagnóstico, para quem precisar: `gh run view <id>
+--json jobs` para saber **quais** SOs caíram, depois `gh run view <id> --log-failed | grep -E
+"test result: FAILED|panicked at|Process completed with exit code"`, e então `grep -A 3` no
+`panicked at` para ler a mensagem. **Não** faça `grep` amplo por `error` no log — ele casa com
 `--error-format=json` e despeja o log inteiro no contexto.
 
 **Gateway LiteLLM alcançável desta máquina** — endereço e chave ficam **fora do repositório**.
@@ -69,7 +65,9 @@ torna alcançável sob o perfil `externo-confidencial` que o `.zshrc` exporta. E
 
 ## Próximo passo sugerido
 
-1. **MT-146** — observar o CI (ver *Em andamento*). Barato e fecha a Fase K.
+1. **Mesclar `chore/build-linux-e-higiene-de-disco` em `main`.** São 47 commits com o CI verde
+   atrás deles; a branch nunca foi mesclada, e quanto mais ela anda, mais cara fica. **Decisão do
+   mantenedor.**
 2. **MT-164** — mostrar a camada de origem de cada valor da configuração. Custou uma rodada de
    teste de uso; é diagnóstico que qualquer pessoa vai precisar.
 3. **MT-153** — promover a TUI a modo padrão, com `--repl` como escape hatch e *fallback* para
